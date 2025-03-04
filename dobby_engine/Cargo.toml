@@ -1,0 +1,10 @@
+[package]
+name = "dobby_engine"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+wgpu = "0.18"
+winit = "0.28"
+nalgebra = "0.32"
+bytemuck = { version = "1.12" , features = ["derive"] }
