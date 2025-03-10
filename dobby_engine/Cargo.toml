@@ -4,7 +4,21 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-wgpu = "24.0.1"
-winit = "0.28"
-nalgebra = "0.32"
-bytemuck = { version = "1.12" , features = ["derive"] }
+
+log = "0.4" # Logging framework
+
+env_logger = "0.10" # Log output for debugging
+
+winit = { version = "0.28", features = ["x11"] }  # Windowing and event handling
+
+gilrs = "0.9" # Gamepad input support
+
+imgui = "0.11" # In engine debug
+
+imgui-winit-support = "0.3" # Debug support for winit in engine
+
+serde = { version = "1.0", features = ["derive"] } # Log input events into a json file
+
+serde_json = "1.0" # Log input events into a json file
+
+
