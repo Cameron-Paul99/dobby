@@ -2,9 +2,9 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "**" ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,10 +15,37 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
     - uses: actions/checkout@v4
+
+    - name: Set up Rust toolchain
+      users: dtolnay/rust-toolchain@stable
+      with:
+	components: rustfmt , clippy
+
+    - name: Cache cargo dependencies
+      uses: actions/cache@v3
+      with:
+	path: |
+	  ~/.cargo/repository
+	  ~/.cargo/git
+	  dobby_engine/target
+	key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+	restore-keys: |
+	  cargo-${{ runner.os }}-
+
+    - name: Check formatting
+      run: cargo fmt --check
+      working-directory: dobby_engine
+	
+    - name: Run Clippy (Linting)
+      run: cargo clippy -- -D warnings
+      working-directory: dobby_engine 
+
     - name: Build
       run: cargo build --verbose
       working-directory: dobby_engine
+
     - name: Run tests
       run: cargo test --verbose
       working-directory: dobby_engine
