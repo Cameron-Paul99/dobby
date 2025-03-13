@@ -1,3 +1,8 @@
+mod platform;
+
+use platform::window::App;
+
 fn main() {
-    println!("Hello, world!");
+    let app = App::new("Dobby Engine");
+    app.run();
 }
