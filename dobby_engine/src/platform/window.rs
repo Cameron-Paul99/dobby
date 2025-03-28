@@ -1,13 +1,11 @@
-use winit::{
-        event::{Event, WindowEvent},
-        event_loop::{ControlFlow, EventLoop},
-        window::WindowBuilder,
-
-};
-
+use crate::rendering::vulkan_app::VulkanApp;
+use winit::event_loop::EventLoop;
+use winit::event::{Event, WindowEvent};
+use winit::window::{WindowBuilder, Window};
+use anyhow::Result;
 
 pub struct App {
-    window: winit::window::Window,
+    window: Window,
     event_loop: EventLoop<()>,
 }
 
@@ -15,7 +13,7 @@ impl App {
 
     pub fn new (title : &str) -> Self{
 
-        let event_loop = EventLoop::new();
+        let event_loop = EventLoop::new().unwrap();
 
         let window = WindowBuilder::new()
             .with_title(title)
@@ -33,11 +31,14 @@ impl App {
         }
     }
 
-    pub fn run(self){
-        
-        self.event_loop.run(move | event, _, control_flow|{
+    pub fn run(self) -> Result<()>{
 
-            *control_flow = ControlFlow::Wait;
+        let App {window, event_loop } = self;
+
+        let mut vulkan_app = unsafe { VulkanApp::create(&window)? };
+        
+        event_loop.run(move |event, elwt|{
+
 
             match event {
                 
@@ -47,7 +48,8 @@ impl App {
                     
                         println!("Window close requested");
 
-                        *control_flow = ControlFlow::Exit;
+                        elwt.exit();
+                        unsafe { vulkan_app.destroy(); }
                     
                     }
 
@@ -57,28 +59,21 @@ impl App {
 
                     }
 
-                    WindowEvent::KeyboardInput { input, .. } => {
-
-                        println!("Keyboard input: {:?}", input);
+                    WindowEvent::RedrawRequested if !elwt.exiting() => {
+                        
+                        unsafe { vulkan_app.render(&window) }.unwrap()
 
                     }
 
                     _ => {}
 
                 }
-
-                Event::MainEventsCleared => {
+                // Use for About wait
+                Event::AboutToWait => {
 
                     // Update Logic (physics, AI, etc.)                
-                    self.window.request_redraw();
+                    window.request_redraw();
                 
-                }
-
-                Event::RedrawRequested(_) => {
-
-                    // Render here (vulkan, WGPU, etc)
-                    println!("Redrawing the window");
-                    
                 }
 
                 _ => {}
@@ -87,6 +82,7 @@ impl App {
 
         });
 
+        Ok(())
     }
 
 }
