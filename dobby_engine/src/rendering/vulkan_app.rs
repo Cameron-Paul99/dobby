@@ -7,9 +7,12 @@ use vulkanalia::loader::{LibloadingLoader, LIBRARY};
 use vulkanalia::window as vk_window;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::Version;
+use vulkanalia::vk::KhrSurfaceExtension;
 use crate::debug::vulkan::{VALIDATION_ENABLED, validation_layers, debug_messenger_info,};
 use vulkanalia::vk::ExtDebugUtilsExtension;
 use super::device::{pick_physical_device, create_logical_device};
+use super::swapchain::{create_swapchain, create_swapchain_image_views};
+use vulkanalia::vk::KhrSwapchainExtension;
 // Some hardware isn't compatible with Vulkan like macOS
 pub const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
 
@@ -28,12 +31,19 @@ pub struct VulkanApp {
 impl VulkanApp {
     
     pub unsafe fn create(_window: &Window) -> Result<Self> {
+
         let loader = LibloadingLoader::new(LIBRARY)?;
         let entry = Entry::new(loader).map_err(|b| anyhow!("{}", b))?;
+
         let mut data = AppData::default();
         let instance = create_instance(_window, &entry, &mut data )?;
+
+        data.surface = vk_window::create_surface(&instance, &_window, &_window)?;
+
         pick_physical_device(&instance, &mut data)?;
         let device = create_logical_device(&entry, &instance, &mut data)?;
+        create_swapchain(_window, &instance, &mut data, &device);
+        create_swapchain_image_views(&device, &mut data)?;
         println!("Creating Vulkan App");
         Ok(Self {entry, instance, data, device})
 
@@ -48,14 +58,24 @@ impl VulkanApp {
     }
 
     pub unsafe fn destroy(&mut self) {
-        if VALIDATION_ENABLED {
-            self.instance.destroy_debug_utils_messenger_ext(self.data.messenger, None);
-        }
-        self.instance.destroy_instance(None);
+
+        self.data.swapchain_image_views
+            .iter()
+            .for_each(|v| self.device.destroy_image_view(*v, None));
+
+        self.device.destroy_swapchain_khr(self.data.swapchain, None);
         self.device.destroy_device(None);
     
-        println!("Destroying Vulkan App (unsafe)");
+        if VALIDATION_ENABLED {
+            self.instance.destroy_debug_utils_messenger_ext(self.data.messenger, None);
         
+         }
+
+        self.instance.destroy_surface_khr(self.data.surface, None);
+        self.instance.destroy_instance(None);
+
+        println!("Destroying Vulkan App (unsafe)");
+         
     }
 
 }
@@ -135,5 +155,13 @@ pub struct AppData {
     messenger: vk::DebugUtilsMessengerEXT,
     pub physical_device: vk::PhysicalDevice,
     pub graphics_queue: vk::Queue,
+    pub surface: vk::SurfaceKHR,
+    pub present_queue: vk::Queue,
+    pub swapchain_extent: vk::Extent2D,
+    pub swapchain_format: vk::Format,
+    pub swapchain: vk::SwapchainKHR,
+    pub swapchain_images: Vec<vk::Image>,
+    pub swapchain_image_views: Vec<vk::ImageView>,
+
 
 }
