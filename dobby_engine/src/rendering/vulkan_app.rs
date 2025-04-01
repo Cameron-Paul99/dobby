@@ -12,6 +12,9 @@ use crate::debug::vulkan::{VALIDATION_ENABLED, validation_layers, debug_messenge
 use vulkanalia::vk::ExtDebugUtilsExtension;
 use super::device::{pick_physical_device, create_logical_device};
 use super::swapchain::{create_swapchain, create_swapchain_image_views};
+use super::pipeline::create_pipeline;
+use super::renderer::Renderer;
+use super::render_pass::create_render_pass;
 use vulkanalia::vk::KhrSwapchainExtension;
 // Some hardware isn't compatible with Vulkan like macOS
 pub const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
@@ -42,9 +45,13 @@ impl VulkanApp {
 
         pick_physical_device(&instance, &mut data)?;
         let device = create_logical_device(&entry, &instance, &mut data)?;
+
         create_swapchain(_window, &instance, &mut data, &device);
         create_swapchain_image_views(&device, &mut data)?;
+        create_render_pass(&instance, &device, &mut data)?; 
+        create_pipeline(&device, &mut data)?;
         println!("Creating Vulkan App");
+
         Ok(Self {entry, instance, data, device})
 
     }
@@ -58,24 +65,42 @@ impl VulkanApp {
     }
 
     pub unsafe fn destroy(&mut self) {
-
-        self.data.swapchain_image_views
-            .iter()
-            .for_each(|v| self.device.destroy_image_view(*v, None));
-
+        self.device.destroy_pipeline(self.data.pipeline, None);
+        self.device.destroy_pipeline_layout(self.data.pipeline_layout, None);
+        self.device.destroy_render_pass(self.data.render_pass, None);
+        self.data.swapchain_image_views.iter().for_each(|v| self.device.destroy_image_view(*v, None));
         self.device.destroy_swapchain_khr(self.data.swapchain, None);
         self.device.destroy_device(None);
-    
+        self.instance.destroy_surface_khr(self.data.surface, None);
+
         if VALIDATION_ENABLED {
             self.instance.destroy_debug_utils_messenger_ext(self.data.messenger, None);
-        
-         }
+        }
 
-        self.instance.destroy_surface_khr(self.data.surface, None);
         self.instance.destroy_instance(None);
-
-        println!("Destroying Vulkan App (unsafe)");
          
+    }
+
+}
+
+impl Renderer for VulkanApp{
+    
+    unsafe fn create(_window: &Window) -> Result<Self>{
+
+        VulkanApp::create(_window)
+
+    }
+
+    unsafe fn render(&mut self, _window: &Window) ->Result<()>{
+
+        self.render(_window)
+
+    }
+
+    unsafe fn destroy(&mut self){
+        
+        self.destroy()
+
     }
 
 }
@@ -162,6 +187,9 @@ pub struct AppData {
     pub swapchain: vk::SwapchainKHR,
     pub swapchain_images: Vec<vk::Image>,
     pub swapchain_image_views: Vec<vk::ImageView>,
+    pub pipeline_layout: vk::PipelineLayout,
+    pub pipeline: vk::Pipeline,
+    pub render_pass: vk::RenderPass,
 
 
 }

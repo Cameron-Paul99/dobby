@@ -1,6 +1,6 @@
 [package]
 name = "dobby_engine"
-version = "0.1.0"
+version = "0.0.3"
 edition = "2024"
 
 [dependencies]
@@ -31,4 +31,7 @@ tobj = { version = "3" , features = ["log"] }
 
 vulkanalia = { version = "=0.28.0" , features = ["libloading" , "provisional", "window"] }
 
+shaderc = "0.8"
+
+bytemuck = "1.14"
 
