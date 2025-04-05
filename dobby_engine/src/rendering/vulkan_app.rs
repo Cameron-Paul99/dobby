@@ -12,6 +12,8 @@ use crate::debug::vulkan::{VALIDATION_ENABLED, validation_layers, debug_messenge
 use vulkanalia::vk::ExtDebugUtilsExtension;
 use super::device::{pick_physical_device, create_logical_device};
 use super::swapchain::{create_swapchain, create_swapchain_image_views};
+use super::pipeline::create_pipeline;
+use super::renderer::Renderer;
 use vulkanalia::vk::KhrSwapchainExtension;
 // Some hardware isn't compatible with Vulkan like macOS
 pub const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
@@ -42,9 +44,13 @@ impl VulkanApp {
 
         pick_physical_device(&instance, &mut data)?;
         let device = create_logical_device(&entry, &instance, &mut data)?;
+
         create_swapchain(_window, &instance, &mut data, &device);
         create_swapchain_image_views(&device, &mut data)?;
+
+        create_pipeline(&device, &mut data)?;
         println!("Creating Vulkan App");
+
         Ok(Self {entry, instance, data, device})
 
     }
@@ -76,6 +82,28 @@ impl VulkanApp {
 
         println!("Destroying Vulkan App (unsafe)");
          
+    }
+
+}
+
+impl Renderer for VulkanApp{
+    
+    unsafe fn create(_window: &Window) -> Result<Self>{
+
+        VulkanApp::create(_window)
+
+    }
+
+    unsafe fn render(&mut self, _window: &Window) ->Result<()>{
+
+        self.render(_window)
+
+    }
+
+    unsafe fn destroy(&mut self){
+        
+        self.destroy()
+
     }
 
 }

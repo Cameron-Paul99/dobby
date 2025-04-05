@@ -1,4 +1,5 @@
 use crate::rendering::vulkan_app::VulkanApp;
+use crate::rendering::renderer::Renderer;
 use winit::event_loop::EventLoop;
 use winit::event::{Event, WindowEvent};
 use winit::window::{WindowBuilder, Window};
@@ -35,7 +36,7 @@ impl App {
 
         let App {window, event_loop } = self;
 
-        let mut vulkan_app = unsafe { VulkanApp::create(&window)? };
+        let mut renderer : Box<dyn Renderer> = Box::new( unsafe { VulkanApp::create(&window)? });
         
         event_loop.run(move |event, elwt|{
 
@@ -49,7 +50,7 @@ impl App {
                         println!("Window close requested");
 
                         elwt.exit();
-                        unsafe { vulkan_app.destroy(); }
+                        unsafe { renderer.destroy(); }
                     
                     }
 
@@ -61,7 +62,7 @@ impl App {
 
                     WindowEvent::RedrawRequested if !elwt.exiting() => {
                         
-                        unsafe { vulkan_app.render(&window) }.unwrap()
+                        unsafe { renderer.render(&window) }.unwrap()
 
                     }
 
