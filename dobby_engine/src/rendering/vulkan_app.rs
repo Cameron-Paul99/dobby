@@ -15,6 +15,8 @@ use super::swapchain::{create_swapchain, create_swapchain_image_views};
 use super::pipeline::create_pipeline;
 use super::renderer::Renderer;
 use super::render_pass::create_render_pass;
+use super::framebuffer::create_framebuffers;
+use super::command::create_command_pool;
 use vulkanalia::vk::KhrSwapchainExtension;
 // Some hardware isn't compatible with Vulkan like macOS
 pub const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
@@ -48,8 +50,10 @@ impl VulkanApp {
 
         create_swapchain(_window, &instance, &mut data, &device);
         create_swapchain_image_views(&device, &mut data)?;
-        create_render_pass(&instance, &device, &mut data)?; 
+        create_render_pass(&instance, &device, &mut data)?;
         create_pipeline(&device, &mut data)?;
+        create_framebuffers(&device, &mut data)?;
+        create_command_pool(&instance, &device, &mut data)?;
         println!("Creating Vulkan App");
 
         Ok(Self {entry, instance, data, device})
@@ -65,6 +69,8 @@ impl VulkanApp {
     }
 
     pub unsafe fn destroy(&mut self) {
+        self.device.destroy_command_pool(self.data.command_pool, None);
+        self.data.framebuffers.iter().for_each(|f| self.device.destroy_framebuffer(*f, None));
         self.device.destroy_pipeline(self.data.pipeline, None);
         self.device.destroy_pipeline_layout(self.data.pipeline_layout, None);
         self.device.destroy_render_pass(self.data.render_pass, None);
@@ -190,6 +196,9 @@ pub struct AppData {
     pub pipeline_layout: vk::PipelineLayout,
     pub pipeline: vk::Pipeline,
     pub render_pass: vk::RenderPass,
+    pub framebuffers: Vec<vk::Framebuffer>,
+    pub command_buffers: Vec<vk::CommandBuffer>,
+    pub command_pool: vk::CommandPool,
 
 
 }
