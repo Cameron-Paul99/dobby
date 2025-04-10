@@ -3,6 +3,7 @@ use crate::rendering::renderer::Renderer;
 use winit::event_loop::EventLoop;
 use winit::event::{Event, WindowEvent};
 use winit::window::{WindowBuilder, Window};
+use vulkanalia::prelude::v1_0::*;
 use anyhow::Result;
 
 pub struct App {
@@ -37,6 +38,7 @@ impl App {
         let App {window, event_loop } = self;
 
         let mut renderer : Box<dyn Renderer> = Box::new( unsafe { VulkanApp::create(&window)? });
+        let mut minimized = false;
         
         event_loop.run(move |event, elwt|{
 
@@ -50,14 +52,19 @@ impl App {
                         println!("Window close requested");
 
                         elwt.exit();
+                        unsafe { renderer.device().device_wait_idle().unwrap(); }
                         unsafe { renderer.destroy(); }
                     
                     }
 
                     WindowEvent::Resized(size) => {
                     
-                        println!("Window resized: {:?}", size);
-
+                        if size.width == 0 || size.height == 0 {
+                            minimized = true;
+                        } else {
+                         minimized = false;
+                         renderer.set_resized(true);
+                        }
                     }
 
                     WindowEvent::RedrawRequested if !elwt.exiting() => {

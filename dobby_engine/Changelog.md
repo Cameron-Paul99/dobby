@@ -1,3 +1,11 @@
+## [0.0.3] - Drawing - Cameron Paul - 04/12/25
+- Rendering
+- Command pool setup
+- Frame buffer creation
+- Command buffer creation
+- Resize window (swapchain recreation)
+- Update renderer interface
+
 ## [0.0.2] - Pipeline - Cameron Paul - 04/08/25
 - Vulkan Macro Pipeline setup
 - Render Pass Setup
