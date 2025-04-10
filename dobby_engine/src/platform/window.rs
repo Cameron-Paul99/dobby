@@ -3,6 +3,7 @@ use crate::rendering::renderer::Renderer;
 use winit::event_loop::EventLoop;
 use winit::event::{Event, WindowEvent};
 use winit::window::{WindowBuilder, Window};
+use vulkanalia::prelude::v1_0::*;
 use anyhow::Result;
 
 pub struct App {
@@ -50,6 +51,7 @@ impl App {
                         println!("Window close requested");
 
                         elwt.exit();
+                        unsafe { renderer.device().device_wait_idle().unwrap(); }
                         unsafe { renderer.destroy(); }
                     
                     }

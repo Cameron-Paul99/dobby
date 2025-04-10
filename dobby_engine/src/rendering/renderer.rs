@@ -1,5 +1,6 @@
 use anyhow::Result;
 use winit::window::Window;
+use vulkanalia::prelude::v1_0::*;
 
 
 pub trait Renderer {
@@ -12,5 +13,6 @@ pub trait Renderer {
     
     unsafe fn destroy (&mut self);
 
+    fn device(&self) -> &Device;
 
 }

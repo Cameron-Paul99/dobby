@@ -78,15 +78,14 @@ impl<'a> CommandBufferAllocator<'a> {
                     },
                 };
 
-                let render_pass_info = vk::RenderPassBeginInfo {
-                    s_type: vk::StructureType::RENDER_PASS_BEGIN_INFO,
-                    next: std::ptr::null(),
-                    render_pass,
-                    framebuffer: framebuffers[i],
-                    render_area,
-                    clear_value_count: 1,
-                    clear_values: &clear_value,
-                };
+                let render_pass_info = vk::RenderPassBeginInfo::builder()
+                    .render_pass(render_pass)
+                    .framebuffer(framebuffers[i])
+                    .render_area(render_area)
+                    .clear_values(std::slice::from_ref(&clear_value))
+                    .build();
+
+
 
                 self.device.cmd_begin_render_pass(command_buffer, &render_pass_info, vk::SubpassContents::INLINE);
                 self.device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline);
