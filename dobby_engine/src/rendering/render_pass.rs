@@ -137,11 +137,24 @@ pub unsafe fn create_render_pass( instance: &Instance, device: &Device, data: &m
     
     let color_attachments = &[color_attachment_ref];
 
+    let dependency = vk::SubpassDependency::builder()
+        .src_subpass(vk::SUBPASS_EXTERNAL)
+        .dst_subpass(0)
+        .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .src_access_mask(vk::AccessFlags::empty())
+        .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+        .build();
+
+    let dependencies = &[dependency];
+
     let builder = render_pass!({
         color_format: data.swapchain_format,
         subpass: subpass!({
             color_attachments: color_attachments,
+            
         }),
+        dependencies: dependencies,
     });
 
     data.render_pass = unsafe { builder.build(device)? };

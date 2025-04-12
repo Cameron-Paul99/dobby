@@ -11,10 +11,13 @@ use vulkanalia::vk::KhrSurfaceExtension;
 use crate::debug::vulkan::{VALIDATION_ENABLED, validation_layers, debug_messenger_info,};
 use vulkanalia::vk::ExtDebugUtilsExtension;
 use super::device::{pick_physical_device, create_logical_device};
-use super::swapchain::{create_swapchain, create_swapchain_image_views};
+use super::swapchain::{create_swapchain, create_swapchain_image_views, recreate_swapchain};
 use super::pipeline::create_pipeline;
 use super::renderer::Renderer;
 use super::render_pass::create_render_pass;
+use super::framebuffer::create_framebuffers;
+use super::command::create_command_pool;
+use super::sync::{create_sync_objects, MAX_FRAMES_IN_FLIGHT};
 use vulkanalia::vk::KhrSwapchainExtension;
 // Some hardware isn't compatible with Vulkan like macOS
 pub const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
@@ -26,6 +29,8 @@ pub struct VulkanApp {
     instance: Instance,
     data: AppData,
     device: Device,
+    frame: usize,
+    resized: bool,
 
 }
 
@@ -48,23 +53,101 @@ impl VulkanApp {
 
         create_swapchain(_window, &instance, &mut data, &device);
         create_swapchain_image_views(&device, &mut data)?;
-        create_render_pass(&instance, &device, &mut data)?; 
+        create_render_pass(&instance, &device, &mut data)?;
         create_pipeline(&device, &mut data)?;
+        create_framebuffers(&device, &mut data)?;
+        create_command_pool(&instance, &device, &mut data)?;
+        create_sync_objects(&device, &mut data)?;
         println!("Creating Vulkan App");
 
-        Ok(Self {entry, instance, data, device})
+        Ok(Self {entry, instance, data, device, frame: 0, resized: false})
 
     }
 
 
     pub unsafe fn render(&mut self, _window: &Window) -> Result<()> {
+       
+        let in_flight_fence = self.data.in_flight_fences[self.frame];
 
-//        println!("Rendering frame...");
+        self.device.wait_for_fences(&[in_flight_fence], true, u64::MAX)?;
+
+        let result = self
+            .device
+            .acquire_next_image_khr(
+                self.data.swapchain,
+                u64::MAX,
+                self.data.image_available_semaphores[self.frame],
+                vk::Fence::null(),
+            );
+
+        let image_index = match result {
+            Ok((image_index, _)) => image_index as usize,
+            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => {
+            recreate_swapchain(_window, &self.instance, &mut self.data, &self.device)?;
+            return Ok(());
+         }
+            Err(e) => return Err(anyhow!(e)),
+        };
+
+
+        let image_in_flight = self.data.images_in_flight[image_index];
+        if !image_in_flight.is_null() {
+            self.device.wait_for_fences(&[image_in_flight], true, u64::MAX)?;
+        }
+
+        self.data.images_in_flight[image_index] = in_flight_fence;
+
+        let wait_semaphores = &[self.data.image_available_semaphores[self.frame]];
+        let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+        let command_buffers = &[self.data.command_buffers[image_index]];
+        let signal_semaphores = &[self.data.render_finished_semaphores[self.frame]];
+        let submit_info = vk::SubmitInfo::builder()
+            .wait_semaphores(wait_semaphores)
+            .wait_dst_stage_mask(wait_stages)
+            .command_buffers(command_buffers)
+            .signal_semaphores(signal_semaphores);
+
+        self.device.reset_fences(&[in_flight_fence])?;
+
+        self.device
+            .queue_submit(self.data.graphics_queue, &[submit_info], in_flight_fence)?;
+
+        let swapchains = &[self.data.swapchain];
+        let image_indices = &[image_index as u32];
+        let present_info = vk::PresentInfoKHR::builder()
+            .wait_semaphores(signal_semaphores)
+            .swapchains(swapchains)
+            .image_indices(image_indices);
+
+        let result = self.device.queue_present_khr(self.data.present_queue, &present_info);
+
+        let changed = result == Ok(vk::SuccessCode::SUBOPTIMAL_KHR)
+            || result == Err(vk::ErrorCode::OUT_OF_DATE_KHR);
+
+        if changed {
+            self.resized = false;
+            recreate_swapchain(_window, &self.instance, &mut self.data  ,&self.device)?;
+        } else if let Err(e) = result {
+            return Err(anyhow!(e));
+        }
+
+        self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
+
         Ok(())
-
     }
 
     pub unsafe fn destroy(&mut self) {
+        self.data.in_flight_fences
+            .iter()
+            .for_each(|f| self.device.destroy_fence(*f, None));
+        self.data.render_finished_semaphores
+            .iter()
+            .for_each(|s| self.device.destroy_semaphore(*s, None));
+        self.data.image_available_semaphores
+            .iter()
+            .for_each(|s| self.device.destroy_semaphore(*s, None));
+        self.device.destroy_command_pool(self.data.command_pool, None);
+        self.data.framebuffers.iter().for_each(|f| self.device.destroy_framebuffer(*f, None));
         self.device.destroy_pipeline(self.data.pipeline, None);
         self.device.destroy_pipeline_layout(self.data.pipeline_layout, None);
         self.device.destroy_render_pass(self.data.render_pass, None);
@@ -101,6 +184,16 @@ impl Renderer for VulkanApp{
         
         self.destroy()
 
+    }    
+
+    fn device(&self) -> &Device {
+        &self.device
+    }
+
+    fn set_resized(&mut self, resized: bool){
+
+        self.resized = resized;
+        
     }
 
 }
@@ -190,6 +283,13 @@ pub struct AppData {
     pub pipeline_layout: vk::PipelineLayout,
     pub pipeline: vk::Pipeline,
     pub render_pass: vk::RenderPass,
+    pub framebuffers: Vec<vk::Framebuffer>,
+    pub command_buffers: Vec<vk::CommandBuffer>,
+    pub command_pool: vk::CommandPool,
+    pub image_available_semaphores: Vec<vk::Semaphore>,
+    pub render_finished_semaphores: Vec<vk::Semaphore>,
+    pub in_flight_fences: Vec<vk::Fence>,
+    pub images_in_flight: Vec<vk::Fence>,
 
 
 }

@@ -168,6 +168,15 @@ impl <'a> PipelineBuilder<'a> {
                 .build()
         ];
 
+        if let Some(frag) = frag_module {
+            stages.push(vk::PipelineShaderStageCreateInfo::builder()
+                .stage(vk::ShaderStageFlags::FRAGMENT)
+                .module(frag)
+                .name(b"main\0")
+                .build());
+        }
+
+
         if let Some(tesc) = tesc_module {
             
             stages.push(vk::PipelineShaderStageCreateInfo::builder()

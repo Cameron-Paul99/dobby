@@ -6,6 +6,10 @@ use winit::window::Window;
 use super::device::QueueFamilyIndices;
 use vulkanalia::vk::KhrSurfaceExtension;
 use vulkanalia::vk::KhrSwapchainExtension;
+use super::pipeline::create_pipeline;
+use super::render_pass::create_render_pass;
+use super::framebuffer::create_framebuffers;
+use super::command::create_command_buffers;
 use vulkanalia::Version;
 
 #[derive(Clone, Debug)]
@@ -164,4 +168,32 @@ pub unsafe fn create_swapchain(window: &Window, instance: &Instance, data: &mut 
     Ok(())
     
 
+}
+
+pub unsafe fn recreate_swapchain(window: &Window, instance: &Instance, data: &mut AppData, device: &Device) -> Result<()> {
+
+    device.device_wait_idle()?;
+    destroy_swapchain(&device, data);
+    create_swapchain(window, &instance, data, &device)?;
+    create_swapchain_image_views(&device, data)?;
+    create_render_pass(&instance, &device, data)?;
+    create_pipeline(&device, data)?;
+    create_framebuffers(&device, data)?;
+    create_command_buffers(&device, data)?;
+        data
+        .images_in_flight
+        .resize(data.swapchain_images.len(), vk::Fence::null());
+
+    Ok(())
+
+}
+
+unsafe fn destroy_swapchain(device: &Device, data: &mut AppData ) {
+    device.free_command_buffers(data.command_pool, &data.command_buffers);
+    data.framebuffers.iter().for_each(|f| device.destroy_framebuffer(*f, None));
+    device.destroy_pipeline(data.pipeline, None);
+    device.destroy_pipeline_layout(data.pipeline_layout, None);
+    device.destroy_render_pass(data.render_pass, None);
+    data.swapchain_image_views.iter().for_each(|v| device.destroy_image_view(*v, None));
+    device.destroy_swapchain_khr(data.swapchain, None);
 }
