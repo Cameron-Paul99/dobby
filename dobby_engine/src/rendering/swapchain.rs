@@ -188,7 +188,8 @@ pub unsafe fn recreate_swapchain(window: &Window, instance: &Instance, data: &mu
 
 }
 
-unsafe fn destroy_swapchain(device: &Device, data: &mut AppData ) {
+pub unsafe fn destroy_swapchain(device: &Device, data: &mut AppData ) {
+
     device.free_command_buffers(data.command_pool, &data.command_buffers);
     data.framebuffers.iter().for_each(|f| device.destroy_framebuffer(*f, None));
     device.destroy_pipeline(data.pipeline, None);
@@ -196,4 +197,5 @@ unsafe fn destroy_swapchain(device: &Device, data: &mut AppData ) {
     device.destroy_render_pass(data.render_pass, None);
     data.swapchain_image_views.iter().for_each(|v| device.destroy_image_view(*v, None));
     device.destroy_swapchain_khr(data.swapchain, None);
+
 }

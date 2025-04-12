@@ -7,3 +7,5 @@ pub mod render_pass;
 pub mod framebuffer;
 pub mod command;
 pub mod sync;
+pub mod vertex_data;
+pub mod memory;

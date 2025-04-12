@@ -1,3 +1,9 @@
+## [0.0.4] - Vertex Buffers - Cameron Paul - 04/14/25
+- Update vertex input to pass data to vertex shader
+- Vertex buffer created to pass data to the vertex shader
+- Staging buffer added to use VRAM instead of CPU RAM
+- Index buffer added to reduce copied shared vertices
+
 ## [0.0.3] - Drawing - Cameron Paul - 04/12/25
 - Rendering
 - Command pool setup
