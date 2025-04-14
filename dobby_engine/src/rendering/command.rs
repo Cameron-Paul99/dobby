@@ -4,6 +4,7 @@ use vulkanalia::prelude::v1_0::*;
 use crate::rendering::vulkan_app::AppData;
 use crate::rendering::device::QueueFamilyIndices;
 use anyhow::Result;
+use crate::rendering::vertex_data::{VERTICES, INDICES};
 
 //================================================
 // Command Pool Builder
@@ -40,6 +41,8 @@ pub struct CommandBufferAllocator<'a> {
     pub render_pass: Option<vk::RenderPass>,
     pub extent: Option<vk::Extent2D>,
     pub pipeline: Option<vk::Pipeline>,
+    pub vertex_buffer: Option<vk::Buffer>,
+    pub index_buffer: Option<vk::Buffer>,
 }
 
 impl<'a> CommandBufferAllocator<'a> {
@@ -84,12 +87,23 @@ impl<'a> CommandBufferAllocator<'a> {
                     .clear_values(std::slice::from_ref(&clear_value))
                     .build();
 
-
-
                 self.device.cmd_begin_render_pass(command_buffer, &render_pass_info, vk::SubpassContents::INLINE);
                 self.device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline);
-                self.device.cmd_draw(command_buffer, 3, 1, 0, 0);
+
+                if let Some(vertex_buffer) = self.vertex_buffer {
+                    self.device.cmd_bind_vertex_buffers(command_buffer, 0, &[vertex_buffer], &[0]);
+                }
+
+                if let Some(index_buffer) = self.index_buffer{
+                
+                    self.device.cmd_bind_index_buffer(command_buffer, index_buffer, 0, vk::IndexType::UINT16);
+
+                }
+
+                self.device.cmd_draw_indexed(command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
+
                 self.device.cmd_end_render_pass(command_buffer);
+
                 self.device.end_command_buffer(command_buffer)?;
             }
         }
@@ -112,6 +126,8 @@ macro_rules! command_buffer {
         $(render_pass: $render_pass:expr,)?
         $(extent: $extent:expr,)?
         $(pipeline: $pipeline:expr,)?
+        $(vertex_buffer: $vertex_buffer:expr,)?
+        $(index_buffer: $index_buffer:expr,)?
     }) => {{
         CommandBufferAllocator {
             device: $device,
@@ -122,6 +138,9 @@ macro_rules! command_buffer {
             render_pass: command_buffer!(@opt $($render_pass)?),
             extent: command_buffer!(@opt $($extent)?),
             pipeline: command_buffer!(@opt $($pipeline)?),
+            vertex_buffer: command_buffer!(@opt $($vertex_buffer)?),
+            index_buffer: command_buffer!(@opt $($index_buffer)?),
+
         }.build()
     }};
 
@@ -131,44 +150,7 @@ macro_rules! command_buffer {
     (@opt) => { None };
 }
 
-macro_rules! command_pool_with_buffers {
-    ({
-        device: $device:expr,
-        queue_family_index: $queue_family_index:expr,
-        $(flags: $flags:expr,)?
-        $(buffer_count: $buffer_count:expr,)?
-        $(level: $level:expr,)?
-        $(framebuffers: $framebuffers:expr,)?
-        $(render_pass: $render_pass:expr,)?
-        $(extent: $extent:expr,)?
-        $(pipeline: $pipeline:expr,)?
-    }) => {{
-        let pool = CommandPoolBuilder {
-            device: $device,
-            queue_family_index: $queue_family_index,
-            flags: command_pool_with_buffers!(@default $($flags)?, vk::CommandPoolCreateFlags::empty()),
-        }.build()?;
-
-        let buffers = command_buffer!({
-            device: $device,
-            pool: pool,
-            count: command_pool_with_buffers!(@default $($buffer_count)?, 1),
-            level: command_pool_with_buffers!(@default $($level)?, vk::CommandBufferLevel::PRIMARY),
-            $(framebuffers: $framebuffers,)?
-            $(render_pass: $render_pass,)?
-            $(extent: $extent,)?
-            $(pipeline: $pipeline,)?
-        })?;
-
-        (pool, buffers)
-    }};
-
-    (@default $val:expr, $default:expr) => { $val };
-    (@default, $default:expr) => { $default };
-}
-
 pub(crate) use command_buffer;
-pub(crate) use command_pool_with_buffers;
 
 //================================================
 // Public Functions
@@ -177,18 +159,13 @@ pub(crate) use command_pool_with_buffers;
 pub unsafe fn create_command_pool(instance: &Instance, device: &Device, data: &mut AppData) -> Result<()> {
     let indices = QueueFamilyIndices::get(instance, data, data.physical_device)?;
 
-    let (pool, buffers) = command_pool_with_buffers!({
+    let pool = CommandPoolBuilder {
         device: device,
         queue_family_index: indices.graphics,
-        buffer_count: data.framebuffers.len() as u32,
-        framebuffers: &data.framebuffers,
-        render_pass: data.render_pass,
-        extent: data.swapchain_extent,
-        pipeline: data.pipeline,
-    });
+        flags: vk::CommandPoolCreateFlags::empty(),
+    }.build()?;
 
     data.command_pool = pool;
-    data.command_buffers = buffers;
 
     Ok(())
 }
@@ -202,6 +179,8 @@ pub unsafe fn create_command_buffers(device: &Device, data: &mut AppData) -> Res
         render_pass: data.render_pass,
         extent: data.swapchain_extent,
         pipeline: data.pipeline,
+        vertex_buffer: data.vertex_buffer,
+        index_buffer: data.index_buffer,
     })?;
     Ok(())
 }

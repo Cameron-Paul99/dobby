@@ -11,13 +11,15 @@ use vulkanalia::vk::KhrSurfaceExtension;
 use crate::debug::vulkan::{VALIDATION_ENABLED, validation_layers, debug_messenger_info,};
 use vulkanalia::vk::ExtDebugUtilsExtension;
 use super::device::{pick_physical_device, create_logical_device};
-use super::swapchain::{create_swapchain, create_swapchain_image_views, recreate_swapchain};
+use super::swapchain::{create_swapchain, create_swapchain_image_views, recreate_swapchain, destroy_swapchain};
 use super::pipeline::create_pipeline;
 use super::renderer::Renderer;
 use super::render_pass::create_render_pass;
 use super::framebuffer::create_framebuffers;
-use super::command::create_command_pool;
+use super::command::{create_command_pool, create_command_buffers};
 use super::sync::{create_sync_objects, MAX_FRAMES_IN_FLIGHT};
+use super::vertex_data::{create_vertex_buffer, create_index_buffer};
+
 use vulkanalia::vk::KhrSwapchainExtension;
 // Some hardware isn't compatible with Vulkan like macOS
 pub const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
@@ -38,30 +40,32 @@ pub struct VulkanApp {
 // Unsafe functions are for the vulkan commands. Rust cannot keep it safe
 impl VulkanApp {
     
-    pub unsafe fn create(_window: &Window) -> Result<Self> {
-
+    unsafe fn create(window: &Window) -> Result<Self> {
         let loader = LibloadingLoader::new(LIBRARY)?;
         let entry = Entry::new(loader).map_err(|b| anyhow!("{}", b))?;
-
         let mut data = AppData::default();
-        let instance = create_instance(_window, &entry, &mut data )?;
-
-        data.surface = vk_window::create_surface(&instance, &_window, &_window)?;
-
+        let instance = create_instance(window, &entry, &mut data)?;
+        data.surface = vk_window::create_surface(&instance, &window, &window)?;
         pick_physical_device(&instance, &mut data)?;
         let device = create_logical_device(&entry, &instance, &mut data)?;
-
-        create_swapchain(_window, &instance, &mut data, &device);
+        create_swapchain(window, &instance, &mut data, &device)?;
         create_swapchain_image_views(&device, &mut data)?;
         create_render_pass(&instance, &device, &mut data)?;
         create_pipeline(&device, &mut data)?;
         create_framebuffers(&device, &mut data)?;
         create_command_pool(&instance, &device, &mut data)?;
+        create_vertex_buffer(&instance, &device, &mut data)?;
+        create_index_buffer(&instance, &device, &mut data)?;
+        create_command_buffers(&device, &mut data)?;
         create_sync_objects(&device, &mut data)?;
-        println!("Creating Vulkan App");
-
-        Ok(Self {entry, instance, data, device, frame: 0, resized: false})
-
+        Ok(Self {
+            entry,
+            instance,
+            data,
+            device,
+            frame: 0,
+            resized: false,
+        })
     }
 
 
@@ -137,23 +141,35 @@ impl VulkanApp {
     }
 
     pub unsafe fn destroy(&mut self) {
+
+        self.device.device_wait_idle().unwrap();
+
+        destroy_swapchain(&self.device, &mut self.data);
+
         self.data.in_flight_fences
             .iter()
             .for_each(|f| self.device.destroy_fence(*f, None));
+        
         self.data.render_finished_semaphores
             .iter()
             .for_each(|s| self.device.destroy_semaphore(*s, None));
+        
         self.data.image_available_semaphores
             .iter()
             .for_each(|s| self.device.destroy_semaphore(*s, None));
+
+        self.device.destroy_buffer(self.data.index_buffer, None);
+
+        self.device.free_memory(self.data.index_buffer_memory, None);
+
+        self.device.destroy_buffer(self.data.vertex_buffer, None);
+
+        self.device.free_memory(self.data.vertex_buffer_memory, None);
+        
         self.device.destroy_command_pool(self.data.command_pool, None);
-        self.data.framebuffers.iter().for_each(|f| self.device.destroy_framebuffer(*f, None));
-        self.device.destroy_pipeline(self.data.pipeline, None);
-        self.device.destroy_pipeline_layout(self.data.pipeline_layout, None);
-        self.device.destroy_render_pass(self.data.render_pass, None);
-        self.data.swapchain_image_views.iter().for_each(|v| self.device.destroy_image_view(*v, None));
-        self.device.destroy_swapchain_khr(self.data.swapchain, None);
+        
         self.device.destroy_device(None);
+        
         self.instance.destroy_surface_khr(self.data.surface, None);
 
         if VALIDATION_ENABLED {
@@ -290,6 +306,9 @@ pub struct AppData {
     pub render_finished_semaphores: Vec<vk::Semaphore>,
     pub in_flight_fences: Vec<vk::Fence>,
     pub images_in_flight: Vec<vk::Fence>,
-
+    pub vertex_buffer: vk::Buffer,
+    pub vertex_buffer_memory: vk::DeviceMemory,
+    pub index_buffer: vk::Buffer,
+    pub index_buffer_memory: vk::DeviceMemory,
 
 }
