@@ -2,6 +2,8 @@ use vulkanalia::prelude::v1_0::*;
 use crate::rendering::vulkan_app::AppData;
 use anyhow::{anyhow, Result};
 
+
+
 pub unsafe fn get_memory_type_index( instance: &Instance, data: &AppData, properties: vk::MemoryPropertyFlags, requirements: vk::MemoryRequirements,) -> Result<u32> {
     
     let memory = instance.get_physical_device_memory_properties(data.physical_device);

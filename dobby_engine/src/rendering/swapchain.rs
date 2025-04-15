@@ -10,6 +10,9 @@ use super::pipeline::create_pipeline;
 use super::render_pass::create_render_pass;
 use super::framebuffer::create_framebuffers;
 use super::command::create_command_buffers;
+use super::ubo::create_uniform_buffers;
+use super::descriptor::{create_descriptor_sets, create_descriptor_pool};
+
 use vulkanalia::Version;
 
 #[derive(Clone, Debug)]
@@ -179,6 +182,9 @@ pub unsafe fn recreate_swapchain(window: &Window, instance: &Instance, data: &mu
     create_render_pass(&instance, &device, data)?;
     create_pipeline(&device, data)?;
     create_framebuffers(&device, data)?;
+    create_uniform_buffers(&instance ,&device, data)?;
+    create_descriptor_pool(&device, data)?;
+    create_descriptor_sets(&device, data)?;
     create_command_buffers(&device, data)?;
         data
         .images_in_flight
@@ -189,7 +195,9 @@ pub unsafe fn recreate_swapchain(window: &Window, instance: &Instance, data: &mu
 }
 
 pub unsafe fn destroy_swapchain(device: &Device, data: &mut AppData ) {
-
+    device.destroy_descriptor_pool(data.descriptor_pool, None);
+    data.uniform_buffers.iter().for_each(|b| device.destroy_buffer(*b, None));
+    data.uniform_buffers_memory.iter().for_each(|m| device.free_memory(*m, None));
     device.free_command_buffers(data.command_pool, &data.command_buffers);
     data.framebuffers.iter().for_each(|f| device.destroy_framebuffer(*f, None));
     device.destroy_pipeline(data.pipeline, None);

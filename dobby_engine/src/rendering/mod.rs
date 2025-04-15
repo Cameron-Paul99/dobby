@@ -9,3 +9,5 @@ pub mod command;
 pub mod sync;
 pub mod vertex_data;
 pub mod memory;
+pub mod ubo;
+pub mod descriptor;

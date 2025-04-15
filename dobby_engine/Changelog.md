@@ -1,3 +1,10 @@
+## [0.0.5] - Uniform Buffers - Cameron Paul - 04/16/25
+- Update Shaders to have uniform buffer objects
+- Descriptor layout integration with pipeline
+- Descriptor sets and pool allocation
+- Uniform buffers and memory allocation
+- Update destroy, command, swapchain files with new uniform buffers
+
 ## [0.0.4] - Vertex Buffers - Cameron Paul - 04/14/25
 - Update vertex input to pass data to vertex shader
 - Vertex buffer created to pass data to the vertex shader
