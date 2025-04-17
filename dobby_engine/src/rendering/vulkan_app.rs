@@ -19,6 +19,10 @@ use super::framebuffer::create_framebuffers;
 use super::command::{create_command_pool, create_command_buffers};
 use super::sync::{create_sync_objects, MAX_FRAMES_IN_FLIGHT};
 use super::vertex_data::{create_vertex_buffer, create_index_buffer};
+ use crate::rendering::descriptor::{create_descriptor_pool , create_descriptor_sets};
+use super::descriptor::create_set_layout;
+use std::time::Instant;
+use super::ubo::{update_uniform_buffers, create_uniform_buffers};
 
 use vulkanalia::vk::KhrSwapchainExtension;
 // Some hardware isn't compatible with Vulkan like macOS
@@ -33,6 +37,7 @@ pub struct VulkanApp {
     device: Device,
     frame: usize,
     resized: bool,
+    start: Instant,
 
 }
 
@@ -51,11 +56,15 @@ impl VulkanApp {
         create_swapchain(window, &instance, &mut data, &device)?;
         create_swapchain_image_views(&device, &mut data)?;
         create_render_pass(&instance, &device, &mut data)?;
+        create_set_layout(&device, &mut data)?;
         create_pipeline(&device, &mut data)?;
         create_framebuffers(&device, &mut data)?;
         create_command_pool(&instance, &device, &mut data)?;
         create_vertex_buffer(&instance, &device, &mut data)?;
         create_index_buffer(&instance, &device, &mut data)?;
+        create_uniform_buffers(&instance, &device, &mut data)?;
+        create_descriptor_pool(&device, &mut data)?;
+        create_descriptor_sets(&device, &mut data)?;
         create_command_buffers(&device, &mut data)?;
         create_sync_objects(&device, &mut data)?;
         Ok(Self {
@@ -65,6 +74,7 @@ impl VulkanApp {
             device,
             frame: 0,
             resized: false,
+            start: Instant::now(),
         })
     }
 
@@ -100,6 +110,8 @@ impl VulkanApp {
         }
 
         self.data.images_in_flight[image_index] = in_flight_fence;
+
+        update_uniform_buffers( &self.start , &self.device, &mut self.data, image_index)?;
 
         let wait_semaphores = &[self.data.image_available_semaphores[self.frame]];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
@@ -145,6 +157,8 @@ impl VulkanApp {
         self.device.device_wait_idle().unwrap();
 
         destroy_swapchain(&self.device, &mut self.data);
+
+        self.device.destroy_descriptor_set_layout(self.data.descriptor_set_layout, None);
 
         self.data.in_flight_fences
             .iter()
@@ -310,5 +324,11 @@ pub struct AppData {
     pub vertex_buffer_memory: vk::DeviceMemory,
     pub index_buffer: vk::Buffer,
     pub index_buffer_memory: vk::DeviceMemory,
+    pub uniform_buffers: Vec<vk::Buffer>,
+    pub uniform_buffers_memory: Vec<vk::DeviceMemory>,
+    pub descriptor_set_layout: vk::DescriptorSetLayout,
+    pub descriptor_pool: vk::DescriptorPool,
+    pub descriptor_sets: Vec<vk::DescriptorSet>,
+
 
 }

@@ -43,8 +43,10 @@ pub struct CommandBufferAllocator<'a> {
     pub pipeline: Option<vk::Pipeline>,
     pub vertex_buffer: Option<vk::Buffer>,
     pub index_buffer: Option<vk::Buffer>,
+    pub data: &'a AppData,
 }
 
+//TODO: make more abstract
 impl<'a> CommandBufferAllocator<'a> {
     pub unsafe fn build(&self) -> Result<Vec<vk::CommandBuffer>> {
         let info = vk::CommandBufferAllocateInfo {
@@ -100,6 +102,8 @@ impl<'a> CommandBufferAllocator<'a> {
 
                 }
 
+                self.device.cmd_bind_descriptor_sets(command_buffer, vk::PipelineBindPoint::GRAPHICS, self.data.pipeline_layout, 0, &[self.data.descriptor_sets[i]], &[],);
+
                 self.device.cmd_draw_indexed(command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
 
                 self.device.cmd_end_render_pass(command_buffer);
@@ -128,6 +132,7 @@ macro_rules! command_buffer {
         $(pipeline: $pipeline:expr,)?
         $(vertex_buffer: $vertex_buffer:expr,)?
         $(index_buffer: $index_buffer:expr,)?
+        data: $data:expr,
     }) => {{
         CommandBufferAllocator {
             device: $device,
@@ -140,6 +145,7 @@ macro_rules! command_buffer {
             pipeline: command_buffer!(@opt $($pipeline)?),
             vertex_buffer: command_buffer!(@opt $($vertex_buffer)?),
             index_buffer: command_buffer!(@opt $($index_buffer)?),
+            data: $data,
 
         }.build()
     }};
@@ -181,6 +187,8 @@ pub unsafe fn create_command_buffers(device: &Device, data: &mut AppData) -> Res
         pipeline: data.pipeline,
         vertex_buffer: data.vertex_buffer,
         index_buffer: data.index_buffer,
+        data: data,
+
     })?;
     Ok(())
 }
