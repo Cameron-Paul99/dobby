@@ -161,6 +161,8 @@ impl VulkanApp {
 
         destroy_swapchain(&self.device, &mut self.data);
 
+        self.device.destroy_image_view(self.data.texture_image_view, None);
+
         self.device.destroy_image(self.data.texture_image, None);
 
         self.device.free_memory(self.data.texture_image_memory, None);

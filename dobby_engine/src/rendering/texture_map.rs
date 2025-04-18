@@ -257,13 +257,26 @@ pub unsafe fn copy_buffer_to_image(
 
 }
 
-//TODO: Maybe abstract this with swapchain image view
-
 pub unsafe fn create_texture_image_view(
     device: &Device,
     data: &mut AppData,
 ) -> Result<()> {
 
+    data.texture_image_view = create_image_view(
+        device,
+        data.texture_image,
+        vk::Format::R8G8B8A8_SRGB,
+    )?;
+
+    Ok(())
+
+}
+
+pub unsafe fn create_image_view(
+    device: &Device,
+    image: vk::Image,
+    format: vk::Format,
+) -> Result<vk::ImageView> {
     let subresource_range = vk::ImageSubresourceRange::builder()
         .aspect_mask(vk::ImageAspectFlags::COLOR)
         .base_mip_level(0)
@@ -272,16 +285,10 @@ pub unsafe fn create_texture_image_view(
         .layer_count(1);
 
     let info = vk::ImageViewCreateInfo::builder()
-        .image(data.texture_image)
+        .image(image)
         .view_type(vk::ImageViewType::_2D)
-        .format(vk::Format::R8G8B8A8_SRGB)
+        .format(format)
         .subresource_range(subresource_range);
 
-    data.texture_image_view = device.create_image_view(&info, None)?;
-
-
-    
-    Ok(())
-
-
+    Ok(device.create_image_view(&info, None)?)
 }
