@@ -11,7 +11,7 @@ use std::ptr::copy_nonoverlapping as memcpy;
 
 pub unsafe fn create_texture_image(instance: &Instance, device: &Device, data: &mut AppData) -> Result<()>{
 
-    let image = File::open("../resource/mountains.png");
+    let image = File::open("../resource/mountains.png")?;
 
     let decoder = png::Decoder::new(image);
     let mut reader = decoder.read_info()?;
