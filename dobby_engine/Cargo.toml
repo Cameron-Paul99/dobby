@@ -33,5 +33,5 @@ vulkanalia = { version = "=0.28.0" , features = ["libloading" , "provisional", "
 
 shaderc = "0.8"
 
-bytemuck = "1.14"
+
 

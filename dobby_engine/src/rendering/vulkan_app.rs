@@ -23,6 +23,7 @@ use super::vertex_data::{create_vertex_buffer, create_index_buffer};
 use super::descriptor::create_set_layout;
 use std::time::Instant;
 use super::ubo::{update_uniform_buffers, create_uniform_buffers};
+use super::texture_map::create_texture_image;
 
 use vulkanalia::vk::KhrSwapchainExtension;
 // Some hardware isn't compatible with Vulkan like macOS
@@ -329,6 +330,9 @@ pub struct AppData {
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: Vec<vk::DescriptorSet>,
+    pub texture_image: vk::Image,
+    pub texture_image_memory: vk::DeviceMemory,
+
 
 
 }
