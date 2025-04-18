@@ -23,7 +23,7 @@ use super::vertex_data::{create_vertex_buffer, create_index_buffer};
 use super::descriptor::create_set_layout;
 use std::time::Instant;
 use super::ubo::{update_uniform_buffers, create_uniform_buffers};
-use super::texture_map::create_texture_image;
+use super::texture_map::{create_texture_image, create_texture_image_view};
 
 use vulkanalia::vk::KhrSwapchainExtension;
 // Some hardware isn't compatible with Vulkan like macOS
@@ -62,6 +62,7 @@ impl VulkanApp {
         create_framebuffers(&device, &mut data)?;
         create_command_pool(&instance, &device, &mut data)?;
         create_texture_image(&instance, &device, &mut data)?;
+        create_texture_image_view(&device, &mut data)?;
         create_vertex_buffer(&instance, &device, &mut data)?;
         create_index_buffer(&instance, &device, &mut data)?;
         create_uniform_buffers(&instance, &device, &mut data)?;
@@ -337,6 +338,7 @@ pub struct AppData {
     pub descriptor_sets: Vec<vk::DescriptorSet>,
     pub texture_image: vk::Image,
     pub texture_image_memory: vk::DeviceMemory,
+    pub texture_image_view: vk::ImageView,
 
 
 

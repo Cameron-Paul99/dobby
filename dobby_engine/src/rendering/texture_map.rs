@@ -256,3 +256,32 @@ pub unsafe fn copy_buffer_to_image(
     Ok(())
 
 }
+
+//TODO: Maybe abstract this with swapchain image view
+
+pub unsafe fn create_texture_image_view(
+    device: &Device,
+    data: &mut AppData,
+) -> Result<()> {
+
+    let subresource_range = vk::ImageSubresourceRange::builder()
+        .aspect_mask(vk::ImageAspectFlags::COLOR)
+        .base_mip_level(0)
+        .level_count(1)
+        .base_array_layer(0)
+        .layer_count(1);
+
+    let info = vk::ImageViewCreateInfo::builder()
+        .image(data.texture_image)
+        .view_type(vk::ImageViewType::_2D)
+        .format(vk::Format::R8G8B8A8_SRGB)
+        .subresource_range(subresource_range);
+
+    data.texture_image_view = device.create_image_view(&info, None)?;
+
+
+    
+    Ok(())
+
+
+}
