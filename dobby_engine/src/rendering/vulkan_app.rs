@@ -25,6 +25,7 @@ use crate::rendering::descriptor::descriptor_init;
 use std::time::Instant;
 use super::ubo::{update_uniform_buffers, create_uniform_buffers};
 use super::texture_map::{create_texture_image, create_texture_image_view};
+use super::texture_sampler::create_texture_sampler;
 
 use vulkanalia::vk::KhrSwapchainExtension;
 // Some hardware isn't compatible with Vulkan like macOS
@@ -166,6 +167,8 @@ impl VulkanApp {
         self.device.device_wait_idle().unwrap();
 
         destroy_swapchain(&self.device, &mut self.data);
+
+        self.device.destroy_sampler(self.data.texture_sampler, None);
 
         self.device.destroy_image_view(self.data.texture_image_view, None);
 
@@ -347,7 +350,7 @@ pub struct AppData {
     pub texture_image: vk::Image,
     pub texture_image_memory: vk::DeviceMemory,
     pub texture_image_view: vk::ImageView,
-
+    pub texture_sampler: vk::Sampler,
 
 
 }
