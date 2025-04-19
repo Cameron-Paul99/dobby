@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_variables, clippy::manual_slice_size_calculation, clippy::too_many_arguments, clippy::unnecessary_wraps)]
+
 use std::fs::File;
 use crate::rendering::memory::{get_memory_type_index, create_buffer};
 use vulkanalia::prelude::v1_0::*;
@@ -31,13 +33,7 @@ pub unsafe fn create_texture_image(instance: &Instance, device: &Device, data: &
         vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
     )?;
 
-    let memory = device.map_memory(
-        staging_buffer_memory,
-        0,
-        size,
-        vk::MemoryMapFlags::empty(),
-
-    )?;
+    let memory = device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())?;
 
     memcpy(pixels.as_ptr(), memory.cast(), pixels.len());
 

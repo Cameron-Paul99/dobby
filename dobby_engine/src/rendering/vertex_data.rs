@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_variables, clippy::manual_slice_size_calculation, clippy::too_many_arguments, clippy::unnecessary_wraps)]
+
 // Triangle Vertex Definition and Buffer Creation using Macro + Builder
 
 // TODO: Find and and another family queue type: TRANSFER for optimization

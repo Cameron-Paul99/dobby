@@ -19,8 +19,9 @@ use super::framebuffer::create_framebuffers;
 use super::command::{create_command_pool, create_command_buffers};
 use super::sync::{create_sync_objects, MAX_FRAMES_IN_FLIGHT};
 use super::vertex_data::{create_vertex_buffer, create_index_buffer};
- use crate::rendering::descriptor::{create_descriptor_pool , create_descriptor_sets};
-use super::descriptor::create_set_layout;
+// use crate::rendering::descriptor::{create_descriptor_pool , create_descriptor_sets};
+use crate::rendering::descriptor::descriptor_init;
+//use super::descriptor::create_set_layout;
 use std::time::Instant;
 use super::ubo::{update_uniform_buffers, create_uniform_buffers};
 use super::texture_map::{create_texture_image, create_texture_image_view};
@@ -57,7 +58,10 @@ impl VulkanApp {
         create_swapchain(window, &instance, &mut data, &device)?;
         create_swapchain_image_views(&device, &mut data)?;
         create_render_pass(&instance, &device, &mut data)?;
-        create_set_layout(&device, &mut data)?;
+        let mut descriptor_builder = descriptor_init(&device, &data)?;
+        descriptor_builder.create_set_layout(&mut data)?;
+
+//        create_set_layout(&device, &mut data)?;
         create_pipeline(&device, &mut data)?;
         create_framebuffers(&device, &mut data)?;
         create_command_pool(&instance, &device, &mut data)?;
@@ -66,8 +70,10 @@ impl VulkanApp {
         create_vertex_buffer(&instance, &device, &mut data)?;
         create_index_buffer(&instance, &device, &mut data)?;
         create_uniform_buffers(&instance, &device, &mut data)?;
-        create_descriptor_pool(&device, &mut data)?;
-        create_descriptor_sets(&device, &mut data)?;
+        descriptor_builder.create_descriptor_pool(&mut data)?;
+        descriptor_builder.create_descriptor_sets(&mut data)?;
+        //create_descriptor_pool(&device, &mut data)?;
+      //  create_descriptor_sets(&device, &mut data)?;
         create_command_buffers(&device, &mut data)?;
         create_sync_objects(&device, &mut data)?;
         Ok(Self {

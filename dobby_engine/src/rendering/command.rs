@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables, clippy::manual_slice_size_calculation, clippy::too_many_arguments, clippy::unnecessary_wraps)]
 // === command.rs ===
 
 use vulkanalia::prelude::v1_0::*;

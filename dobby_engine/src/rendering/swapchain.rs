@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_variables, clippy::manual_slice_size_calculation, clippy::too_many_arguments, clippy::unnecessary_wraps)]
+
 use vulkanalia::prelude::v1_0::*;
 use anyhow::{anyhow, Result};
 use log::*;
@@ -11,7 +13,8 @@ use super::render_pass::create_render_pass;
 use super::framebuffer::create_framebuffers;
 use super::command::create_command_buffers;
 use super::ubo::create_uniform_buffers;
-use super::descriptor::{create_descriptor_sets, create_descriptor_pool};
+use super::descriptor::descriptor_init;
+//use super::descriptor::{create_descriptor_sets, create_descriptor_pool};
 use super::texture_map::create_image_view;
 use vulkanalia::Version;
 
@@ -158,8 +161,11 @@ pub unsafe fn recreate_swapchain(window: &Window, instance: &Instance, data: &mu
     create_pipeline(&device, data)?;
     create_framebuffers(&device, data)?;
     create_uniform_buffers(&instance ,&device, data)?;
-    create_descriptor_pool(&device, data)?;
-    create_descriptor_sets(&device, data)?;
+    let mut descriptor_builder = descriptor_init(&device, data)?;
+    descriptor_builder.create_descriptor_pool(data)?;
+    descriptor_builder.create_descriptor_sets(data)?;
+    //create_descriptor_pool(&device, data)?;
+    //create_descriptor_sets(&device, data)?;
     create_command_buffers(&device, data)?;
         data
         .images_in_flight

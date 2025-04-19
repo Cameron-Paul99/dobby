@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_variables, clippy::manual_slice_size_calculation, clippy::too_many_arguments, clippy::unnecessary_wraps)]
+
 use anyhow::Result;
 use winit::window::Window;
 use crate::rendering::vulkan_app::AppData;
