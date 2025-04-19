@@ -19,10 +19,13 @@ use super::framebuffer::create_framebuffers;
 use super::command::{create_command_pool, create_command_buffers};
 use super::sync::{create_sync_objects, MAX_FRAMES_IN_FLIGHT};
 use super::vertex_data::{create_vertex_buffer, create_index_buffer};
- use crate::rendering::descriptor::{create_descriptor_pool , create_descriptor_sets};
-use super::descriptor::create_set_layout;
+// use crate::rendering::descriptor::{create_descriptor_pool , create_descriptor_sets};
+use crate::rendering::descriptor::descriptor_init;
+//use super::descriptor::create_set_layout;
 use std::time::Instant;
 use super::ubo::{update_uniform_buffers, create_uniform_buffers};
+use super::texture_map::{create_texture_image, create_texture_image_view};
+use super::texture_sampler::create_texture_sampler;
 
 use vulkanalia::vk::KhrSwapchainExtension;
 // Some hardware isn't compatible with Vulkan like macOS
@@ -56,15 +59,22 @@ impl VulkanApp {
         create_swapchain(window, &instance, &mut data, &device)?;
         create_swapchain_image_views(&device, &mut data)?;
         create_render_pass(&instance, &device, &mut data)?;
-        create_set_layout(&device, &mut data)?;
+        let mut descriptor_builder = descriptor_init(&device, &data)?;
+        descriptor_builder.create_set_layout(&mut data)?;
+
+//        create_set_layout(&device, &mut data)?;
         create_pipeline(&device, &mut data)?;
         create_framebuffers(&device, &mut data)?;
         create_command_pool(&instance, &device, &mut data)?;
+        create_texture_image(&instance, &device, &mut data)?;
+        create_texture_image_view(&device, &mut data)?;
         create_vertex_buffer(&instance, &device, &mut data)?;
         create_index_buffer(&instance, &device, &mut data)?;
         create_uniform_buffers(&instance, &device, &mut data)?;
-        create_descriptor_pool(&device, &mut data)?;
-        create_descriptor_sets(&device, &mut data)?;
+        descriptor_builder.create_descriptor_pool(&mut data)?;
+        descriptor_builder.create_descriptor_sets(&mut data)?;
+        //create_descriptor_pool(&device, &mut data)?;
+      //  create_descriptor_sets(&device, &mut data)?;
         create_command_buffers(&device, &mut data)?;
         create_sync_objects(&device, &mut data)?;
         Ok(Self {
@@ -157,6 +167,14 @@ impl VulkanApp {
         self.device.device_wait_idle().unwrap();
 
         destroy_swapchain(&self.device, &mut self.data);
+
+        self.device.destroy_sampler(self.data.texture_sampler, None);
+
+        self.device.destroy_image_view(self.data.texture_image_view, None);
+
+        self.device.destroy_image(self.data.texture_image, None);
+
+        self.device.free_memory(self.data.texture_image_memory, None);
 
         self.device.destroy_descriptor_set_layout(self.data.descriptor_set_layout, None);
 
@@ -329,6 +347,10 @@ pub struct AppData {
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: Vec<vk::DescriptorSet>,
+    pub texture_image: vk::Image,
+    pub texture_image_memory: vk::DeviceMemory,
+    pub texture_image_view: vk::ImageView,
+    pub texture_sampler: vk::Sampler,
 
 
 }

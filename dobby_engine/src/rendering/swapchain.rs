@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_variables, clippy::manual_slice_size_calculation, clippy::too_many_arguments, clippy::unnecessary_wraps)]
+
 use vulkanalia::prelude::v1_0::*;
 use anyhow::{anyhow, Result};
 use log::*;
@@ -11,8 +13,9 @@ use super::render_pass::create_render_pass;
 use super::framebuffer::create_framebuffers;
 use super::command::create_command_buffers;
 use super::ubo::create_uniform_buffers;
-use super::descriptor::{create_descriptor_sets, create_descriptor_pool};
-
+use super::descriptor::descriptor_init;
+//use super::descriptor::{create_descriptor_sets, create_descriptor_pool};
+use super::texture_map::create_image_view;
 use vulkanalia::Version;
 
 #[derive(Clone, Debug)]
@@ -86,34 +89,9 @@ pub unsafe fn create_swapchain_image_views(device: &Device, data: &mut AppData,)
     data.swapchain_image_views = data
         .swapchain_images
         .iter()
-        .map(|i| {
-
-            let components = vk::ComponentMapping::builder()
-                .r(vk::ComponentSwizzle::IDENTITY)
-                .g(vk::ComponentSwizzle::IDENTITY)
-                .b(vk::ComponentSwizzle::IDENTITY)
-                .a(vk::ComponentSwizzle::IDENTITY);
-            
-            let subresource_range = vk::ImageSubresourceRange::builder()
-                .aspect_mask(vk::ImageAspectFlags::COLOR)
-                .base_mip_level(0)
-                .level_count(1)
-                .base_array_layer(0)
-                .layer_count(1);
-            
-            let info = vk::ImageViewCreateInfo::builder()
-                .image(*i)
-                .view_type(vk::ImageViewType::_2D)
-                .format(data.swapchain_format)
-                .components(components)
-                .subresource_range(subresource_range);
-            
-            device.create_image_view(&info, None)
-
-        })
-        .collect::<Result<Vec<_>,_>>()?;
+        .map(|i| create_image_view(device, *i, data.swapchain_format))
+        .collect::<Result<Vec<_>, _>>()?;
         
-    
     Ok(())
 
 }
@@ -183,8 +161,11 @@ pub unsafe fn recreate_swapchain(window: &Window, instance: &Instance, data: &mu
     create_pipeline(&device, data)?;
     create_framebuffers(&device, data)?;
     create_uniform_buffers(&instance ,&device, data)?;
-    create_descriptor_pool(&device, data)?;
-    create_descriptor_sets(&device, data)?;
+    let mut descriptor_builder = descriptor_init(&device, data)?;
+    descriptor_builder.create_descriptor_pool(data)?;
+    descriptor_builder.create_descriptor_sets(data)?;
+    //create_descriptor_pool(&device, data)?;
+    //create_descriptor_sets(&device, data)?;
     create_command_buffers(&device, data)?;
         data
         .images_in_flight

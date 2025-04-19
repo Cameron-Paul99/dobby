@@ -11,3 +11,5 @@ pub mod vertex_data;
 pub mod memory;
 pub mod ubo;
 pub mod descriptor;
+pub mod texture_map;
+pub mod texture_sampler;
