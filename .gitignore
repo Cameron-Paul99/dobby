@@ -1,0 +1,30 @@
+# Zig build output
+zig-cache/
+zig-out/
+
+# General OS files
+.DS_Store
+Thumbs.db
+
+# Editor / IDE configs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test logs or temp
+*.log
+*.tmp
+
+# Zig language server (ZLS) cache
+zls-cache/
+
+# If using Zig with C libraries or bindings
+*.o
+*.a
+*.so
+*.dll
+*.exe
+
+# Optional: backup files
+*~
