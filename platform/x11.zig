@@ -3,8 +3,17 @@ const c = @cImport({
     @cInclude("X11/Xlib.h");
 });
 
+pub const WindowBackend = enum {
+    x11,
+    wayland,
+    win32,
+    win64,
+    macos,
+};
+
 
 pub const Window = struct {
+    backend: WindowBackend,
     display: *c.Display,
     screen : c_int,
     screen_width: c_int,
@@ -54,6 +63,7 @@ pub const Window = struct {
             .screen_width = screen_width,
             .screen_height = screen_height,
             .window = window,
+            .backend = WindowBackend.x11,
         };
     }
 
