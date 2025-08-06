@@ -11,8 +11,9 @@ pub const Renderer = struct {
     //pipeline: pipeline.Pipeline,
 
     pub fn init(allocator: *const std.mem.Allocator, wind: *window.Window) !Renderer{
-        
-           const inst = try vulkanInstance.Instance.create(allocator, wind);
+       
+        _ = allocator;
+           const inst = try vulkanInstance.Instance.create(wind);
           //  dev = try device.create(inst, allocator),
             //pip = try pipeline.create( inst , dev, allocator),
 

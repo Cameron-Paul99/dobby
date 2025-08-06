@@ -17,6 +17,14 @@ pub fn build(b: *std.Build) void {
     // Link the X11 library
     exe.linkSystemLibrary("X11");
 
+    //vulkan library
+    exe.linkSystemLibrary("vulkan");
+
+//exe.addCSourceFile(.{ .file = b.path("src/vk_mem_alloc.cpp"), .flags = &.{ "" } });
+ exe.addIncludePath(b.path("thirdparty/imgui/"));
+
+
+
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
