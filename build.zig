@@ -20,6 +20,8 @@ pub fn build(b: *std.Build) void {
     //vulkan library
     exe.linkSystemLibrary("vulkan");
 
+    exe.linkSystemLibrary("SDL3");
+
 //exe.addCSourceFile(.{ .file = b.path("src/vk_mem_alloc.cpp"), .flags = &.{ "" } });
  exe.addIncludePath(b.path("thirdparty/imgui/"));
 
