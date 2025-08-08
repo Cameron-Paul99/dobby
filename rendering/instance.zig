@@ -12,27 +12,34 @@ const validation_layers = &[_][*:0]const u8{
 
 const is_macos = target.os.tag == .macos;
 
-var debug_info = c.VkDebugUtilsMessengerCreateInfoEXT{
-    .sType = c.VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-    .pNext = null,
-    .flags = 0,
-    .messageSeverity = c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-                       c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                       c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
-    .messageType = c.VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                   c.VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                   c.VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-    //.pfnUserCallback = debugCallback,
-    .pUserData = null,
-};
-
 pub const Instance = struct {
    handle: c.VkInstance = undefined,
    debug_messenger: ?c.VkDebugUtilsMessengerEXT = null,
    alloc_cb: ?*c.VkAllocationCallbacks = null,
 
     pub fn create(alloc_cb: ?*c.VkAllocationCallbacks, wind: *window.Window) !Instance {
+
         const extensions = try getRequiredExtensions(wind);
+
+
+        var extension_count: u32 = undefined;
+        try check_vk(c.vkEnumerateInstanceExtensionProperties(null, &extension_count, null));
+        var extensions_available: [32]c.VkExtensionProperties = undefined;
+        try check_vk(c.vkEnumerateInstanceExtensionProperties(null, &extension_count, &extensions_available));
+
+        for (extensions) |ext| {
+
+            var found = false;
+
+            for (extensions_available[0..extension_count]) |avail| {
+                const avail_name: [*c]const u8 = @ptrCast(&avail.extensionName[0]);
+                if (std.mem.eql(u8, std.mem.span(ext), std.mem.span(avail_name))) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return error.ExtensionNotSupported;
+         }
 
         const app_info = c.VkApplicationInfo{
             .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -149,11 +156,11 @@ pub const Instance = struct {
         };
     }
 
-    fn check_vk(result: c.VkResult) !void {
-        if (result != c.VK_SUCCESS) return error.VulkanError;
-    }
 };
 
+pub fn check_vk(result: c.VkResult) !void {
+        if (result != c.VK_SUCCESS) return error.VulkanError;
+    }
 
 fn defaultDebugCallback(
     severity: c.VkDebugUtilsMessageSeverityFlagBitsEXT,
