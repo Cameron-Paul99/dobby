@@ -2,7 +2,8 @@ const c = @import("clibs.zig");
 const std = @import("std");
 const target = @import("builtin").target;
 const inst = @import("instance.zig");
-
+const wind = @import("../platform/x11.zig");
+const log = std.log.scoped(.device);
 
 const INVALID = std.math.maxInt(u32);
 
@@ -38,16 +39,16 @@ pub const PhysicalDevice = struct {
     transferQueueFamily: u32 = INVALID,
     min_api_version: u32 = c.VK_MAKE_VERSION(1, 0, 0),
     required_extensions: []const [*c]const u8 = &.{},
-    surface: c.VkSurfaceKHR,
+    surface: c.VkSurfaceKHR = undefined,
     criteria: PhysicalDeviceSelectionCriteria = .PreferDiscrete,
 
   
-    pub fn create(instance: inst.Instance, allocator: std.mem.Allocator) !PhysicalDevice{
+    pub fn create(self: *PhysicalDevice ,instance: inst.Instance, allocator: std.mem.Allocator, window: *wind.Window ) !PhysicalDevice{
         
         var physicalDeviceCount: u32 = undefined;
         
         // Get physical device count
-        try check_vk(c.vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, null));
+        try inst.check_vk(c.vkEnumeratePhysicalDevices(instance.handle, &physicalDeviceCount, null));
         
         // Allocating memory because we won't know the device count until runtime
         var arenaState = std.heap.ArenaAllocator.init(allocator);
@@ -56,17 +57,55 @@ pub const PhysicalDevice = struct {
 
         // Bind physical devices
         const physicalDevices = try arena.alloc(c.VkPhysicalDevice, physicalDeviceCount);
-        try check_vk(c.vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices.ptr));
+        try inst.check_vk(c.vkEnumeratePhysicalDevices(instance.handle, &physicalDeviceCount, physicalDevices.ptr));
+
+        //Surface
+        var ci = std.mem.zeroInit(c.VkXlibSurfaceCreateInfoKHR, .{
+            .sType = c.VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
+            .dpy = window.display,
+            .window = window.window,
+        });
+
+        var surface: c.VkSurfaceKHR = undefined;
+
+        try inst.check_vk(c.vkCreateXlibSurfaceKHR(instance.handle, &ci, window.alloc_cb, &surface));
         
-        var suitablePhysicalDevice = ?PhysicalDevice = null;
+        var suitablePhysicalDevice : ?PhysicalDevice = null;
 
         for (physicalDevices) |device| {
 
+            const pd = make_physical_device(allocator, device, surface) catch continue;
+            _ = is_physical_device_suitable(pd) catch continue;
+
+            if (self.criteria == PhysicalDeviceSelectionCriteria.First) {
+                suitablePhysicalDevice = pd;
+                break;
+            }
+
+            if (pd.properties.deviceType == c.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+                suitablePhysicalDevice = pd;
+                break;
+
+            } else if (suitablePhysicalDevice == null) {
+                suitablePhysicalDevice = pd;
+            }
+
         }
+
+        if (suitablePhysicalDevice == null) {
+            log.err("No suitable physical device found.", .{});
+            return error.vulkan_no_suitable_physical_device;
+        }
+        const res = suitablePhysicalDevice.?;
+
+        const device_name = @as([*:0]const u8, @ptrCast(@alignCast(res.properties.deviceName[0..])));
+        log.info("Selected physical device: {s}", .{ device_name });
+
+        return res;
 
     }
 
-    pub fn make_physical_devices( , allocator: std.mem.Allocator, device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR,) !PhysicalDevice{
+    pub fn make_physical_device(allocator: std.mem.Allocator, device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR,) !PhysicalDevice{
 
         // ---- Properties
         var props: c.VkPhysicalDeviceProperties = undefined;
@@ -76,8 +115,8 @@ pub const PhysicalDevice = struct {
         var qcount: u32 = 0;
         c.vkGetPhysicalDeviceQueueFamilyProperties(device, &qcount, null);
 
-        const qprops = try alloc.alloc(c.VkQueueFamilyProperties, qcount);
-        defer alloc.free(qprops);
+        const qprops = try allocator.alloc(c.VkQueueFamilyProperties, qcount);
+        defer allocator.free(qprops);
 
         c.vkGetPhysicalDeviceQueueFamilyProperties(device, &qcount, qprops.ptr);
 
@@ -85,55 +124,68 @@ pub const PhysicalDevice = struct {
         var pd = PhysicalDevice{
             .handle = device,
             .properties = props,
-            .graphics_queue_family = INVALID,
-            .present_queue_family  = INVALID,
-            .compute_queue_family  = INVALID,
-            .transfer_queue_family = INVALID,
+            .graphicsQueueFamily = INVALID,
+            .presentQueueFamily  = INVALID,
+            .computeQueueFamily  = INVALID,
+            .transferQueueFamily = INVALID,
         };
-
-        inline fn has(flags: c.VkQueueFlags, bit: c.VkQueueFlagBits) bool {
-            return (flags & bit) != 0;
-        }
-
-        inline fn unset(x: u32) bool {
-            return x == INVALID;
-        }
-
-        inline fn done(g: u32, p: u32, c_: u32, t: u32) bool {
-            return g != INVALID and p != INVALID and c_ != INVALID and t != INVALID;
-        }
 
         // ---- Pick first matching families (early-exit when all found)
         for (qprops, 0..) |q, i| {
             const idx: u32 = @intCast(i);
 
-            if (unset(pd.graphicsQueueFamily) and has(q.queueFlags, c.VK_QUEUE_GRAPHICS_BIT))
+            if (pd.graphicsQueueFamily == INVALID and q.queueFlags & c.VK_QUEUE_GRAPHICS_BIT != 0) 
 
                 pd.graphicsQueueFamily = idx;
 
-            if (unset(pd.computeQueueFamily) and has(q.queueFlags, c.VK_QUEUE_COMPUTE_BIT))
+            if (pd.computeQueueFamily == INVALID and q.queueFlags & c.VK_QUEUE_COMPUTE_BIT != 0)
 
                 pd.computeQueueFamily = idx;
 
-            if (unset(pd.transferQueueFamily) and has(q.queueFlags, c.VK_QUEUE_TRANSFER_BIT))
+            if (pd.transferQueueFamily == INVALID and q.queueFlags & c.VK_QUEUE_TRANSFER_BIT != 0)
 
                 pd.transferQueueFamily = idx;
 
-            if (unset(pd.presentQueueFamily)) {
+            if (pd.presentQueueFamily == INVALID) {
 
                 var support: c.VkBool32 = 0;
 
-                try check_vk(c.vkGetPhysicalDeviceSurfaceSupportKHR(device, idx, surface, &support));
+                try inst.check_vk(c.vkGetPhysicalDeviceSurfaceSupportKHR(device, idx, surface, &support));
 
                 if (support == c.VK_TRUE)
                     pd.presentQueueFamily = idx;
             }
 
-            if (done(pd.graphicsQueueFamily, pd.presentQueueFamily, pd.computeQueueFamily, pd.transferQueueFamily))
+            if (pd.graphicsQueueFamily != INVALID and
+                pd.presentQueueFamily != INVALID and
+                pd.computeQueueFamily != INVALID and
+                pd.transferQueueFamily != INVALID) {
                 break;
+            }  
+
         }
 
         return pd;
+
+    }
+
+    fn is_physical_device_suitable(device: PhysicalDevice) !bool {
+
+        if (device.properties.apiVersion < device.min_api_version) {
+
+            return false;
+
+        }
+        if (device.graphicsQueueFamily == INVALID or
+            device.presentQueueFamily == INVALID or
+            device.computeQueueFamily == INVALID or
+            device.transferQueueFamily == INVALID) {
+
+            return false;
+
+        }
+
+        return true;
 
     }
 

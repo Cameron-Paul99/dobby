@@ -1,7 +1,8 @@
 pub usingnamespace @cImport({
-    @cInclude("SDL3/SDL.h");
-    @cInclude("SDL3/SDL_vulkan.h");
+    @cDefine("VK_USE_PLATFORM_XLIB_KHR", "1");
     @cInclude("vulkan/vulkan.h");
+    @cInclude("vulkan/vulkan_xlib.h");
+    @cInclude("X11/Xlib.h");
    // @cInclude("vk_mem_alloc.h");
   //  @cInclude("stb_image.h");
    // @cInclude("cimgui.h");

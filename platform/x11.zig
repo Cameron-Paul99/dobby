@@ -1,7 +1,5 @@
 const std = @import("std");
-const c = @cImport({
-    @cInclude("X11/Xlib.h");
-});
+const c = @import("../rendering/clibs.zig");
 
 pub const WindowBackend = enum {
     x11,
@@ -19,6 +17,7 @@ pub const Window = struct {
     screen_width: c_int,
     screen_height: c_int,
     window: c.Window,
+    alloc_cb: ?*c.VkAllocationCallbacks = undefined,
 
     pub fn init(width: c_int, height: c_int) !Window {
 
