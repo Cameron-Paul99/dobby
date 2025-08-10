@@ -4,7 +4,7 @@ const c = @import("clibs.zig");
 const target = @import("builtin").target;
 const log = std.log.scoped(.instance);
 
-const validation_enabled = true;
+pub const validation_enabled = true;
 
 const validation_layers = &[_][*:0]const u8{
     "VK_LAYER_KHRONOS_validation",

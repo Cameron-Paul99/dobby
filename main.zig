@@ -12,7 +12,7 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    var vulkanRenderer = try renderer.Renderer.init(&allocator, &window);
+    var vulkanRenderer = try renderer.Renderer.init(allocator, &window);
     defer vulkanRenderer.deinit();
 
     while (true){

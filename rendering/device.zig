@@ -20,12 +20,90 @@ pub const PhysicalDeviceSelectionCriteria = enum {
 pub const Device = struct {
     
     handle: c.VkDevice = null,
-    graphicsQueueFamily: c.VkQueue = null,
-    presentQueueFamily: c.VkQueue = null,
-    computeQueueFamily: c.VkQueue = null,
-    transferQueueFamily: c.VkQueue = null,
-    sparseBindingQueueFamily: c.VkQueue = null,
+    graphicsQueue: c.VkQueue = null,
+    presentQueue: c.VkQueue = null,
+    computeQueue: c.VkQueue = null,
+    transferQueue: c.VkQueue = null,
+    sparseBindingQueue: c.VkQueue = null,
+    physicalDevice: PhysicalDevice,
+    features: c.VkPhysicalDeviceFeatures = undefined,
+    alloc_cb: ?*const c.VkAllocationCallbacks = null,
+    // Optional
+    pnext: ?*const anyopaque = null,
 
+    pub fn create(self: *Device , instance: inst.Instance, allocator: std.mem.Allocator) !Device{
+        
+        _ = instance;
+
+        var arenaState = std.heap.ArenaAllocator.init(allocator);
+        defer arenaState.deinit();
+        const arena = arenaState.allocator();
+
+        var queueCreateInfos = std.ArrayListUnmanaged(c.VkDeviceQueueCreateInfo){};
+        const queuePriorities: f32 = 1.0;
+
+        var queueFamilySet = std.AutoArrayHashMapUnmanaged(u32, void){};
+
+        try queueFamilySet.put(arena, self.physicalDevice.graphicsQueueFamily, {});
+        try queueFamilySet.put(arena, self.physicalDevice.presentQueueFamily, {});
+        try queueFamilySet.put(arena, self.physicalDevice.computeQueueFamily, {});
+        try queueFamilySet.put(arena, self.physicalDevice.transferQueueFamily, {});
+
+        var qIter = queueFamilySet.iterator();
+        try queueCreateInfos.ensureTotalCapacity(arena, queueFamilySet.count());
+
+        while (qIter.next()) |qfi| {
+            
+            try queueCreateInfos.append(arena, std.mem.zeroInit(c.VkDeviceQueueCreateInfo, .{
+                .sType = c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+                .queueFamilyIndex = qfi.key_ptr.*,
+                .queueCount = 1,
+                .pQueuePriorities = &queuePriorities,
+            }));
+        }
+
+        const deviceExtensions: []const [*c]const u8 = &.{
+            "VK_KHR_swapchain",
+        };
+
+        const deviceInfo = std.mem.zeroInit(c.VkDeviceCreateInfo, .{
+            .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+            .pNext = self.pnext,
+            .queueCreateInfoCount = @as(u32, @intCast(queueCreateInfos.items.len)),
+            .pQueueCreateInfos = queueCreateInfos.items.ptr,
+            .enabledLayerCount = 0,
+            .ppEnabledLayerNames = null,
+            .enabledExtensionCount = @as(u32, @intCast(deviceExtensions.len)),
+            .ppEnabledExtensionNames = deviceExtensions.ptr,
+            .pEnabledFeatures = &self.features,
+        });
+
+        var device: c.VkDevice = undefined;
+        try inst.check_vk(c.vkCreateDevice(self.physicalDevice.handle, &deviceInfo, self.alloc_cb, &device));
+
+        var graphics_queue: c.VkQueue = undefined;
+        c.vkGetDeviceQueue(device, self.physicalDevice.graphicsQueueFamily, 0, &graphics_queue);
+
+        var present_queue: c.VkQueue = undefined;
+        c.vkGetDeviceQueue(device, self.physicalDevice.presentQueueFamily, 0, &present_queue);
+
+        var compute_queue: c.VkQueue = undefined;
+        c.vkGetDeviceQueue(device, self.physicalDevice.computeQueueFamily, 0, &compute_queue);
+
+        var transfer_queue: c.VkQueue = undefined;
+        c.vkGetDeviceQueue(device, self.physicalDevice.transferQueueFamily, 0, &transfer_queue);
+
+        var res = self.*;
+    
+        res.handle = device;
+        res.graphicsQueue = graphics_queue;
+        res.presentQueue = present_queue;
+        res.computeQueue = compute_queue;
+        res.transferQueue = transfer_queue;
+        
+        return res;
+
+    }
 };
 
 
