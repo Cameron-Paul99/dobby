@@ -191,7 +191,8 @@ fn defaultDebugCallback(
     log.err("[{s}][{s}] Message:\n  {s}", .{ severity_str, type_str, message });
 
     if (severity >= c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-        @panic("Unrecoverable Vulkan error.");
+       // @panic("Unrecoverable Vulkan error.");
+       return c.VK_FALSE;
     }
 
     return c.VK_FALSE;

@@ -153,7 +153,8 @@ pub const PhysicalDevice = struct {
         var surface: c.VkSurfaceKHR = undefined;
 
         try inst.check_vk(c.vkCreateXlibSurfaceKHR(instance.handle, &ci, window.alloc_cb, &surface));
-        
+        log.info("surface handle = {x}", .{@intFromPtr(surface)});
+
         var suitablePhysicalDevice : ?PhysicalDevice = null;
 
         for (physicalDevices) |device| {
@@ -181,10 +182,19 @@ pub const PhysicalDevice = struct {
             log.err("No suitable physical device found.", .{});
             return error.vulkan_no_suitable_physical_device;
         }
+        if (suitablePhysicalDevice) |*sd| {
+            
+            sd.surface = surface;
+
+        }
+
         const res = suitablePhysicalDevice.?;
 
         const device_name = @as([*:0]const u8, @ptrCast(@alignCast(res.properties.deviceName[0..])));
         log.info("Selected physical device: {s}", .{ device_name });
+
+        var caps: c.VkSurfaceCapabilitiesKHR = undefined;
+        try inst.check_vk(c.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(res.handle, surface, &caps));
 
         return res;
 
