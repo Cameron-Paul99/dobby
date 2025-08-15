@@ -31,7 +31,7 @@ pub const Device = struct {
     // Optional
     pnext: ?*const anyopaque = null,
 
-    pub fn create(self: *Device , instance: inst.Instance, allocator: std.mem.Allocator) !Device{
+    pub fn init(self: *Device , instance: inst.Instance, allocator: std.mem.Allocator) !void{
         
         _ = instance;
 
@@ -78,30 +78,12 @@ pub const Device = struct {
             .pEnabledFeatures = &self.features,
         });
 
-        var device: c.VkDevice = undefined;
-        try inst.check_vk(c.vkCreateDevice(self.physicalDevice.handle, &deviceInfo, self.alloc_cb, &device));
+        try inst.check_vk(c.vkCreateDevice(self.physicalDevice.handle, &deviceInfo, self.alloc_cb, &self.handle));
 
-        var graphics_queue: c.VkQueue = undefined;
-        c.vkGetDeviceQueue(device, self.physicalDevice.graphicsQueueFamily, 0, &graphics_queue);
-
-        var present_queue: c.VkQueue = undefined;
-        c.vkGetDeviceQueue(device, self.physicalDevice.presentQueueFamily, 0, &present_queue);
-
-        var compute_queue: c.VkQueue = undefined;
-        c.vkGetDeviceQueue(device, self.physicalDevice.computeQueueFamily, 0, &compute_queue);
-
-        var transfer_queue: c.VkQueue = undefined;
-        c.vkGetDeviceQueue(device, self.physicalDevice.transferQueueFamily, 0, &transfer_queue);
-
-        var res = self.*;
-    
-        res.handle = device;
-        res.graphicsQueue = graphics_queue;
-        res.presentQueue = present_queue;
-        res.computeQueue = compute_queue;
-        res.transferQueue = transfer_queue;
-        
-        return res;
+        c.vkGetDeviceQueue(self.handle, self.physicalDevice.graphicsQueueFamily, 0, &self.graphicsQueue);
+        c.vkGetDeviceQueue(self.handle, self.physicalDevice.presentQueueFamily, 0, &self.presentQueue);
+        c.vkGetDeviceQueue(self.handle, self.physicalDevice.computeQueueFamily, 0, &self.computeQueue);
+        c.vkGetDeviceQueue(self.handle, self.physicalDevice.transferQueueFamily, 0, &self.transferQueue);      
 
     }
 };
@@ -121,7 +103,7 @@ pub const PhysicalDevice = struct {
     criteria: PhysicalDeviceSelectionCriteria = .PreferDiscrete,
 
   
-    pub fn create(self: *PhysicalDevice ,instance: inst.Instance, allocator: std.mem.Allocator, window: *wind.Window ) !PhysicalDevice{
+    pub fn init(self: *PhysicalDevice ,instance: inst.Instance, allocator: std.mem.Allocator, window: *wind.Window ) !void{
         
         var physicalDeviceCount: u32 = undefined;
 
@@ -182,21 +164,15 @@ pub const PhysicalDevice = struct {
             log.err("No suitable physical device found.", .{});
             return error.vulkan_no_suitable_physical_device;
         }
-        if (suitablePhysicalDevice) |*sd| {
-            
-            sd.surface = surface;
 
+        if (suitablePhysicalDevice) |*sd| {    
+            sd.surface = surface;
         }
 
-        const res = suitablePhysicalDevice.?;
+        self.* = suitablePhysicalDevice.?;
 
-        const device_name = @as([*:0]const u8, @ptrCast(@alignCast(res.properties.deviceName[0..])));
+        const device_name = @as([*:0]const u8, @ptrCast(@alignCast(self.properties.deviceName[0..])));
         log.info("Selected physical device: {s}", .{ device_name });
-
-        var caps: c.VkSurfaceCapabilitiesKHR = undefined;
-        try inst.check_vk(c.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(res.handle, surface, &caps));
-
-        return res;
 
     }
 
@@ -333,16 +309,16 @@ pub const Swapchain = struct {
     windowHeight: u32 = 0,
     alloc_cb: ?*c.VkAllocationCallbacks = null,
 
-    pub fn create(self: *Swapchain, allocator: std.mem.Allocator, window: *wind.Window) !Swapchain{
+    pub fn init(self: *Swapchain, allocator: std.mem.Allocator, window: *wind.Window) !void{
 
         _ = window;
         
         const supportInfo = try SwapchainSupportInfo.init(allocator, self.physicalDevice, self.surface);
         defer supportInfo.deinit(allocator);
 
-        const format = pick_swapchain_format(supportInfo.formats);
+        self.format = pick_swapchain_format(supportInfo.formats);
         const presentMode = self.pick_swapchain_present_mode(supportInfo.present_modes);
-        const extent = self.make_swapchain_extent(supportInfo.capabilities);
+        self.extent = self.make_swapchain_extent(supportInfo.capabilities);
 
         const imageCount = blk: {
             const desiredCount = supportInfo.capabilities.minImageCount + 1;
@@ -358,9 +334,9 @@ pub const Swapchain = struct {
             .sType = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
             .surface = self.surface,
             .minImageCount = imageCount,
-            .imageFormat = format,
+            .imageFormat = self.format,
             .imageColorSpace = c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-            .imageExtent = extent,
+            .imageExtent = self.extent,
             .imageArrayLayers = 1,
             .imageUsage = c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
             .preTransform = supportInfo.capabilities.currentTransform,
@@ -387,41 +363,24 @@ pub const Swapchain = struct {
 
         }
 
-        var swapchain: c.VkSwapchainKHR = undefined;
-        try inst.check_vk(c.vkCreateSwapchainKHR(self.device, &swapchainInfo, self.alloc_cb, &swapchain));
-        errdefer c.vkDestroySwapchainKHR(self.device, swapchain, self.alloc_cb);
+               try inst.check_vk(c.vkCreateSwapchainKHR(self.device, &swapchainInfo, self.alloc_cb, &self.handle));
+        errdefer c.vkDestroySwapchainKHR(self.device, self.handle, self.alloc_cb);
         log.info("Created vulkan swapchain.", .{});
 
         // Try and fetch the images from the swapchain
         var swapchainImageCount: u32 = undefined;
-        try inst.check_vk(c.vkGetSwapchainImagesKHR(self.device, swapchain, &swapchainImageCount, null));
-        const swapchainImages = try allocator.alloc(c.VkImage, swapchainImageCount);
-        errdefer allocator.free(swapchainImages);
-        try inst.check_vk(c.vkGetSwapchainImagesKHR(self.device, swapchain, &swapchainImageCount, swapchainImages.ptr));
+        try inst.check_vk(c.vkGetSwapchainImagesKHR(self.device, self.handle, &swapchainImageCount, null));
+        self.images = try allocator.alloc(c.VkImage, swapchainImageCount);
+        errdefer allocator.free(self.images);
+        try inst.check_vk(c.vkGetSwapchainImagesKHR(self.device, self.handle, &swapchainImageCount, self.images.ptr));
 
         // Create image views for the swapchain images
-        const swapchainImageViews = try allocator.alloc(c.VkImageView, swapchainImageCount);
-        errdefer allocator.free(swapchainImageViews);
+        self.imageViews = try allocator.alloc(c.VkImageView, swapchainImageCount);
+        errdefer allocator.free(self.imageViews);
 
-        for (swapchainImages, swapchainImageViews) |image, *view| {   
-            view.* = try create_image_view(self.device, image, format, c.VK_IMAGE_ASPECT_COLOR_BIT, self.alloc_cb);
+        for (self.images, self.imageViews) |image, *view| {   
+            view.* = try create_image_view(self.device, image, self.format, c.VK_IMAGE_ASPECT_COLOR_BIT, self.alloc_cb);
         }
-
-        const sc =  Swapchain{
-            .handle = swapchain,
-            .images = swapchainImages,
-            .imageViews = swapchainImageViews,
-            .format = format,
-            .extent = extent,
-            .physicalDevice = self.physicalDevice,
-            .graphicsQueueFamily = self.graphicsQueueFamily,
-            .presentQueueFamily = self.presentQueueFamily,
-            .device = self.device,
-            .surface = self.surface,
-
-        };
-
-        return sc;
         
     }
 
