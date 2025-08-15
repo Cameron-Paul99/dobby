@@ -13,6 +13,7 @@ pub const Renderer = struct {
     pd: device.PhysicalDevice,
     dev: device.Device,
     window: *wind.Window,
+    swapchain: device.Swapchain,
     //pipeline: pipeline.Pipeline,
 
     pub fn init(allocator:std.mem.Allocator, window: *wind.Window) !Renderer{
@@ -31,6 +32,22 @@ pub const Renderer = struct {
 
            const newDevice = try dev.create(inst, allocator);
 
+           var sc: device.Swapchain = device.Swapchain{
+               .physicalDevice = newPD.handle,
+               .graphicsQueueFamily = newPD.graphicsQueueFamily,
+               .presentQueueFamily = newPD.presentQueueFamily,
+               .device = newDevice.handle,
+               .surface = newPD.surface,
+               .oldSwapchain = null,
+               .vsync = true,
+               .windowWidth = @intCast(window.screen_width),
+               .windowHeight = @intCast(window.screen_height),
+               .alloc_cb = vk_alloc_cbs,
+                
+           };
+
+           const swapchain = try sc.create(allocator, window);
+
            
             //pip = try pipeline.create( inst , dev, allocator),
 
@@ -42,6 +59,7 @@ pub const Renderer = struct {
                 .pd = newPD ,
                 .window = window,
                 .dev = newDevice,
+                .swapchain = swapchain,
 
             }; //.device = dev, .pipeline = pip};
 
