@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("../rendering/clibs.zig");
+const c = @import("../rendering/clibs.zig").c;
 
 pub const WindowBackend = enum {
     x11,

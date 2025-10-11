@@ -17,7 +17,7 @@ pub fn main() !void {
 
     while (true){
         window.pollEvents();
-        std.time.sleep(16 * std.time.ns_per_ms);
+        std.Thread.sleep(16 * std.time.ns_per_ms);
     }
 
     window.deinit();

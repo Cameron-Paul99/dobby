@@ -1,6 +1,6 @@
 const std = @import("std");
 const window = @import("../platform/x11.zig");
-const c = @import("clibs.zig");
+const c = @import("clibs.zig").c;
 const target = @import("builtin").target;
 const log = std.log.scoped(.instance);
 
@@ -167,7 +167,7 @@ fn defaultDebugCallback(
     msg_type: c.VkDebugUtilsMessageTypeFlagsEXT,
     callback_data: ?*const c.VkDebugUtilsMessengerCallbackDataEXT,
     user_data: ?*anyopaque,
-) callconv(.C) c.VkBool32 {
+) callconv(.c) c.VkBool32 {
 
     _ = user_data;
 

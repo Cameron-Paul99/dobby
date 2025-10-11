@@ -1,4 +1,4 @@
-pub usingnamespace @cImport({
+pub const c = @cImport({
     @cDefine("VK_USE_PLATFORM_XLIB_KHR", "1");
     @cInclude("vulkan/vulkan.h");
     @cInclude("vulkan/vulkan_xlib.h");

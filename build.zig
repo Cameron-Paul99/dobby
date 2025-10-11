@@ -6,9 +6,12 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "dobby",
-        .root_source_file = .{ .cwd_relative = "main.zig" },
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"), // or "src/main.zig"
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
     });
 
     // Enable linking with libc so we can use @cImport and system headers

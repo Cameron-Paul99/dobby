@@ -1,4 +1,4 @@
-const c = @import("clibs.zig");
+const c = @import("clibs.zig").c;
 const std = @import("std");
 const target = @import("builtin").target;
 const inst = @import("instance.zig");

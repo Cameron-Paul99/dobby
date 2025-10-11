@@ -1,5 +1,5 @@
 
-const c = @import("clibs.zig");
+const c = @import("clibs.zig").c;
 const vulkanInstance = @import("instance.zig");
 const std = @import("std");
 const wind = @import("../platform/x11.zig");
