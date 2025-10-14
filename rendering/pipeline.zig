@@ -62,6 +62,13 @@ const PipelineBuilder = struct {
         return pipeline;
 
     }
+    
+    //TODO: load spv for hot reload of shaders
+    pub fn LoadSpv(alloc: *std.mem.Allocator, path: [] const u8){
+
+    
+    }
+
 
     pub fn InitPipelines(self: *Self) void{
         
