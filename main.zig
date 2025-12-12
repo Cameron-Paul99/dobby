@@ -1,11 +1,11 @@
 const std = @import("std");
 const print = std.debug.print;
-const x11 = @import("platform/x11.zig");
-const renderer = @import("rendering/renderer.zig");
+const sdl = @import("sdl.zig");
+const renderer = @import("renderer.zig");
 
 pub fn main() !void {
     
-    var window = try x11.Window.init(800, 600);
+    var window = try sdl.Window.init(800, 600);
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -15,7 +15,7 @@ pub fn main() !void {
     var vulkanRenderer = try renderer.Renderer.init(allocator, &window);
     defer vulkanRenderer.deinit();
 
-    while (true){
+    while (!window.should_close){
         window.pollEvents();
         std.Thread.sleep(16 * std.time.ns_per_ms);
     }

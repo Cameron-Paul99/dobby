@@ -2,7 +2,7 @@ const c = @import("clibs.zig").c;
 const std = @import("std");
 const target = @import("builtin").target;
 const inst = @import("instance.zig");
-const wind = @import("../platform/x11.zig");
+const wind = @import("sdl.zig");
 const log = std.log.scoped(.device);
 
 const INVALID = std.math.maxInt(u32);
@@ -101,7 +101,7 @@ pub const PhysicalDevice = struct {
     required_extensions: []const [*c]const u8 = &.{},
     surface: c.VkSurfaceKHR = undefined,
     criteria: PhysicalDeviceSelectionCriteria = .PreferDiscrete,
-
+    alloc_cb: ?*const c.VkAllocationCallbacks = null,
   
     pub fn init(self: *PhysicalDevice ,instance: inst.Instance, allocator: std.mem.Allocator, window: *wind.Window ) !void{
         
@@ -126,17 +126,16 @@ pub const PhysicalDevice = struct {
         try inst.check_vk(c.vkEnumeratePhysicalDevices(instance.handle, &physicalDeviceCount, physicalDevices.ptr));
 
         //Surface
-        var ci = std.mem.zeroInit(c.VkXlibSurfaceCreateInfoKHR, .{
-            .sType = c.VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
-            .dpy = window.display,
-            .window = window.window,
-        });
-
         var surface: c.VkSurfaceKHR = undefined;
 
-        try inst.check_vk(c.vkCreateXlibSurfaceKHR(instance.handle, &ci, window.alloc_cb, &surface));
+        if (!c.SDL_Vulkan_CreateSurface(window.window, instance.handle, self.alloc_cb ,&surface)) {
+            std.log.err("SDL_Vulkan_CreateSurface failed: {s}", .{c.SDL_GetError()});
+            return error.FailedToCreateSurface;
+        }
+
         log.info("surface handle = {x}", .{@intFromPtr(surface)});
 
+        // Suitable Device
         var suitablePhysicalDevice : ?PhysicalDevice = null;
 
         for (physicalDevices) |device| {

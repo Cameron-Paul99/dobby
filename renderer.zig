@@ -2,7 +2,7 @@
 const c = @import("clibs.zig").c;
 const vulkanInstance = @import("instance.zig");
 const std = @import("std");
-const wind = @import("../platform/x11.zig");
+const wind = @import("sdl.zig");
 const dev = @import("device.zig");
 
 const vk_alloc_cbs: ?*c.VkAllocationCallbacks = null;
@@ -20,7 +20,7 @@ pub const Renderer = struct {
        
           //_ = allocator;
 
-           const inst = try vulkanInstance.Instance.create( null, window);
+           const inst = try vulkanInstance.Instance.create( null);
 
            var pd: dev.PhysicalDevice = dev.PhysicalDevice{};
            try pd.init(inst, std.heap.page_allocator, window);
