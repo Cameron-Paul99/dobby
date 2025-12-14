@@ -42,13 +42,25 @@ pub const PhysicalDevice = struct {
     criteria: PhysicalDeviceSelectionCriteria = .PreferDiscrete,
 }
 
-const SwapchainEntry = struct {
+pub const Swapchain = struct {
     handle: c.VkSwapchainKHR,
     images: []c.VkImage,
     views: []c.VkImageView,
     extent: c.VkExtent2D,
     format: c.VkFormat,
+    surface: c.VkSurfaceKHR,
+    old_swapchain: c.VkSwapchainKHR,
+    window_width: u32 = 0,
+    window_height: u32 = 0,
+    swapchain_config = SwapchainConfig,
 };
+
+pub const SwapchainConfig = struct {
+
+    vsync: bool = false,
+    triple_buffer: bool = false,
+
+}
 
 
 
@@ -57,13 +69,27 @@ pub const Renderer = struct {
     instance: Instance,
     device: Device,
     physical_device: PhysicalDevice,
-    swapchain: []SwapchainEntry,
+    game_swapchain: Swapchain,
+    editor_swapchain: Swapchain,
     capabilities: c.VkSurfaceCapabilitiesKHR = undefined,
     formats: []c.VkSurfaceFormatKHR = &.{},
     present_modes: []c.VkPresentModeKHR = &.{},
     alloc_cb: ?*c.VkAllocationCallbacks = null,
 
-    pub fn create(self: *Renderer, enable_debug: bool, allocator: std.mem.Allocator) !Renderer {
+    pub fn create(enable_debug: bool, allocator: std.mem.Allocator) !Renderer {
+
+        // First INIT
+        var self = Renderer{
+            .instance = .{}, 
+            .device = .{}, 
+            .physical_device = .{}, 
+            .game_swapchain = .{}, 
+            .editor_swapchain = .{},
+            .capabilities = undefined,
+            .formats = &.{},
+            .present_modes: &.{},
+            .alloc_cb = null,
+        }
 
         
         // Allocation of Arena State
@@ -219,7 +245,6 @@ pub const Renderer = struct {
         log.info("Selected physical device: {s}", .{ device_name });
 
 
-        
         // Logical Device
         var queue_create_infos = std.ArrayListUnmanaged(c.VkDeviceQueueCreateInfo){};
         const queue_priorities: f32 = 1.0;
@@ -261,7 +286,99 @@ pub const Renderer = struct {
         c.vkGetDeviceQueue(self.device.handle, self.physical_device.graphics_queue_family, 0, &self.device.graphics_queue);
         c.vkGetDeviceQueue(self.device.handle, self.physical_device.present_queue_family, 0, &self.device.present_queue);
         c.vkGetDeviceQueue(self.device.handle, self.physical_device.compute_queue_family, 0, &self.device.compute_queue);
-        c.vkGetDeviceQueue(self.device.handle, self.physical_device.transfer_queue_family, 0, &self.device.transfer_queue); 
+        c.vkGetDeviceQueue(self.device.handle, self.physical_device.transfer_queue_family, 0, &self.device.transfer_queue);
+
+        
+
+
+
+        return self;
+    }
+    
+    // The Creation of a Swapchain
+    fn CreateSwapchain(self: *Renderer, allocator: std.mem.Allocator, surface: c.VkSurfaceKHR) !Swapchain{
+        
+        var swapchain = Swapchain {
+            .handle = null,
+            .images = &.{},
+            .views = &.{},
+            .extent = .{
+                .width = 0,
+                .height = 0,
+            },
+            .format = c.VK_FORMAT_UNDEFINED,
+            .surface = null,
+            .old_swapchain = null,
+            .window_width = 0,
+            .window_height = 0,
+            .swapchain_config = .{},
+        }
+
+        const support_info = try helper.SwapchainSupportInfo.init(allocator, self.physical_device.handle, self.physical_device.surface);
+        defer support_info.deinit(allocator);
+
+        swapchain.format = helper.PickSwapchainFormat(support_info.formats);
+        
+        const present_mode = helper.PickSwapchainPresentMode(swapchain.swapchain_config, support_info);
+
+        swapchain.extent = helper.MakeSwapchainExtent(swapchain, support_info.capabilities);
+
+        const image_count = blk: {
+
+            const desired_count = support_info.capabilities.minImageCount + 1;
+
+            if (support_info.capabilities.maxImageCount > 0){
+                break :blk @min(desired_count, support_info.capabilities.maxImageCount);
+            }
+            break :blk desired_count;
+            
+        };
+
+        var swapchain_info = std.mem.zeroInit(c.VkSwapchainCreateInfoKHR, .{
+                .sType = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+                .surface = self.physical_device.surface,
+                .minImageCount = image_count,
+                .imageFormat = swapchain.format,
+                .imageColorSpace = c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+                .imageExtent = swapchain.extent,
+                .imageArrayLayers = 1,
+                .imageUsage = c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT_KHR,
+                .preTransform = support_info.capabilities.currentTransform,
+                .compositeAlpha = c.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+                .clipped = c.VK_TRUE,
+                .oldSwapchain = swapchain.old_swapchain,
+        });
+
+        if (self.physical_device.graphics_queue_family != self.physical_device.present_queue_family){
+            
+            const queue_family_indices: []const u32 = &.{
+                self.physical_device.graphics_queue_family,
+                self.physical_device.present_queue_family,
+            };
+
+            swapchain_info.imageSharingMode = c.VK_SHARING_MODE_CONCURRENT;
+            swapchain_info.queueFamilyIndexCount = 2;
+            swapchain_info.pQueueFamilyIndices = queue_family_indices;
+
+        }else{
+
+            swapchain_info.imageSharingMode = c.VK_SHARING_MODE_EXCLUSIVE;
+
+        }
+
+        try helper.check_vk(c.vkCreateSwapchainKHR(self.device.handle, swapchain_info, self.alloc_cb, &swapchain.handle));
+        errdefer c.vkDestroySwapchainKHR(self.device.handle, swapchain.handle, self.alloc_cb);
+
+        log.info("Created Vulkan Swapchain!!", .{});
+
+        var swapchain_image_count: u32 = undefined;
+        
+
+
+
+
+
+
 
 
     }

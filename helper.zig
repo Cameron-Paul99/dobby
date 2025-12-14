@@ -1,9 +1,46 @@
 const std = @import("std");
 const c = @import("clibs.zig");
 const sdl = @import("sdl.zig");
-const gpu_context = @import("gpu_context.zig"); 
+const gpu_context = @import("gpu_context.zig");
 
-pub fn loadProcAddr(inst: *Instance, comptime Fn: type, name: [*c]const u8) Fn {
+
+pub const SwapchainSupportInfo = struct {
+    capabilities: c.VkSurfaceCapabilitiesKHR = undefined,
+    formats: []c.VkSurfaceFormatKHR = &.{},
+    present_modes: []c.VkPresentModeKHR = &.{},
+
+
+    pub fn init(allocator: std.mem.Allocator, device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR) !SwapchainSupportInfo{
+
+        var capabilities: c.VkSurfaceCapabilitiesKHR = undefined;
+        try inst.check_vk(c.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &capabilities));
+
+        var format_count: u32 = undefined;
+        try inst.check_vk(c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, null));
+        const formats = try allocator.alloc(c.VkSurfaceFormatKHR, format_count);
+        try inst.check_vk(c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, formats.ptr));
+
+        var present_mode_count: u32 = undefined;
+        try inst.check_vk(c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, null));
+        const present_modes = try allocator.alloc(c.VkPresentModeKHR, present_mode_count);
+        try inst.check_vk(c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, present_modes.ptr));
+        
+        return .{  
+            .capabilities = capabilities,
+            .formats = formats,
+            .present_modes = present_modes,
+
+        };
+    }
+
+    fn deinit(self: *const SwapchainSupportInfo, allocator: std.mem.Allocator) void {
+        allocator.free(self.formats);
+        allocator.free(self.present_modes);
+    }
+    
+};
+
+pub fn loadProcAddr(inst: *gpu_context.Instance, comptime Fn: type, name: [*c]const u8) Fn {
 
     const func = vkGetInstanceProcAddr(inst.handle, name);
     if (func) |f| return @ptrCast(f);
@@ -11,9 +48,9 @@ pub fn loadProcAddr(inst: *Instance, comptime Fn: type, name: [*c]const u8) Fn {
 
 }
 
-pub fn createDebugMessenger(inst: *Instance) !void {
+pub fn createDebugMessenger(inst: *gpu_context.Renderer) !void {
 
-    const create_fn_opt = inst.loadProcAddr(
+    const create_fn_opt = loadProcAddr(
         c.PFN_vkCreateDebugUtilsMessengerEXT,
         "vkCreateDebugUtilsMessengerEXT",
     );
@@ -36,20 +73,20 @@ pub fn createDebugMessenger(inst: *Instance) !void {
     });
 
     var debug_messenger: c.VkDebugUtilsMessengerEXT = undefined;
-    try check_vk(create_fn(inst.handle, &create_info, inst.alloc_cb, &debug_messenger));
+    try check_vk(create_fn(inst.instance.handle, &create_info, inst.alloc_cb, &debug_messenger));
 
-    inst.debug_messenger = debug_messenger;
+    inst.instance.debug_messenger = debug_messenger;
     log.info("Created Vulkan debug messenger.", .{});
 
 }
 
-pub fn destroyDebugMessenger(inst: *Instance) void {
+pub fn destroyDebugMessenger(inst: *gpu_context.Renderer) void {
 
-    if (inst.debug_messenger) |dm| {
-        const destroy_fn = inst.loadProcAddr(
+    if (inst.instance.debug_messenger) |dm| {
+        const destroy_fn = loadProcAddr(
             c.PFN_vkDestroyDebugUtilsMessengerEXT,
             "vkDestroyDebugUtilsMessengerEXT");
-        destroy_fn(inst.handle, dm, inst.alloc_cb);
+        destroy_fn(inst.instance.handle, dm, inst.alloc_cb);
     }
 
 }
@@ -100,7 +137,7 @@ extern fn vkGetInstanceProcAddr(
 ) ?*const anyopaque;
 
 
-pub fn MakePhysicalDevice(allocator: std.mem.Allocator, device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR,) !PhysicalDevice{
+pub fn MakePhysicalDevice(allocator: std.mem.Allocator, device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR) !gpu_context.PhysicalDevice{
 
     // ---- Properties
     var props: c.VkPhysicalDeviceProperties = undefined;
@@ -116,7 +153,7 @@ pub fn MakePhysicalDevice(allocator: std.mem.Allocator, device: c.VkPhysicalDevi
     c.vkGetPhysicalDeviceQueueFamilyProperties(device, &qcount, qprops.ptr);
 
         // ---- Build result with sane defaults
-    var pd = PhysicalDevice{
+    var pd = gpu_context.PhysicalDevice{
         .handle = device,
         .properties = props,
         .graphicsQueueFamily = INVALID,
@@ -130,19 +167,19 @@ pub fn MakePhysicalDevice(allocator: std.mem.Allocator, device: c.VkPhysicalDevi
 
         const idx: u32 = @intCast(i);
 
-        if (pd.graphicsQueueFamily == INVALID and q.queueFlags & c.VK_QUEUE_GRAPHICS_BIT != 0) 
+        if (pd.graphics_queue_family == INVALID and q.queueFlags & c.VK_QUEUE_GRAPHICS_BIT != 0) 
 
             pd.graphicsQueueFamily = idx;
 
-        if (pd.computeQueueFamily == INVALID and q.queueFlags & c.VK_QUEUE_COMPUTE_BIT != 0)
+        if (pd.compute_queue_family == INVALID and q.queueFlags & c.VK_QUEUE_COMPUTE_BIT != 0)
 
             pd.computeQueueFamily = idx;
 
-        if (pd.transferQueueFamily == INVALID and q.queueFlags & c.VK_QUEUE_TRANSFER_BIT != 0)
+        if (pd.transfer_queue_family == INVALID and q.queueFlags & c.VK_QUEUE_TRANSFER_BIT != 0)
 
             pd.transferQueueFamily = idx;
 
-        if (pd.presentQueueFamily == INVALID) {
+        if (pd.present_queue_family == INVALID) {
 
             var support: c.VkBool32 = 0;
 
@@ -209,3 +246,65 @@ pub fn IsPhysicalDeviceSuitable(allocator: std.mem.Allocator, device: gpu_contex
     }
 
 };
+
+pub fn PickSwapchainFormat(formats: []const c.VkSurfaceFormatKHR) c.VkFormat{
+
+    for (formats) |format| {
+        if (format.format == c.VK_FORMAT_B8G8R8A8_SRGB and
+            format.colorSpace == c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+        {
+            return format.format;
+        }
+    }
+
+    return formats[0].format;
+
+}
+
+pub fn PickSwapchainPresentMode(swapchain: gpu_context.SwapchainConfig, modes: []const c.VkPresentModeKHR) c.VkPresentModeKHR {
+
+    if (swapchain.vsync == false) {
+            // Prefer immediate mode if present.
+        for (modes) |mode| {
+            if (mode == c.VK_PRESENT_MODE_IMMEDIATE_KHR) {
+                return mode;
+            }
+        }
+        log.info("Immediate present mode is not possible. Falling back to vsync", .{});
+    }
+
+        // Prefer triple buffering if possible.
+    for (modes) |mode| {
+        if (mode == c.VK_PRESENT_MODE_MAILBOX_KHR and swapchain.tripleBuffer) {
+            return mode;
+        }
+    }
+
+    // If nothing else is present, FIFO is guaranteed to be available by the specs.
+    return c.VK_PRESENT_MODE_FIFO_KHR;
+
+}
+
+
+pub fn MakeSwapchainExtent(swapchain: gpu_context.Swapchain ,capabilities: c.VkSurfaceCapabilitiesKHR) c.VkExtent2D {
+
+    if (capabilities.currentExtent.width != std.math.maxInt(u32)) {
+        return capabilities.currentExtent;
+    }
+
+    var extent = c.VkExtent2D{
+        .width = swapchain.windowWidth,
+        .height = swapchain.windowHeight,
+    };
+
+    extent.width = @max(
+        capabilities.minImageExtent.width,
+        @min(capabilities.maxImageExtent.width, extent.width));
+
+    extent.height = @max(
+        capabilities.minImageExtent.height,
+        @min(capabilities.maxImageExtent.height, extent.height));
+
+    return extent;    
+
+}
