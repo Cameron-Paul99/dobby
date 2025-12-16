@@ -1,7 +1,7 @@
 const std = @import("std");
 const c = @import("clibs.zig").c;
 const sdl = @import("sdl.zig");
-const gpu_context = @import("gpu_context.zig");
+const gpu_context = @import("vulkan.zig");
 const log = std.log;
 
 pub const INVALID = std.math.maxInt(u32);

@@ -1,7 +1,7 @@
 const std = @import("std");
 const print = std.debug.print;
 const sdl = @import("sdl.zig");
-const vulkan = @import("gpu_context.zig");
+const vulkan = @import("vulkan.zig");
 //const renderer = @import("renderer.zig");
 
 pub fn main() !void {
