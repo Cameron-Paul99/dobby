@@ -1,19 +1,20 @@
 const std = @import("std");
 const print = std.debug.print;
 const sdl = @import("sdl.zig");
-const renderer = @import("renderer.zig");
+const vulkan = @import("gpu_context.zig");
+//const renderer = @import("renderer.zig");
 
 pub fn main() !void {
     
     var window = try sdl.Window.init(800, 600);
-
+    
+    // Allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-
     const allocator = gpa.allocator();
 
-    var vulkanRenderer = try renderer.Renderer.init(allocator, &window);
-    defer vulkanRenderer.deinit();
+    var renderer = try vulkan.Renderer.create(true, allocator, &window);
+    defer renderer.deinit(allocator);
 
     while (!window.should_close){
         window.pollEvents();

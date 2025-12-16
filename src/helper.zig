@@ -1,8 +1,10 @@
 const std = @import("std");
-const c = @import("clibs.zig");
+const c = @import("clibs.zig").c;
 const sdl = @import("sdl.zig");
 const gpu_context = @import("gpu_context.zig");
+const log = std.log;
 
+pub const INVALID = std.math.maxInt(u32);
 
 pub const SwapchainSupportInfo = struct {
     capabilities: c.VkSurfaceCapabilitiesKHR = undefined,
@@ -13,17 +15,17 @@ pub const SwapchainSupportInfo = struct {
     pub fn init(allocator: std.mem.Allocator, device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR) !SwapchainSupportInfo{
 
         var capabilities: c.VkSurfaceCapabilitiesKHR = undefined;
-        try inst.check_vk(c.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &capabilities));
+        try check_vk(c.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &capabilities));
 
         var format_count: u32 = undefined;
-        try inst.check_vk(c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, null));
+        try check_vk(c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, null));
         const formats = try allocator.alloc(c.VkSurfaceFormatKHR, format_count);
-        try inst.check_vk(c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, formats.ptr));
+        try check_vk(c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, formats.ptr));
 
         var present_mode_count: u32 = undefined;
-        try inst.check_vk(c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, null));
+        try check_vk(c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, null));
         const present_modes = try allocator.alloc(c.VkPresentModeKHR, present_mode_count);
-        try inst.check_vk(c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, present_modes.ptr));
+        try check_vk(c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, present_modes.ptr));
         
         return .{  
             .capabilities = capabilities,
@@ -33,62 +35,74 @@ pub const SwapchainSupportInfo = struct {
         };
     }
 
-    fn deinit(self: *const SwapchainSupportInfo, allocator: std.mem.Allocator) void {
+   pub fn deinit(self: *const SwapchainSupportInfo, allocator: std.mem.Allocator) void {
         allocator.free(self.formats);
         allocator.free(self.present_modes);
     }
     
 };
 
-pub fn loadProcAddr(inst: *gpu_context.Instance, comptime Fn: type, name: [*c]const u8) Fn {
-
-    const func = vkGetInstanceProcAddr(inst.handle, name);
-    if (func) |f| return @ptrCast(f);
-    @panic("vkGetInstanceProcAddr returned null");
-
+pub fn loadProcAddr(
+    instance: c.VkInstance,
+    comptime Fn: type,
+    name: [*:0]const u8,
+) Fn {
+    const p = c.vkGetInstanceProcAddr(instance, name);
+    if (p == null) return @as(Fn, null);
+    return @as(Fn, @ptrCast(p.?));
 }
 
-pub fn createDebugMessenger(inst: *gpu_context.Renderer) !void {
-
-    const create_fn_opt = loadProcAddr(
+pub fn createDebugMessenger(renderer: *gpu_context.Renderer) !void {
+    const create_fn = loadProcAddr(
+        renderer.instance.handle,
         c.PFN_vkCreateDebugUtilsMessengerEXT,
         "vkCreateDebugUtilsMessengerEXT",
-    );
-
-    const create_fn = create_fn_opt orelse {
+    ) orelse {
         log.err("Failed to load vkCreateDebugUtilsMessengerEXT", .{});
         return error.MissingExtension;
     };
 
     const create_info = std.mem.zeroInit(c.VkDebugUtilsMessengerCreateInfoEXT, .{
         .sType = c.VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-        .messageSeverity = c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+        .pNext = null,
+        .flags = 0,
+        .messageSeverity =
+            c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
             c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
             c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
-        .messageType = c.VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+        .messageType =
+            c.VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
             c.VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
             c.VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-        .pfnUserCallback = defaultDebugCallback,
+        .pfnUserCallback = @as(c.PFN_vkDebugUtilsMessengerCallbackEXT, @ptrCast(&defaultDebugCallback)),
         .pUserData = null,
     });
 
-    var debug_messenger: c.VkDebugUtilsMessengerEXT = undefined;
-    try check_vk(create_fn(inst.instance.handle, &create_info, inst.alloc_cb, &debug_messenger));
+    var debug_messenger: c.VkDebugUtilsMessengerEXT = null;
 
-    inst.instance.debug_messenger = debug_messenger;
+    try check_vk(create_fn(
+        renderer.instance.handle,
+        &create_info,
+        renderer.alloc_cb,
+        &debug_messenger,
+    ));
+
+    renderer.instance.debug_messenger = debug_messenger;
     log.info("Created Vulkan debug messenger.", .{});
-
 }
 
-pub fn destroyDebugMessenger(inst: *gpu_context.Renderer) void {
 
-    if (inst.instance.debug_messenger) |dm| {
-        const destroy_fn = loadProcAddr(
-            c.PFN_vkDestroyDebugUtilsMessengerEXT,
-            "vkDestroyDebugUtilsMessengerEXT");
-        destroy_fn(inst.instance.handle, dm, inst.alloc_cb);
-    }
+pub fn destroyDebugMessenger(renderer: *gpu_context.Renderer) void {
+    const dm = renderer.instance.debug_messenger orelse return;
 
+    const destroy_fn = loadProcAddr(
+        renderer.instance.handle,
+        c.PFN_vkDestroyDebugUtilsMessengerEXT,
+        "vkDestroyDebugUtilsMessengerEXT",
+    ) orelse return;
+
+    destroy_fn(renderer.instance.handle, dm, renderer.alloc_cb);
+    renderer.instance.debug_messenger = null;
 }
 
 pub fn check_vk(result: c.VkResult) !void {
@@ -156,10 +170,10 @@ pub fn MakePhysicalDevice(allocator: std.mem.Allocator, device: c.VkPhysicalDevi
     var pd = gpu_context.PhysicalDevice{
         .handle = device,
         .properties = props,
-        .graphicsQueueFamily = INVALID,
-        .presentQueueFamily  = INVALID,
-        .computeQueueFamily  = INVALID,
-        .transferQueueFamily = INVALID,
+        .graphics_queue_family = INVALID,
+        .present_queue_family  = INVALID,
+        .compute_queue_family  = INVALID,
+        .transfer_queue_family = INVALID,
     };
 
         // ---- Pick first matching families (early-exit when all found)
@@ -169,30 +183,30 @@ pub fn MakePhysicalDevice(allocator: std.mem.Allocator, device: c.VkPhysicalDevi
 
         if (pd.graphics_queue_family == INVALID and q.queueFlags & c.VK_QUEUE_GRAPHICS_BIT != 0) 
 
-            pd.graphicsQueueFamily = idx;
+            pd.graphics_queue_family = idx;
 
         if (pd.compute_queue_family == INVALID and q.queueFlags & c.VK_QUEUE_COMPUTE_BIT != 0)
 
-            pd.computeQueueFamily = idx;
+            pd.compute_queue_family = idx;
 
         if (pd.transfer_queue_family == INVALID and q.queueFlags & c.VK_QUEUE_TRANSFER_BIT != 0)
 
-            pd.transferQueueFamily = idx;
+            pd.transfer_queue_family = idx;
 
         if (pd.present_queue_family == INVALID) {
 
             var support: c.VkBool32 = 0;
 
-            try inst.check_vk(c.vkGetPhysicalDeviceSurfaceSupportKHR(device, idx, surface, &support));
+            try check_vk(c.vkGetPhysicalDeviceSurfaceSupportKHR(device, idx, surface, &support));
 
             if (support == c.VK_TRUE)
-                pd.presentQueueFamily = idx;
+                pd.present_queue_family = idx;
         }
 
-        if (pd.graphicsQueueFamily != INVALID and
-            pd.presentQueueFamily != INVALID and
-            pd.computeQueueFamily != INVALID and
-            pd.transferQueueFamily != INVALID) {
+        if (pd.graphics_queue_family != INVALID and
+            pd.present_queue_family != INVALID and
+            pd.compute_queue_family != INVALID and
+            pd.transfer_queue_family != INVALID) {
             break;
         }  
 
@@ -209,18 +223,18 @@ pub fn IsPhysicalDeviceSuitable(allocator: std.mem.Allocator, device: gpu_contex
             return false;
 
         }
-        if (device.graphicsQueueFamily == INVALID or
-            device.presentQueueFamily == INVALID or
-            device.computeQueueFamily == INVALID or
-            device.transferQueueFamily == INVALID) {
+        if (device.graphics_queue_family == INVALID or
+            device.present_queue_family == INVALID or
+            device.compute_queue_family == INVALID or
+            device.transfer_queue_family == INVALID) {
 
             return false;
 
         }
 
 
-        const swapchain_support = try SwapchainSupportInfo.init(arena, device.handle, surface);
-        defer swapchain_support.deinit(arena);
+        const swapchain_support = try SwapchainSupportInfo.init(allocator, device.handle, surface);
+        defer swapchain_support.deinit(allocator);
         if (swapchain_support.formats.len == 0 or swapchain_support.present_modes.len == 0) {
             return false;
         }
@@ -228,24 +242,24 @@ pub fn IsPhysicalDeviceSuitable(allocator: std.mem.Allocator, device: gpu_contex
         if (required_extensions.len > 0) {
             var device_extension_count: u32 = undefined;
             try check_vk(c.vkEnumerateDeviceExtensionProperties(device.handle, null, &device_extension_count, null));
-            const device_extensions = try arena.alloc(c.VkExtensionProperties, device_extension_count);
+            const device_extensions = try allocator.alloc(c.VkExtensionProperties, device_extension_count);
             try check_vk(c.vkEnumerateDeviceExtensionProperties(device.handle, null, &device_extension_count, device_extensions.ptr));
 
-            _ = blk: for (required_extensions) |req_ext| {
+            for (required_extensions) |req_ext| {
+                var found = false;
                 for (device_extensions) |device_ext| {
                     const device_ext_name: [*c]const u8 = @ptrCast(device_ext.extensionName[0..]);
                     if (std.mem.eql(u8, std.mem.span(req_ext), std.mem.span(device_ext_name))) {
-                        break :blk true;
+                        found = true;
+                        break;
                     }
                 }
-            } else return false;
+                if (!found) return false;
+            }
         }
 
         return true;
-
-    }
-
-};
+}
 
 pub fn PickSwapchainFormat(formats: []const c.VkSurfaceFormatKHR) c.VkFormat{
 
@@ -275,7 +289,7 @@ pub fn PickSwapchainPresentMode(swapchain: gpu_context.SwapchainConfig, modes: [
 
         // Prefer triple buffering if possible.
     for (modes) |mode| {
-        if (mode == c.VK_PRESENT_MODE_MAILBOX_KHR and swapchain.tripleBuffer) {
+        if (mode == c.VK_PRESENT_MODE_MAILBOX_KHR and swapchain.triple_buffer) {
             return mode;
         }
     }
@@ -293,8 +307,8 @@ pub fn MakeSwapchainExtent(swapchain: gpu_context.Swapchain ,capabilities: c.VkS
     }
 
     var extent = c.VkExtent2D{
-        .width = swapchain.windowWidth,
-        .height = swapchain.windowHeight,
+        .width = swapchain.window_width,
+        .height = swapchain.window_height,
     };
 
     extent.width = @max(
@@ -307,4 +321,33 @@ pub fn MakeSwapchainExtent(swapchain: gpu_context.Swapchain ,capabilities: c.VkS
 
     return extent;    
 
+}
+
+pub fn CreateImageView(device: c.VkDevice, image: c.VkImage, format: c.VkFormat, aspect_flags: c.VkImageAspectFlags, alloc_cb: ?*c.VkAllocationCallbacks) !c.VkImageView{
+
+    const view_info = std.mem.zeroInit(c.VkImageViewCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = image,
+        .format = format,
+        .components = .{
+            .r = c.VK_COMPONENT_SWIZZLE_IDENTITY,
+            .g = c.VK_COMPONENT_SWIZZLE_IDENTITY,
+            .b = c.VK_COMPONENT_SWIZZLE_IDENTITY,
+            .a = c.VK_COMPONENT_SWIZZLE_IDENTITY,
+        },
+        .subresourceRange = .{
+            .aspectMask = aspect_flags,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+
+    });
+
+    var image_view: c.VkImageView = undefined;
+    try check_vk(c.vkCreateImageView(device, &view_info, alloc_cb, &image_view));
+
+    return image_view;
+    
 }
