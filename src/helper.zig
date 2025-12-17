@@ -243,6 +243,7 @@ pub fn IsPhysicalDeviceSuitable(allocator: std.mem.Allocator, device: gpu_contex
             var device_extension_count: u32 = undefined;
             try check_vk(c.vkEnumerateDeviceExtensionProperties(device.handle, null, &device_extension_count, null));
             const device_extensions = try allocator.alloc(c.VkExtensionProperties, device_extension_count);
+            defer allocator.free(device_extensions);
             try check_vk(c.vkEnumerateDeviceExtensionProperties(device.handle, null, &device_extension_count, device_extensions.ptr));
 
             for (required_extensions) |req_ext| {
@@ -328,6 +329,7 @@ pub fn CreateImageView(device: c.VkDevice, image: c.VkImage, format: c.VkFormat,
     const view_info = std.mem.zeroInit(c.VkImageViewCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .image = image,
+        .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
         .format = format,
         .components = .{
             .r = c.VK_COMPONENT_SWIZZLE_IDENTITY,

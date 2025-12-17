@@ -1,10 +1,7 @@
 pub const c = @cImport({
-   // @cDefine("VK_USE_PLATFORM_XLIB_KHR", "1");
-    @cDefine("VK_USE_PLATFORM_XLIB_KHR", {});
     @cInclude("SDL3/SDL.h");
     @cInclude("SDL3/SDL_vulkan.h");
     @cInclude("vulkan/vulkan.h");
-    @cInclude("X11/Xlib.h");
 });
 
 

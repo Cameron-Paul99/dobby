@@ -3,7 +3,7 @@ const c = @import("clibs.zig").c;
 
 pub const Window = struct {
 
-    window: *c.SDL_Window,
+    window: ?*c.SDL_Window,
     screen_width: c_int,
     screen_height: c_int,
     alloc_cb: ?*c.VkAllocationCallbacks = null,
@@ -63,10 +63,10 @@ pub const Window = struct {
     }
 
     pub fn deinit(self: *Window) void {
-
-        c.SDL_DestroyWindow(self.window);
-        c.SDL_Quit();
-
+        if (self.window) |w| {
+            c.SDL_DestroyWindow(w);
+            self.window = null;
+        }
     }
 
 };

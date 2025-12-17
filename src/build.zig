@@ -20,7 +20,6 @@ pub fn build(b: *std.Build) !void {
     
     exe.linkSystemLibrary("SDL3");
 
-    exe.linkSystemLibrary("X11");
     exe.linkSystemLibrary(vk_lib_name);
     exe.addIncludePath(.{ .cwd_relative = "thirdparty/sdl3/include" });
 

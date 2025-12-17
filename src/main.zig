@@ -7,6 +7,7 @@ const vulkan = @import("vulkan.zig");
 pub fn main() !void {
     
     var window = try sdl.Window.init(800, 600);
+    defer window.deinit();
     
     // Allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
