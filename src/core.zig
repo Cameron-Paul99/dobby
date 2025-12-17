@@ -3,6 +3,7 @@ const c = @import("clibs.zig").c;
 const sdl = @import("sdl.zig");
 const helper = @import("helper.zig");
 const target = @import("builtin").target;
+const swapchain = @import("swapchain_bundle.zig");
 
 pub const validation_enabled = true;
 const is_macos = target.os.tag == .macos;
@@ -48,42 +49,24 @@ pub const PhysicalDevice = struct {
     criteria: PhysicalDeviceSelectionCriteria = .PreferDiscrete,
 };
 
-pub const Swapchain = struct {
-    handle: c.VkSwapchainKHR = null,
-    images: []c.VkImage = &.{},
-    views: []c.VkImageView = &.{},
-    extent: c.VkExtent2D = .{.width = 0, .height = 0},
-    format: c.VkFormat = c.VK_FORMAT_UNDEFINED,
-    surface: c.VkSurfaceKHR = null,
-    old_swapchain: c.VkSwapchainKHR = null,
-    window_width: u32 = 0,
-    window_height: u32 = 0,
-    swapchain_config: SwapchainConfig = .{},
-};
-
-pub const SwapchainConfig = struct {
-    vsync: bool = false,
-    triple_buffer: bool = false,
-};
 
 
-
-pub const Renderer = struct {
+pub const Core = struct {
 
     instance: Instance,
     device: Device,
     physical_device: PhysicalDevice,
-    game_swapchain: Swapchain,
-    editor_swapchain: Swapchain,
+    game_swapchain: swapchain.Swapchain,
+    editor_swapchain: swapchain.Swapchain,
     capabilities: c.VkSurfaceCapabilitiesKHR = undefined,
     formats: []c.VkSurfaceFormatKHR = &.{},
     present_modes: []c.VkPresentModeKHR = &.{},
     alloc_cb: ?*c.VkAllocationCallbacks = null,
 
-    pub fn create(enable_debug: bool, allocator: std.mem.Allocator, win: *sdl.Window) !Renderer {
+    pub fn init(enable_debug: bool, allocator: std.mem.Allocator, win: *sdl.Window) !Core {
 
         // First INIT
-        var self = Renderer{
+        var self = Core{
             .instance = .{}, 
             .device = .{}, 
             .physical_device = .{}, 
@@ -293,115 +276,12 @@ pub const Renderer = struct {
         c.vkGetDeviceQueue(self.device.handle, self.physical_device.transfer_queue_family, 0, &self.device.transfer_queue);
 
 
-        // Swapchain creation
-        self.game_swapchain = try self.CreateSwapchain(allocator, self.physical_device.surface); 
-
         return self; // Return
     }
     
-    // The Creation of a Swapchain
-    fn CreateSwapchain(self: *Renderer, allocator: std.mem.Allocator, surface: c.VkSurfaceKHR) !Swapchain{
-        
-        var swapchain = Swapchain {
-            .handle = null,
-            .images = &.{},
-            .views = &.{},
-            .extent = .{
-                .width = 0,
-                .height = 0,
-            },
-            .format = c.VK_FORMAT_UNDEFINED,
-            .surface = surface,
-            .old_swapchain = null,
-            .window_width = 0,
-            .window_height = 0,
-            .swapchain_config = .{},
-        };
-
-        
-        const support_info = try helper.SwapchainSupportInfo.init(allocator, self.physical_device.handle, swapchain.surface);
-        defer support_info.deinit(allocator);
-
-        swapchain.format = helper.PickSwapchainFormat(support_info.formats);
-        
-        const present_mode = helper.PickSwapchainPresentMode(
-            swapchain.swapchain_config,
-            support_info.present_modes,
-        );
-
-        swapchain.extent = helper.MakeSwapchainExtent(swapchain, support_info.capabilities);
-
-        const image_count = blk: {
-
-            const desired_count = support_info.capabilities.minImageCount + 1;
-
-            if (support_info.capabilities.maxImageCount > 0){
-                break :blk @min(desired_count, support_info.capabilities.maxImageCount);
-            }
-            break :blk desired_count;
-            
-        };
-
-        var swapchain_info = std.mem.zeroInit(c.VkSwapchainCreateInfoKHR, .{
-                .sType = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-                .surface = swapchain.surface,
-                .minImageCount = image_count,
-                .imageFormat = swapchain.format,
-                .imageColorSpace = c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-                .imageExtent = swapchain.extent,
-                .imageArrayLayers = 1,
-                .imageUsage = c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-                .preTransform = support_info.capabilities.currentTransform,
-                .compositeAlpha = c.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-                .presentMode = present_mode,
-                .clipped = c.VK_TRUE,
-                .oldSwapchain = swapchain.old_swapchain,
-        });
-
-        if (self.physical_device.graphics_queue_family != self.physical_device.present_queue_family){
-            
-            const queue_family_indices: []const u32 = &.{
-                self.physical_device.graphics_queue_family,
-                self.physical_device.present_queue_family,
-            };
-
-            swapchain_info.imageSharingMode = c.VK_SHARING_MODE_CONCURRENT;
-            swapchain_info.queueFamilyIndexCount = 2;
-            swapchain_info.pQueueFamilyIndices = queue_family_indices.ptr;
-
-        }else{
-
-            swapchain_info.imageSharingMode = c.VK_SHARING_MODE_EXCLUSIVE;
-
-        }
-
-        try helper.check_vk(c.vkCreateSwapchainKHR(self.device.handle, &swapchain_info, self.alloc_cb, &swapchain.handle));
-        errdefer c.vkDestroySwapchainKHR(self.device.handle, swapchain.handle, self.alloc_cb);
-
-        log.info("Created Vulkan Swapchain!!", .{});
-        
-        // 
-        var swapchain_image_count: u32 = undefined;
-        try helper.check_vk(c.vkGetSwapchainImagesKHR(self.device.handle, swapchain.handle, &swapchain_image_count, null));
-        
-        swapchain.images = try allocator.alloc(c.VkImage, swapchain_image_count);
-        errdefer allocator.free(swapchain.images);
-
-        try helper.check_vk(c.vkGetSwapchainImagesKHR(self.device.handle, swapchain.handle, &swapchain_image_count, swapchain.images.ptr));
-
-        swapchain.views = try allocator.alloc(c.VkImageView, swapchain_image_count);
-        errdefer allocator.free(swapchain.views);
-
-        for (swapchain.images, swapchain.views) |image, *view| {
-            view.* = try helper.CreateImageView(self.device.handle, image, swapchain.format, c.VK_IMAGE_ASPECT_COLOR_BIT, self.alloc_cb);
-        }
-
-        return swapchain;
-
-    }
-
-    pub fn deinit(self: *Renderer, allocator: std.mem.Allocator) void {
-        
+    pub fn deinit(self: *Core, allocator: std.mem.Allocator) void {
+       
+        _ = allocator;
         // If GPU exists then wait till finished before deleteing resources
         if (self.device.handle != null){
             
@@ -409,8 +289,10 @@ pub const Renderer = struct {
 
         }
 
-        try self.DestroySwapchain(allocator, &self.game_swapchain);
-        
+       // self.game_swapchain.DestroySwapchain(allocator, &self.game_swapchain) catch |err| {
+       //     std.log.err("DestroySwapchain failed: {s}", .{@errorName(err)});
+        //};
+
         // Destroying Device
         if (self.device.handle != null){
             c.vkDestroyDevice(self.device.handle, self.alloc_cb);
@@ -422,44 +304,6 @@ pub const Renderer = struct {
             c.vkDestroySurfaceKHR(self.instance.handle, self.physical_device.surface, self.alloc_cb);
             self.physical_device.surface = null;
         }
-
-        // Destroy debug messenger
-        if (validation_enabled and self.instance.debug_messenger != null){
-            helper.destroyDebugMessenger(self);
-            self.instance.debug_messenger = null;
-        }
-
-        // Destroy instance
-        if (self.instance.handle != null){
-            c.vkDestroyInstance(self.instance.handle, self.alloc_cb);
-            self.instance.handle = null;
-        }
-
-        self.formats = &.{};
-        self.present_modes = &.{};
-
-    }
-
-    fn DestroySwapchain(self: *Renderer, allocator: std.mem.Allocator, sc: *Swapchain) !void{
-        
-        // Destroying all Image Views from Swapchain
-        if (self.device.handle != null){
-            for (sc.views) |view|{
-                if (view != null) c.vkDestroyImageView(self.device.handle, view, self.alloc_cb);
-            }
-        }
-
-        if (sc.views.len != 0) allocator.free(sc.views);
-        if (sc.images.len != 0) allocator.free(sc.images);
-
-        sc.views = &.{};
-        sc.images = &.{};
-
-        if (self.device.handle != null and sc.handle != null){
-            c.vkDestroySwapchainKHR(self.device.handle, sc.handle, self.alloc_cb);
-        }
-
-        sc.handle = null;
     }
 
 

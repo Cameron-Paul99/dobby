@@ -1,7 +1,8 @@
 const std = @import("std");
 const c = @import("clibs.zig").c;
 const sdl = @import("sdl.zig");
-const gpu_context = @import("vulkan.zig");
+const gpu_context = @import("core.zig");
+const sc = @import("swapchain_bundle.zig");
 const log = std.log;
 
 pub const INVALID = std.math.maxInt(u32);
@@ -20,11 +21,13 @@ pub const SwapchainSupportInfo = struct {
         var format_count: u32 = undefined;
         try check_vk(c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, null));
         const formats = try allocator.alloc(c.VkSurfaceFormatKHR, format_count);
+        errdefer allocator.free(formats);
         try check_vk(c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, formats.ptr));
 
         var present_mode_count: u32 = undefined;
         try check_vk(c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, null));
         const present_modes = try allocator.alloc(c.VkPresentModeKHR, present_mode_count);
+        errdefer allocator.free(present_modes);
         try check_vk(c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, present_modes.ptr));
         
         return .{  
@@ -52,7 +55,7 @@ pub fn loadProcAddr(
     return @as(Fn, @ptrCast(p.?));
 }
 
-pub fn createDebugMessenger(renderer: *gpu_context.Renderer) !void {
+pub fn createDebugMessenger(renderer: *gpu_context.Core) !void {
     const create_fn = loadProcAddr(
         renderer.instance.handle,
         c.PFN_vkCreateDebugUtilsMessengerEXT,
@@ -92,7 +95,7 @@ pub fn createDebugMessenger(renderer: *gpu_context.Renderer) !void {
 }
 
 
-pub fn destroyDebugMessenger(renderer: *gpu_context.Renderer) void {
+pub fn destroyDebugMessenger(renderer: *gpu_context.Core) void {
     const dm = renderer.instance.debug_messenger orelse return;
 
     const destroy_fn = loadProcAddr(
@@ -218,6 +221,10 @@ pub fn MakePhysicalDevice(allocator: std.mem.Allocator, device: c.VkPhysicalDevi
 
 pub fn IsPhysicalDeviceSuitable(allocator: std.mem.Allocator, device: gpu_context.PhysicalDevice, surface: c.VkSurfaceKHR, required_extensions: []const [*c]const u8 ) !bool {
 
+        var arena_state = std.heap.ArenaAllocator.init(allocator);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator(); 
+
         if (device.properties.apiVersion < device.min_api_version) {
 
             return false;
@@ -233,14 +240,14 @@ pub fn IsPhysicalDeviceSuitable(allocator: std.mem.Allocator, device: gpu_contex
         }
 
 
-        const swapchain_support = try SwapchainSupportInfo.init(allocator, device.handle, surface);
-        defer swapchain_support.deinit(allocator);
-        if (swapchain_support.formats.len == 0 or swapchain_support.present_modes.len == 0) {
+        const swapchain_support = try SwapchainSupportInfo.init(arena, device.handle, surface);
+
+           if (swapchain_support.formats.len == 0 or swapchain_support.present_modes.len == 0) {
             return false;
         }
 
         if (required_extensions.len > 0) {
-            var device_extension_count: u32 = undefined;
+            var device_extension_count: u32 = 0;
             try check_vk(c.vkEnumerateDeviceExtensionProperties(device.handle, null, &device_extension_count, null));
             const device_extensions = try allocator.alloc(c.VkExtensionProperties, device_extension_count);
             defer allocator.free(device_extensions);
@@ -276,7 +283,7 @@ pub fn PickSwapchainFormat(formats: []const c.VkSurfaceFormatKHR) c.VkFormat{
 
 }
 
-pub fn PickSwapchainPresentMode(swapchain: gpu_context.SwapchainConfig, modes: []const c.VkPresentModeKHR) c.VkPresentModeKHR {
+pub fn PickSwapchainPresentMode(swapchain: sc.SwapchainConfig, modes: []const c.VkPresentModeKHR) c.VkPresentModeKHR {
 
     if (swapchain.vsync == false) {
             // Prefer immediate mode if present.
@@ -301,15 +308,17 @@ pub fn PickSwapchainPresentMode(swapchain: gpu_context.SwapchainConfig, modes: [
 }
 
 
-pub fn MakeSwapchainExtent(swapchain: gpu_context.Swapchain ,capabilities: c.VkSurfaceCapabilitiesKHR) c.VkExtent2D {
+pub fn MakeSwapchainExtent(swapchain: sc.Swapchain ,capabilities: c.VkSurfaceCapabilitiesKHR) c.VkExtent2D {
+
+    _ = swapchain;
 
     if (capabilities.currentExtent.width != std.math.maxInt(u32)) {
         return capabilities.currentExtent;
     }
 
     var extent = c.VkExtent2D{
-        .width = swapchain.window_width,
-        .height = swapchain.window_height,
+        .width = 800,
+        .height = 600,
     };
 
     extent.width = @max(

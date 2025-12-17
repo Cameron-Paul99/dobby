@@ -2,7 +2,7 @@ const c = @import("clibs.zig").c;
 const std = @import("std");
 
 
-const PipelineBuilder = struct {
+const Pipeline = struct {
 
     shader_stages: []c.vk.PipelineShaderStageCreateInfo,
     vertex_input_state: c.vk.PipelineVertexInputStateCreateInfo,
@@ -16,7 +16,7 @@ const PipelineBuilder = struct {
     depth_stencil_state: c.vk.PipelineDepthStencilStateCreateInfo,
     alloc_cb: ?*c.VkAllocationCallbacks = null,
 
-    pub fn create(self: PipelineBuilder, device: c.vk.Device, render_pass: c.vk.RenderPass) c.vk.Pipeline{
+    pub fn create(self: Pipeline, device: c.vk.Device, render_pass: c.vk.RenderPass) c.vk.Pipeline{
 
         const viewportState = std.mem.zeroInit(c.vk.PipelineViewportStateCreateInfo, .{
             .sType = c.vk.STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
