@@ -289,9 +289,6 @@ pub const Core = struct {
 
         }
 
-       // self.game_swapchain.DestroySwapchain(allocator, &self.game_swapchain) catch |err| {
-       //     std.log.err("DestroySwapchain failed: {s}", .{@errorName(err)});
-        //};
 
         // Destroying Device
         if (self.device.handle != null){

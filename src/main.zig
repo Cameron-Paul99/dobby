@@ -2,7 +2,7 @@ const std = @import("std");
 const print = std.debug.print;
 const sdl = @import("sdl.zig");
 const core_mod = @import("core.zig");
-const swapchain_mod = @import("swapchain_bundle.zig");
+const swapchain_mod = @import("swapchain.zig");
 //const renderer = @import("renderer.zig");
 
 pub fn main() !void {

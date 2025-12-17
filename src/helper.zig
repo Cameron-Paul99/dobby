@@ -2,9 +2,10 @@ const std = @import("std");
 const c = @import("clibs.zig").c;
 const sdl = @import("sdl.zig");
 const gpu_context = @import("core.zig");
-const sc = @import("swapchain_bundle.zig");
+const sc = @import("swapchain.zig");
 const log = std.log;
 
+const VK_NULL_HANDLE = null;
 pub const INVALID = std.math.maxInt(u32);
 
 pub const SwapchainSupportInfo = struct {
@@ -362,3 +363,86 @@ pub fn CreateImageView(device: c.VkDevice, image: c.VkImage, format: c.VkFormat,
     return image_view;
     
 }
+
+pub const PipelineBuilder = struct {
+
+    shader_stages: []c.VkPipelineShaderStageCreateInfo,
+    vertex_input_state: c.VkPipelineVertexInputStateCreateInfo,
+    input_assembly_state: c.VkPipelineInputAssemblyStateCreateInfo,
+    viewport: c.VkViewport,
+    scissor: c.VkRect2D,
+    rasterization_state: c.VkPipelineRasterizationStateCreateInfo,
+    color_blend_attachment_state: c.VkPipelineColorBlendAttachmentState,
+    multisample_state: c.VkPipelineMultisampleStateCreateInfo,
+    pipeline_layout: c.VkPipelineLayout,
+    depth_stencil_state: c.VkPipelineDepthStencilStateCreateInfo,
+
+    pub fn create(self: PipelineBuilder, device: c.VkDevice, render_pass: c.VkRenderPass, alloc_cb: ?*c.VkAllocationCallbacks) !c.VkPipeline{
+
+        const viewport_state = std.mem.zeroInit(c.VkPipelineViewportStateCreateInfo, .{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+            .viewportCount = 1,
+            .pViewports = &self.viewport,
+            .scissorCount = 1,
+            .pScissors = &self.scissor,
+        });
+
+        const color_blend_state = std.mem.zeroInit(c.VkPipelineColorBlendStateCreateInfo, .{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+            .logicOpEnable = c.VK_FALSE,
+            .logicOp = c.VK_LOGIC_OP_COPY,
+            .attachmentCount = 1,
+            .pAttachments = &self.color_blend_attachment_state,
+        });
+        
+        const pipeline_ci = std.mem.zeroInit(c.VkGraphicsPipelineCreateInfo, .{
+            .sType = c.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+            .stageCount = @as(u32, @intCast(self.shader_stages.len)),
+            .pStages = self.shader_stages.ptr,
+            .pVertexInputState = &self.vertex_input_state,
+            .pInputAssemblyState = &self.input_assembly_state,
+            .pViewportState = &viewport_state,
+            .pRasterizationState = &self.rasterization_state,
+            .pMultisampleState = &self.multisample_state,
+            .pColorBlendState = &color_blend_state,
+            .pDepthStencilState = &self.depth_stencil_state,
+            .layout = self.pipeline_layout,
+            .renderPass = render_pass,
+            .subpass = 0,
+            .basePipelineHandle = VK_NULL_HANDLE,
+        });
+        
+        var pipeline: c.VkPipeline = undefined;
+        
+        try check_vk(c.vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_ci, alloc_cb, &pipeline));
+
+        return pipeline;
+
+    }
+    
+};
+
+pub fn create_shader_module(device: c.VkDevice, self: *Self, code: []const u8, alloc_cb: ?*c.VkAllocationCallbacks) ?c.VkShaderModule {
+    // NOTE: This being a better language than C/C++, means we don´t need to load
+    // the SPIR-V code from a file, we can just embed it as an array of bytes.
+    // To reflect the different behaviour from the original code, we also changed
+    // the function name.
+    std.debug.assert(code.len % 4 == 0);
+
+    const data: *const u32 = @alignCast(@ptrCast(code.ptr));
+
+    const shader_module_ci = std.mem.zeroInit(c.VkShaderModuleCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .codeSize = code.len,
+        .pCode = data,
+    });
+
+    var shader_module: c.VkShaderModule = undefined;
+    check_vk(c.VkCreateShaderModule(device, &shader_module_ci, alloc_cb, &shader_module)) catch |err| {
+        log.err("Failed to create shader module with error: {s}", .{ @errorName(err) });
+        return null;
+    };
+
+    return shader_module;
+}
+
