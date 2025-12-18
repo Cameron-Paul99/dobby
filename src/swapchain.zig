@@ -4,12 +4,19 @@ const sdl = @import("sdl.zig");
 const helper = @import("helper.zig");
 const core = @import("core.zig");
 const log = std.log;
+
 pub const SwapchainConfig = struct {
     vsync: bool = false,
     triple_buffer: bool = false,
 };
 
-
+pub const SwapchainDevice = struct{
+    device: c.VkDevice = null,
+    physical_device: c.VkPhysicalDevice = null,
+    surface: c.VkSurfaceKHR = undefined,
+    graphics_qfi: u32 = helper.INVALID,
+    present_qfi: u32 = helper.INVALID, 
+};
 
     // The Creation of a Swapchain
 pub const Swapchain = struct {
@@ -18,40 +25,34 @@ pub const Swapchain = struct {
     views: []c.VkImageView = &.{},
     extent: c.VkExtent2D = .{ .width = 0, .height = 0 },
     format: c.VkFormat = c.VK_FORMAT_UNDEFINED,
+    swapchain_device: SwapchainDevice = .{},
     config: SwapchainConfig = .{},
 
     pub fn init(
         allocator: std.mem.Allocator,
-        device: c.VkDevice,
-        physical_device: c.VkPhysicalDevice,
-        surface: c.VkSurfaceKHR,
-        graphics_qfi: u32,
-        present_qfi: u32,
         alloc_cb: ?*c.VkAllocationCallbacks,
         window_width: u32,
         window_height: u32,
+        sc_d: SwapchainDevice,
         config: SwapchainConfig,
         old: c.VkSwapchainKHR,
     ) !Swapchain {
 
-        _ = window_width;
-        _ = window_height;
-
         var self: Swapchain = .{};
         self.config = config;
 
-        const support = try helper.SwapchainSupportInfo.init(allocator, physical_device, surface);
+        const support = try helper.SwapchainSupportInfo.init(allocator, sc_d.physical_device, sc_d.surface);
         defer support.deinit(allocator);
 
         self.format = helper.PickSwapchainFormat(support.formats);
         const present_mode = helper.PickSwapchainPresentMode(config, support.present_modes);
 
         // IMPORTANT: extent needs window size inputs, not stored forever in the swapchain struct
-        self.extent = helper.MakeSwapchainExtent(self, support.capabilities);
+        self.extent = helper.MakeSwapchainExtent(support.capabilities, window_width, window_height);
 
         var ci = std.mem.zeroInit(c.VkSwapchainCreateInfoKHR, .{
             .sType = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-            .surface = surface,
+            .surface = sc_d.surface,
             .minImageCount = support.capabilities.minImageCount + 1,
             .imageFormat = self.format,
             .imageColorSpace = c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
@@ -65,8 +66,8 @@ pub const Swapchain = struct {
             .oldSwapchain = old,
         });
 
-        var qfis = [_]u32{ graphics_qfi, present_qfi };
-        if (graphics_qfi != present_qfi) {
+        var qfis = [_]u32{ sc_d.graphics_qfi, sc_d.present_qfi };
+        if (sc_d.graphics_qfi != sc_d.present_qfi) {
             ci.imageSharingMode = c.VK_SHARING_MODE_CONCURRENT;
             ci.queueFamilyIndexCount = 2;
             ci.pQueueFamilyIndices = &qfis;
@@ -74,21 +75,21 @@ pub const Swapchain = struct {
             ci.imageSharingMode = c.VK_SHARING_MODE_EXCLUSIVE;
         }
 
-        try helper.check_vk(c.vkCreateSwapchainKHR(device, &ci, alloc_cb, &self.handle));
-        errdefer self.deinit(allocator, device, alloc_cb);
+        try helper.check_vk(c.vkCreateSwapchainKHR(sc_d.device, &ci, alloc_cb, &self.handle));
+        errdefer self.deinit(allocator, sc_d.device, alloc_cb);
 
         var count: u32 = 0;
-        try helper.check_vk(c.vkGetSwapchainImagesKHR(device, self.handle, &count, null));
+        try helper.check_vk(c.vkGetSwapchainImagesKHR(sc_d.device, self.handle, &count, null));
 
         self.images = try allocator.alloc(c.VkImage, count);
         errdefer allocator.free(self.images);
-        try helper.check_vk(c.vkGetSwapchainImagesKHR(device, self.handle, &count, self.images.ptr));
+        try helper.check_vk(c.vkGetSwapchainImagesKHR(sc_d.device, self.handle, &count, self.images.ptr));
 
         self.views = try allocator.alloc(c.VkImageView, count);
         errdefer allocator.free(self.views);
 
         for (self.images, self.views) |img, *view| {
-            view.* = try helper.CreateImageView(device, img, self.format, c.VK_IMAGE_ASPECT_COLOR_BIT, alloc_cb);
+            view.* = try helper.CreateImageView(sc_d.device, img, self.format, c.VK_IMAGE_ASPECT_COLOR_BIT, alloc_cb);
         }
 
         return self;

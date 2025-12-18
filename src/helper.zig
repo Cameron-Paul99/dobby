@@ -309,17 +309,15 @@ pub fn PickSwapchainPresentMode(swapchain: sc.SwapchainConfig, modes: []const c.
 }
 
 
-pub fn MakeSwapchainExtent(swapchain: sc.Swapchain ,capabilities: c.VkSurfaceCapabilitiesKHR) c.VkExtent2D {
-
-    _ = swapchain;
+pub fn MakeSwapchainExtent(capabilities: c.VkSurfaceCapabilitiesKHR, window_width: u32, window_height: u32) c.VkExtent2D {
 
     if (capabilities.currentExtent.width != std.math.maxInt(u32)) {
         return capabilities.currentExtent;
     }
 
     var extent = c.VkExtent2D{
-        .width = 800,
-        .height = 600,
+        .width = window_width,
+        .height = window_height,
     };
 
     extent.width = @max(
@@ -422,7 +420,7 @@ pub const PipelineBuilder = struct {
     
 };
 
-pub fn create_shader_module(device: c.VkDevice, self: *Self, code: []const u8, alloc_cb: ?*c.VkAllocationCallbacks) ?c.VkShaderModule {
+pub fn CreateShaderModule(device: c.VkDevice, code: []const u8, alloc_cb: ?*c.VkAllocationCallbacks) ?c.VkShaderModule {
     // NOTE: This being a better language than C/C++, means we don´t need to load
     // the SPIR-V code from a file, we can just embed it as an array of bytes.
     // To reflect the different behaviour from the original code, we also changed
@@ -438,11 +436,37 @@ pub fn create_shader_module(device: c.VkDevice, self: *Self, code: []const u8, a
     });
 
     var shader_module: c.VkShaderModule = undefined;
-    check_vk(c.VkCreateShaderModule(device, &shader_module_ci, alloc_cb, &shader_module)) catch |err| {
+    check_vk(c.vkCreateShaderModule(device, &shader_module_ci, alloc_cb, &shader_module)) catch |err| {
         log.err("Failed to create shader module with error: {s}", .{ @errorName(err) });
         return null;
     };
 
     return shader_module;
 }
+
+
+pub const ShaderModules = struct {
+    
+    vert_mod: c.VkShaderModule,
+    frag_mod: c.VkShaderModule,
+
+};
+
+pub fn MakeShaderModules(device: c.VkDevice, alloc_cb: ?*c.VkAllocationCallbacks ,comptime vert_name: []const u8, comptime frag_name: []const u8) !ShaderModules{
+        
+        const vert_code align(4) = @embedFile(vert_name).*;
+        const frag_code align(4) = @embedFile(frag_name).*;
+
+        const vert_mod = CreateShaderModule(device, &vert_code, alloc_cb) orelse VK_NULL_HANDLE;
+        const frag_mod = CreateShaderModule(device, &frag_code, alloc_cb) orelse VK_NULL_HANDLE;
+        
+        if (vert_mod != VK_NULL_HANDLE) log.info("Vert module loaded successfully", .{});
+        if (frag_mod != VK_NULL_HANDLE) log.info("Frag module loaded successfully", .{});
+
+        return .{.vert_mod = vert_mod , .frag_mod = frag_mod};
+
+}
+
+
+
 

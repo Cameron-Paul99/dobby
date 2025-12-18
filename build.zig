@@ -9,7 +9,7 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.addModule(
             "dobby", 
             .{
-                .root_source_file = b.path("main.zig"),
+                .root_source_file = b.path("src/main.zig"),
                 .target = target,
                 .optimize = optimize,
         }),

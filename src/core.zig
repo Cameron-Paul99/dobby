@@ -3,7 +3,7 @@ const c = @import("clibs.zig").c;
 const sdl = @import("sdl.zig");
 const helper = @import("helper.zig");
 const target = @import("builtin").target;
-const swapchain = @import("swapchain_bundle.zig");
+const swapchain = @import("swapchain.zig");
 
 pub const validation_enabled = true;
 const is_macos = target.os.tag == .macos;
@@ -48,8 +48,6 @@ pub const PhysicalDevice = struct {
     surface: c.VkSurfaceKHR = undefined,
     criteria: PhysicalDeviceSelectionCriteria = .PreferDiscrete,
 };
-
-
 
 pub const Core = struct {
 

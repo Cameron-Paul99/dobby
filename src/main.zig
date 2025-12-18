@@ -3,6 +3,7 @@ const print = std.debug.print;
 const sdl = @import("sdl.zig");
 const core_mod = @import("core.zig");
 const swapchain_mod = @import("swapchain.zig");
+const render = @import("render.zig");
 //const renderer = @import("renderer.zig");
 
 pub fn main() !void {
@@ -18,19 +19,26 @@ pub fn main() !void {
     var core = try core_mod.Core.init(true, allocator, &window);
     defer core.deinit(allocator);
 
-    var sc = try swapchain_mod.Swapchain.init(allocator, 
-        core.device.handle, 
-        core.physical_device.handle, 
-        core.physical_device.surface,
-        core.physical_device.graphics_queue_family,
-        core.physical_device.present_queue_family,
+    var sc = try swapchain_mod.Swapchain.init(
+        allocator, 
         core.alloc_cb,
         800,
         600,
+        .{
+            .device = core.device.handle, 
+            .physical_device = core.physical_device.handle, 
+            .surface = core.physical_device.surface,
+            .graphics_qfi = core.physical_device.graphics_queue_family,
+            .present_qfi = core.physical_device.present_queue_family,
+        },
         .{.vsync = false, .triple_buffer = false},
-        null);
-
+        null
+    );
     defer sc.deinit(allocator, core.device.handle, core.alloc_cb);
+
+    try render.CreatePipelines(core.device.handle, core.alloc_cb);
+
+
 
     while (!window.should_close){
         window.pollEvents();
