@@ -4,7 +4,7 @@ const sdl = @import("sdl.zig");
 const core_mod = @import("core.zig");
 const swapchain_mod = @import("swapchain.zig");
 const render = @import("render.zig");
-//const renderer = @import("renderer.zig");
+const helper = @import("helper.zig");
 
 pub fn main() !void {
     
@@ -36,8 +36,11 @@ pub fn main() !void {
     );
     defer sc.deinit(allocator, core.device.handle, core.alloc_cb);
 
-    try render.CreatePipelines(core.device.handle, core.alloc_cb);
+    var material_system = try helper.MaterialSystem.init(allocator);
+    defer material_system.deinit();
+    defer material_system.deinitGpu(core.device.handle, core.alloc_cb);
 
+    try render.CreatePipelines(core.device.handle, &sc , &material_system, undefined, core.alloc_cb);
 
 
     while (!window.should_close){
