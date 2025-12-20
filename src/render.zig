@@ -4,6 +4,7 @@ const helper = @import("helper.zig");
 const sc = @import("swapchain.zig");
 const log = std.log;
 
+
 pub fn CreatePipelines(device: c.VkDevice, swapchain: *sc.Swapchain, material_system: *helper.MaterialSystem , render_pass: c.VkRenderPass, alloc_cb: ?*c.VkAllocationCallbacks) !void {
     
     // AI says this function is wrong. Keep this in mind going forward.

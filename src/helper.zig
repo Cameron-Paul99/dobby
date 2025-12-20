@@ -497,30 +497,50 @@ pub const MaterialSystem = struct {
         instance_name: []const u8, 
         pipeline: c.VkPipeline, 
         pipeline_layout: c.VkPipelineLayout, 
-        texture_set: c.VkDescriptorSet,
-        ) !MaterialInstanceId_u32 {
+        texture_set: c.VkDescriptorSet ) !MaterialInstanceId_u32 {
 
-            // Created Template
-            const template_id: MaterialTemplateId_u32 = @intCast(self.templates.items.len);
+            _ = try self.AddTemplate(template_name, pipeline, pipeline_layout);
 
-            try self.templates.append(self.allocator , .{
-                .pipeline = pipeline,
-                .pipeline_layout = pipeline_layout,
-            });
+            const instance_id = try self.AddInstance(instance_name, texture_set); 
 
-            try self.templates_by_name.put(template_name, template_id);
-
-            // Created Instance
-            const instance_id: MaterialInstanceId_u32 = @intCast(self.instances.items.len);
-
-            try self.instances.append(self.allocator , .{
-                .template_id = template_id,
-                .texture_set = texture_set,
-            });
-
-            try self.instances_by_name.put(instance_name, instance_id);
-            
             return instance_id;
+    }
+
+    pub fn AddInstance(
+        self: *MaterialSystem, 
+        instance_name: []const u8, 
+        texture_set: c.VkDescriptorSet)  !MaterialInstanceId_u32 {
+
+        const instance_id: MaterialInstanceId_u32 = @intCast(self.instances.items.len);
+
+        try self.instances.append(self.allocator , .{
+            .template_id = instance_id,
+            .texture_set = texture_set,
+        });
+
+        try self.instances_by_name.put(instance_name, instance_id);
+            
+        return instance_id;
+    }
+
+    pub fn AddTemplate(
+        self: *MaterialSystem, 
+        template_name: []const u8,
+        pipeline: c.VkPipeline, 
+        pipeline_layout: c.VkPipelineLayout 
+        ) !MaterialTemplateId_u32 {
+
+        const template_id: MaterialTemplateId_u32 = @intCast(self.templates.items.len);
+
+        try self.templates.append(self.allocator , .{
+            .pipeline = pipeline,
+            .pipeline_layout = pipeline_layout,
+        });
+
+        try self.templates_by_name.put(template_name, template_id);
+
+        return template_id;
+
     }
 
     pub fn init(allocator: std.mem.Allocator) !MaterialSystem {
@@ -564,5 +584,25 @@ pub const MaterialSystem = struct {
     }
 
 };
+
+pub fn deinitRenderPass(device: c.VkDevice , render_pass: *c.VkRenderPass, alloc_cb: ?*c.VkAllocationCallbacks) void{
+
+    // 2) render pass
+    if (render_pass.* != null) {
+        c.vkDestroyRenderPass(device, render_pass.*, alloc_cb);
+        render_pass.* = null;
+    }
+
+}
+
+
+    
+
+
+
+    
+    
+
+
 
 

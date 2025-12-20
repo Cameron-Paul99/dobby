@@ -16,6 +16,7 @@ pub const SwapchainDevice = struct{
     surface: c.VkSurfaceKHR = undefined,
     graphics_qfi: u32 = helper.INVALID,
     present_qfi: u32 = helper.INVALID, 
+    
 };
 
     // The Creation of a Swapchain
@@ -27,7 +28,8 @@ pub const Swapchain = struct {
     format: c.VkFormat = c.VK_FORMAT_UNDEFINED,
     swapchain_device: SwapchainDevice = .{},
     config: SwapchainConfig = .{},
-
+    depth_format: c.VkFormat = undefined,
+    framebuffers: []c.VkFramebuffer = undefined,
     pub fn init(
         allocator: std.mem.Allocator,
         alloc_cb: ?*c.VkAllocationCallbacks,
@@ -49,6 +51,8 @@ pub const Swapchain = struct {
 
         // IMPORTANT: extent needs window size inputs, not stored forever in the swapchain struct
         self.extent = helper.MakeSwapchainExtent(support.capabilities, window_width, window_height);
+
+        self.depth_format = c.VK_FORMAT_D32_SFLOAT;
 
         var ci = std.mem.zeroInit(c.VkSwapchainCreateInfoKHR, .{
             .sType = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
@@ -92,10 +96,20 @@ pub const Swapchain = struct {
             view.* = try helper.CreateImageView(sc_d.device, img, self.format, c.VK_IMAGE_ASPECT_COLOR_BIT, alloc_cb);
         }
 
+        // TODO: Create depth image for 3D. Also create 3D stuff here for swapchain.
+
         return self;
     }
 
     pub fn deinit(self: *Swapchain, allocator: std.mem.Allocator, device: c.VkDevice, alloc_cb: ?*c.VkAllocationCallbacks) void {
+
+        // 1) framebuffers
+    //    for (self.framebuffers) |fb| {
+     //       if (fb != null) c.vkDestroyFramebuffer(device, fb, alloc_cb);
+       // }
+      //  allocator.free(self.framebuffers);
+
+
         for (self.views) |view| {
             if (view != null) c.vkDestroyImageView(device, view, alloc_cb);
         }
@@ -108,6 +122,130 @@ pub const Swapchain = struct {
     }
 };
 
+pub fn CreateRenderPass(sc: *Swapchain, device: c.VkDevice, alloc_cb: ?*c.VkAllocationCallbacks ) !c.VkRenderPass{
+
+    var render_pass: c.VkRenderPass = helper.VK_NULL_HANDLE;
+    
+    // Color Attachment
+    const color_attachment = std.mem.zeroInit(c.VkAttachmentDescription, .{
+        .format = sc.format,
+        .samples = c.VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+    });
+
+    const color_attachment_ref = std.mem.zeroInit(c.VkAttachmentReference, .{
+        .attachment = 0,
+        .layout = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    });
+
+    // Depth Attachment
+    const depth_attachment = std.mem.zeroInit(c.VkAttachmentDescription, .{
+        .format = sc.depth_format,
+        .samples = c.VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = c.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    });
+
+    const depth_attachment_ref = std.mem.zeroInit(c.VkAttachmentReference, .{
+        .attachment = 1,
+        .layout = c.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    });
+
+    // Subpass
+    const subpass = std.mem.zeroInit(c.VkSubpassDescription, .{
+        .pipelineBindPoint = c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &color_attachment_ref,
+        .pDepthStencilAttachment = &depth_attachment_ref,
+    });
+
+    const attachment_descriptions = [_]c.VkAttachmentDescription{
+        color_attachment,
+        depth_attachment,
+    };
+
+    // Subpass color and depth dependencies
+    const color_dependency = std.mem.zeroInit(c.VkSubpassDependency, .{
+        .srcSubpass = c.VK_SUBPASS_EXTERNAL,
+        .dstSubpass = 0,
+        .srcStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcAccessMask = 0,
+        .dstStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .dstAccessMask = c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+    });
+
+    const depth_dependency = std.mem.zeroInit(c.VkSubpassDependency, .{
+        .srcSubpass = c.VK_SUBPASS_EXTERNAL,
+        .dstSubpass = 0,
+        .srcStageMask = c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | c.VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+        .srcAccessMask = c.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        .dstStageMask = c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | c.VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+        .dstAccessMask = c.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+    });
+
+    const dependencies = [_]c.VkSubpassDependency{
+        color_dependency,
+        depth_dependency,
+    };
+
+    const render_pass_create_info = std.mem.zeroInit(c.VkRenderPassCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount = @as(u32, @intCast(attachment_descriptions.len)),
+        .pAttachments = attachment_descriptions[0..].ptr,
+        .subpassCount = 1,
+        .pSubpasses = &subpass,
+        .dependencyCount = @as(u32, @intCast(dependencies.len)),
+        .pDependencies = &dependencies[0],
+    });
+
+    try helper.check_vk(c.vkCreateRenderPass(device, &render_pass_create_info, alloc_cb, &render_pass));
+
+
+    return render_pass;
+
+}
+
+pub fn CreateFrameBuffers(device: c.VkDevice, sc: *Swapchain ,render_pass: c.VkRenderPass, allocator: std.mem.Allocator, alloc_cb: ?*c.VkAllocationCallbacks) void {
+    
+    var framebuffer_ci = std.mem.zeroInit(c.VkFramebufferCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        .renderPass = render_pass,
+        .attachmentCount = 2,
+        .width = sc.extent.width,
+        .height = sc.extent.height,
+        .layers = 1,
+    });
+
+    sc.framebuffers = allocator.alloc(c.VkFrameBuffer, sc.views.len) catch @panic("Out of memory");
+
+    for (sc.views, sc.framebuffers) |view, *framebuffer| {
+        
+        // Add depth view image later
+        const attachments = [1]c.VkImageView{
+            view,
+        };
+        framebuffer_ci.pAttachments = &attachments[0];
+        helper.check_vk(c.vkCreateFramebuffer(device, &framebuffer_ci, alloc_cb, framebuffer))
+            catch @panic("Failed to create framebuffer");
+
+    }
+
+
+
+    log.info("Created {} framebuffers", .{ sc.framebuffers.len });
+
+
+
+}
 
 
 

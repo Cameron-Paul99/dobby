@@ -207,7 +207,6 @@ pub const Core = struct {
 
             }
 
-
         }
 
         if (suitable_physical_device == null){
@@ -286,7 +285,6 @@ pub const Core = struct {
             _ = c.vkDeviceWaitIdle(self.device.handle);
 
         }
-
 
         // Destroying Device
         if (self.device.handle != null){
