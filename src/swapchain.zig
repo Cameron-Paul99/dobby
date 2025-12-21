@@ -104,10 +104,10 @@ pub const Swapchain = struct {
     pub fn deinit(self: *Swapchain, allocator: std.mem.Allocator, device: c.VkDevice, alloc_cb: ?*c.VkAllocationCallbacks) void {
 
         // 1) framebuffers
-    //    for (self.framebuffers) |fb| {
-     //       if (fb != null) c.vkDestroyFramebuffer(device, fb, alloc_cb);
-       // }
-      //  allocator.free(self.framebuffers);
+        for (self.framebuffers) |fb| {
+            if (fb != null) c.vkDestroyFramebuffer(device, fb, alloc_cb);
+        }
+        allocator.free(self.framebuffers);
 
 
         for (self.views) |view| {
@@ -143,6 +143,7 @@ pub fn CreateRenderPass(sc: *Swapchain, device: c.VkDevice, alloc_cb: ?*c.VkAllo
         .layout = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     });
 
+
     // Depth Attachment
     const depth_attachment = std.mem.zeroInit(c.VkAttachmentDescription, .{
         .format = sc.depth_format,
@@ -160,17 +161,21 @@ pub fn CreateRenderPass(sc: *Swapchain, device: c.VkDevice, alloc_cb: ?*c.VkAllo
         .layout = c.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
     });
 
+    _ = depth_attachment_ref;
+    _ = depth_attachment;
+
     // Subpass
     const subpass = std.mem.zeroInit(c.VkSubpassDescription, .{
         .pipelineBindPoint = c.VK_PIPELINE_BIND_POINT_GRAPHICS,
         .colorAttachmentCount = 1,
         .pColorAttachments = &color_attachment_ref,
-        .pDepthStencilAttachment = &depth_attachment_ref,
+        //.pDepthStencilAttachment = &depth_attachment_ref,
+        .pDepthStencilAttachment = null,
     });
 
     const attachment_descriptions = [_]c.VkAttachmentDescription{
         color_attachment,
-        depth_attachment,
+    //    depth_attachment,
     };
 
     // Subpass color and depth dependencies
@@ -192,9 +197,11 @@ pub fn CreateRenderPass(sc: *Swapchain, device: c.VkDevice, alloc_cb: ?*c.VkAllo
         .dstAccessMask = c.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
     });
 
+    _ = depth_dependency;
+
     const dependencies = [_]c.VkSubpassDependency{
         color_dependency,
-        depth_dependency,
+      //  depth_dependency,
     };
 
     const render_pass_create_info = std.mem.zeroInit(c.VkRenderPassCreateInfo, .{
@@ -219,13 +226,13 @@ pub fn CreateFrameBuffers(device: c.VkDevice, sc: *Swapchain ,render_pass: c.VkR
     var framebuffer_ci = std.mem.zeroInit(c.VkFramebufferCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
         .renderPass = render_pass,
-        .attachmentCount = 2,
+        .attachmentCount = 1,
         .width = sc.extent.width,
         .height = sc.extent.height,
         .layers = 1,
     });
 
-    sc.framebuffers = allocator.alloc(c.VkFrameBuffer, sc.views.len) catch @panic("Out of memory");
+    sc.framebuffers = allocator.alloc(c.VkFramebuffer, sc.views.len) catch @panic("Out of memory");
 
     for (sc.views, sc.framebuffers) |view, *framebuffer| {
         
@@ -239,11 +246,7 @@ pub fn CreateFrameBuffers(device: c.VkDevice, sc: *Swapchain ,render_pass: c.VkR
 
     }
 
-
-
     log.info("Created {} framebuffers", .{ sc.framebuffers.len });
-
-
 
 }
 

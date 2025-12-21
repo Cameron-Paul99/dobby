@@ -39,17 +39,17 @@ pub fn main() !void {
     );
     defer sc.deinit(allocator, core.device.handle ,core.alloc_cb);
 
-    // Render pass creation
-    var render_pass = try swapchain_mod.CreateRenderPass(&sc, core.device.handle, core.alloc_cb);
-    defer helper.deinitRenderPass(core.device.handle, &render_pass, core.alloc_cb);
-    
-    // Pipeline Material Creation
-    var material_system = try helper.MaterialSystem.init(allocator);
-    defer material_system.deinit();
-    defer material_system.deinitGpu(core.device.handle, core.alloc_cb);
+    var renderer = try render.Renderer.init(allocator, &core, &sc);
+    defer renderer.deinit(allocator, &core); 
     
     // Pipeline Creation
-    try render.CreatePipelines(core.device.handle, &sc , &material_system, render_pass, core.alloc_cb);
+    try render.CreatePipelines(
+        core.device.handle, 
+        &sc , 
+        &renderer.material_system, 
+        renderer.render_pass, 
+        core.alloc_cb
+        );
 
 
     while (!window.should_close){
