@@ -75,6 +75,10 @@ pub const Renderer = struct {
         // Commands Creation
         try CreateCommands(&renderer, core.physical_device.graphics_queue_family, core);
 
+        // Create Sync Structures
+        try CreateSyncStructures(&renderer, core); 
+
+
         return renderer;
         
     }
@@ -127,6 +131,12 @@ pub const Renderer = struct {
             c.vkDestroyCommandPool(core.device.handle, self.upload_context.command_pool, core.alloc_cb);
             self.upload_context.command_pool = helper.VK_NULL_HANDLE;
             self.upload_context.command_buffer = helper.VK_NULL_HANDLE;
+        }
+
+        if (self.upload_context.upload_fence != helper.VK_NULL_HANDLE){
+            c.vkDestroyFence(core.device.handle, self.upload_context.upload_fence, core.alloc_cb);
+            self.upload_context.upload_fence = helper.VK_NULL_HANDLE; 
+
         }
     }
 };
@@ -278,6 +288,32 @@ pub fn CreateCommands(renderer: *Renderer ,graphics_qfi: u32, core: *core_mod.Co
 
     try helper.check_vk(c.vkAllocateCommandBuffers(core.device.handle, &upload_command_buffer_ci, &renderer.upload_context.command_buffer));
 
+}
+
+pub fn CreateSyncStructures(renderer: *Renderer, core: *core_mod.Core) !void{
+
+    const semaphore_ci = std.mem.zeroInit(c.VkSemaphoreCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+    });
+
+    const fence_ci = std.mem.zeroInit(c.VkFenceCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .flags = c.VK_FENCE_CREATE_SIGNALED_BIT,
+    });
+
+    for (&renderer.frames) |*frame| {
+        try helper.check_vk(c.vkCreateSemaphore(core.device.handle, &semaphore_ci, core.alloc_cb, &frame.present_semaphore));
+        try helper.check_vk(c.vkCreateSemaphore(core.device.handle, &semaphore_ci, core.alloc_cb, &frame.render_semaphore));
+        try helper.check_vk(c.vkCreateFence(core.device.handle, &fence_ci, core.alloc_cb, &frame.render_fence));
+    }
+
+    const upload_fence_ci = std.mem.zeroInit(c.VkFenceCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+    });
+
+    try helper.check_vk(c.vkCreateFence(core.device.handle, &upload_fence_ci, core.alloc_cb, &renderer.upload_context.upload_fence));
+
+    log.info("Created sync structures", .{});
 }
 
 
