@@ -43,8 +43,6 @@ pub fn main() !void {
     var renderer = try render.Renderer.init(allocator, &core, &sc);
     defer renderer.deinit(allocator, &core); 
     
-    // Pipeline Creation
-    try render.CreatePipelines(&core, &sc, &renderer, allocator);
 
     while (!window.should_close){
         window.pollEvents();
