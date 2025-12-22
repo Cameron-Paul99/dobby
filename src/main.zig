@@ -38,19 +38,13 @@ pub fn main() !void {
         null
     );
     defer sc.deinit(allocator, core.device.handle ,core.alloc_cb);
-
+    
+    // Renderer creation
     var renderer = try render.Renderer.init(allocator, &core, &sc);
     defer renderer.deinit(allocator, &core); 
     
     // Pipeline Creation
-    try render.CreatePipelines(
-        core.device.handle, 
-        &sc , 
-        &renderer.material_system, 
-        renderer.render_pass, 
-        core.alloc_cb
-        );
-
+    try render.CreatePipelines(&core, &sc, &renderer, allocator);
 
     while (!window.should_close){
         window.pollEvents();

@@ -36,33 +36,46 @@ const FrameData = struct {
     object_descriptor_set: c.VkDescriptorSet = helper.VK_NULL_HANDLE,
 };
 
+const UploadContext = struct {
+    upload_fence: c.VkFence = helper.VK_NULL_HANDLE,
+    command_pool: c.VkCommandPool = helper.VK_NULL_HANDLE,
+    command_buffer: c.VkCommandBuffer = helper.VK_NULL_HANDLE,
+};
 
 pub const Renderer = struct {
     frames: [FRAME_OVERLAP]FrameData,
     render_pass: c.VkRenderPass,
     material_system: MaterialSystem,
+    upload_context: UploadContext,
+
     // pipelines / layouts
     // maybe upload context too
 
     pub fn init(allocator: std.mem.Allocator, core: *core_mod.Core, swapchain: *sc.Swapchain) !Renderer {
 
         // Render pass creation
-        const render_pass = try sc.CreateRenderPass(&swapchain, core.device.handle, core.alloc_cb);
+        const render_pass = try sc.CreateRenderPass(swapchain, core.device.handle, core.alloc_cb);
 
         // Create Framebuffers
-        sc.CreateFrameBuffers(core.device.handle, &swapchain, render_pass, allocator, core.alloc_cb);
+        sc.CreateFrameBuffers(core.device.handle, swapchain, render_pass, allocator, core.alloc_cb);
 
         // Pipeline Material Creation 
         const material_system = try MaterialSystem.init(allocator);
 
-        CreateCommands(core.physical_device.graphics_queue_family);
-
-    
-        return .{
+        var renderer = Renderer {
             .frames = .{ FrameData{} } ** FRAME_OVERLAP, 
             .render_pass = render_pass, 
-            .material_system = material_system
-        }; 
+            .material_system = material_system,
+            .upload_context = .{},
+        };
+        
+        // Pipeline Creation
+        try CreatePipelines(core, swapchain, &renderer, allocator);
+        
+        // Commands Creation
+        try CreateCommands(&renderer, core.physical_device.graphics_queue_family, core);
+
+        return renderer;
         
     }
     pub fn drawFrame(self: *Renderer, core: *core_mod.Core, swapchain: *sc.Swapchain) !void {
@@ -76,17 +89,45 @@ pub const Renderer = struct {
         _ = self;
 
     }
-    pub fn deinit(self: *Renderer, allocator: std.mem.Allocator, core: *core_mod.Core, alloc_cb: ?*c.VkAllocationCallbacks) void { 
+    pub fn deinit(self: *Renderer, allocator: std.mem.Allocator, core: *core_mod.Core) void { 
         
-        self.material_system.deinit(allocator);
         self.material_system.deinitGpu(core.device.handle, core.alloc_cb);
+        self.material_system.deinit(allocator);
 
         // 2) render pass
-        if (self.render_pass.* != null) {
-            c.vkDestroyRenderPass(core.device.handle, self.render_pass.*, alloc_cb);
-            self.render_pass.* = null;
+        if (self.render_pass != null) {
+            c.vkDestroyRenderPass(core.device.handle, self.render_pass, core.alloc_cb);
+            self.render_pass = null;
         }
 
+        for (&self.frames) |*f| {
+            // Destroy sync first (they’re separate objects)
+            if (f.present_semaphore != helper.VK_NULL_HANDLE) {
+                c.vkDestroySemaphore(core.device.handle, f.present_semaphore, core.alloc_cb);
+                f.present_semaphore = helper.VK_NULL_HANDLE;
+            }
+            if (f.render_semaphore != helper.VK_NULL_HANDLE) {
+                c.vkDestroySemaphore(core.device.handle, f.render_semaphore, core.alloc_cb);
+                f.render_semaphore = helper.VK_NULL_HANDLE;
+            }
+            if (f.render_fence != helper.VK_NULL_HANDLE) {
+                c.vkDestroyFence(core.device.handle, f.render_fence, core.alloc_cb);
+                f.render_fence = helper.VK_NULL_HANDLE;
+            }
+
+        // Destroying the pool implicitly releases its command buffers
+            if (f.command_pool != helper.VK_NULL_HANDLE) {
+                c.vkDestroyCommandPool(core.device.handle, f.command_pool, core.alloc_cb);
+                f.command_pool = helper.VK_NULL_HANDLE;
+                f.main_command_buffer = helper.VK_NULL_HANDLE;
+            }
+        }
+
+        if (self.upload_context.command_pool != helper.VK_NULL_HANDLE) {
+            c.vkDestroyCommandPool(core.device.handle, self.upload_context.command_pool, core.alloc_cb);
+            self.upload_context.command_pool = helper.VK_NULL_HANDLE;
+            self.upload_context.command_buffer = helper.VK_NULL_HANDLE;
+        }
     }
 };
 
@@ -94,7 +135,6 @@ pub const Renderer = struct {
 // Add 2 more helper functions for instance and template
 pub const MaterialSystem = struct {
 
-    allocator: std.mem.Allocator,
     templates: std.ArrayList(MaterialTemplate),
     templates_by_name: std.StringHashMap(MaterialTemplateId_u32),
 
@@ -107,11 +147,12 @@ pub const MaterialSystem = struct {
         instance_name: []const u8, 
         pipeline: c.VkPipeline, 
         pipeline_layout: c.VkPipelineLayout, 
-        texture_set: c.VkDescriptorSet ) !MaterialInstanceId_u32 {
+        texture_set: c.VkDescriptorSet,
+        allocator: std.mem.Allocator) !MaterialInstanceId_u32 {
 
-            _ = try self.AddTemplate(template_name, pipeline, pipeline_layout);
+            _ = try self.AddTemplate(template_name, pipeline, pipeline_layout, allocator);
 
-            const instance_id = try self.AddInstance(instance_name, texture_set); 
+            const instance_id = try self.AddInstance(instance_name, texture_set, allocator); 
 
             return instance_id;
     }
@@ -119,11 +160,11 @@ pub const MaterialSystem = struct {
     pub fn AddInstance(
         self: *MaterialSystem, 
         instance_name: []const u8, 
-        texture_set: c.VkDescriptorSet)  !MaterialInstanceId_u32 {
+        texture_set: c.VkDescriptorSet, allocator: std.mem.Allocator)  !MaterialInstanceId_u32 {
 
         const instance_id: MaterialInstanceId_u32 = @intCast(self.instances.items.len);
 
-        try self.instances.append(self.allocator , .{
+        try self.instances.append(allocator , .{
             .template_id = instance_id,
             .texture_set = texture_set,
         });
@@ -137,12 +178,13 @@ pub const MaterialSystem = struct {
         self: *MaterialSystem, 
         template_name: []const u8,
         pipeline: c.VkPipeline, 
-        pipeline_layout: c.VkPipelineLayout 
+        pipeline_layout: c.VkPipelineLayout,
+        allocator: std.mem.Allocator,
         ) !MaterialTemplateId_u32 {
 
         const template_id: MaterialTemplateId_u32 = @intCast(self.templates.items.len);
 
-        try self.templates.append(self.allocator , .{
+        try self.templates.append(allocator , .{
             .pipeline = pipeline,
             .pipeline_layout = pipeline_layout,
         });
@@ -156,8 +198,6 @@ pub const MaterialSystem = struct {
     pub fn init(allocator: std.mem.Allocator) !MaterialSystem {
         return .{
 
-            .allocator = allocator,
-
             .templates = try std.ArrayList(MaterialTemplate).initCapacity(allocator, 0),
             .templates_by_name = std.StringHashMap(MaterialTemplateId_u32).init(allocator),
 
@@ -166,10 +206,10 @@ pub const MaterialSystem = struct {
         };
     }
 
-    pub fn deinit(self: *MaterialSystem) void {
-        self.templates.deinit(self.allocator);
+    pub fn deinit(self: *MaterialSystem, allocator: std.mem.Allocator) void {
+        self.templates.deinit(allocator);
         self.templates_by_name.deinit();
-        self.instances.deinit(self.allocator);
+        self.instances.deinit(allocator);
         self.instances_by_name.deinit();
     }
 
@@ -196,8 +236,8 @@ pub const MaterialSystem = struct {
 };
 
 
-
-pub fn CreateCommands(graphics_qfi: u32,  ) void {
+// TODO: make a transfer queue, rather than submitting to the graphics queue
+pub fn CreateCommands(renderer: *Renderer ,graphics_qfi: u32, core: *core_mod.Core) !void {
     
     const command_pool_ci = std.mem.zeroInit(c.VkCommandPoolCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -205,29 +245,53 @@ pub fn CreateCommands(graphics_qfi: u32,  ) void {
         .queueFamilyIndex = graphics_qfi,
     });
 
-    // Add Frames here
-    //
-    //
+    for (&renderer.frames) |*frame| {
 
-    _ = command_pool_ci;
+       try helper.check_vk(c.vkCreateCommandPool( core.device.handle, &command_pool_ci, core.alloc_cb, &frame.command_pool));
 
+       const command_buffer_ci = std.mem.zeroInit(c.VkCommandBufferAllocateInfo, .{
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .commandPool = frame.command_pool,
+            .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1,
+       });
 
+       try helper.check_vk(c.vkAllocateCommandBuffers(core.device.handle, &command_buffer_ci, &frame.main_command_buffer));
+       log.info("Created command pool and command buffer", .{});
 
+    }
+    
+    const upload_command_pool_ci = std.mem.zeroInit(c.VkCommandPoolCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = 0,
+        .queueFamilyIndex = graphics_qfi,
+    });
+
+    try helper.check_vk(c.vkCreateCommandPool(core.device.handle, &upload_command_pool_ci, core.alloc_cb, &renderer.upload_context.command_pool));
+    
+    const upload_command_buffer_ci = std.mem.zeroInit(c.VkCommandBufferAllocateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = renderer.upload_context.command_pool,
+        .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    });
+
+    try helper.check_vk(c.vkAllocateCommandBuffers(core.device.handle, &upload_command_buffer_ci, &renderer.upload_context.command_buffer));
 
 }
 
 
-
-
-
-
-
-pub fn CreatePipelines(device: c.VkDevice, swapchain: *sc.Swapchain, material_system: *helper.MaterialSystem , render_pass: c.VkRenderPass, alloc_cb: ?*c.VkAllocationCallbacks) !void {
+pub fn CreatePipelines(
+    core: *core_mod.Core,
+    swapchain: *sc.Swapchain, 
+    renderer: *Renderer ,
+    allocator: std.mem.Allocator
+    ) !void {
     
     // AI says this function is wrong. Keep this in mind going forward.
-    const triangle_mods = try helper.MakeShaderModules(device, alloc_cb, "triangle.vert", "triangle.frag");
-    defer c.vkDestroyShaderModule(device, triangle_mods.vert_mod, alloc_cb);
-    defer c.vkDestroyShaderModule(device, triangle_mods.frag_mod, alloc_cb);
+    const triangle_mods = try helper.MakeShaderModules(core.device.handle, core.alloc_cb, "triangle.vert", "triangle.frag");
+    defer c.vkDestroyShaderModule(core.device.handle, triangle_mods.vert_mod, core.alloc_cb);
+    defer c.vkDestroyShaderModule(core.device.handle, triangle_mods.frag_mod, core.alloc_cb);
 
     const pipeline_layout_ci = std.mem.zeroInit(c.VkPipelineLayoutCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -236,7 +300,7 @@ pub fn CreatePipelines(device: c.VkDevice, swapchain: *sc.Swapchain, material_sy
 
     // Pipeline Layout creation
     var triangle_pipeline_layout: c.VkPipelineLayout = undefined;
-    try helper.check_vk(c.vkCreatePipelineLayout(device, &pipeline_layout_ci, alloc_cb, &triangle_pipeline_layout));
+    try helper.check_vk(c.vkCreatePipelineLayout(core.device.handle, &pipeline_layout_ci, core.alloc_cb, &triangle_pipeline_layout));
     
 
     // Stage Creation of pipeline
@@ -323,14 +387,15 @@ pub fn CreatePipelines(device: c.VkDevice, swapchain: *sc.Swapchain, material_sy
 
     };
 
-    const triangle_pipeline = try pipeline_builder.create(device, render_pass, alloc_cb);
+    const triangle_pipeline = try pipeline_builder.create(core.device.handle, renderer.render_pass, core.alloc_cb);
 
-    _ = try material_system.AddTemplateAndInstance(
+    _ = try renderer.material_system.AddTemplateAndInstance(
          "Triangle", 
          "Triangle_Instance", 
          triangle_pipeline, 
          triangle_pipeline_layout, 
-         helper.VK_NULL_HANDLE
+         helper.VK_NULL_HANDLE,
+         allocator,
          );
 
 }

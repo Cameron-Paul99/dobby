@@ -1,4 +1,5 @@
 pub const c = @cImport({
+    @cDefine("VMA_IMPLEMENTATION", "1"); 
     @cInclude("SDL3/SDL.h");
     @cInclude("SDL3/SDL_vulkan.h");
     @cInclude("vulkan/vulkan.h");
