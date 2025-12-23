@@ -47,6 +47,7 @@ pub const Renderer = struct {
     render_pass: c.VkRenderPass,
     material_system: MaterialSystem,
     upload_context: UploadContext,
+    frame_number: i32 = 0,
 
     // pipelines / layouts
     // maybe upload context too
@@ -82,17 +83,35 @@ pub const Renderer = struct {
         return renderer;
         
     }
-    pub fn drawFrame(self: *Renderer, core: *core_mod.Core, swapchain: *sc.Swapchain) !void {
+    pub fn DrawFrame(self: *Renderer, core: *core_mod.Core, swapchain: *sc.Swapchain) !void {
+
         _ = core;
         _ = swapchain;
-        _ = self;
+        
+        const timeout: u64 = 1_000_000_000;
+        const frame = self.frames[@intCast(@mod(self.frame_number, FRAME_OVERLAP))];
+
+        try helper.check_vk(c.vkWaitForFences(core.device.handle, 1 ,&frame.render_fence, c.VK_TRUE, timeout));
+        try helper.check_vk(c.ckResetFences(core.device.handle, 1, &frame.render_fence));
+        
+        var swapchain_image_index: u32 = undefined;
+        try helper.check_vk(c.vkAquireNextImageKHR(core.device.handle, swapchain.handle, timeout, frame.present_semaphore, helper.VK_NULL_HANDLE, &swapchain_image_index));
+
+        var cmd = frame.main_command_buffer;
+
+
+
+
+
+
     }
-    pub fn onSwapchainRecreated(self: *Renderer, core: *core_mod.Core, swapchain: *sc.Swapchain) !void { 
+    pub fn OnSwapchainRecreated(self: *Renderer, core: *core_mod.Core, swapchain: *sc.Swapchain) !void { 
         _ = core;
         _ = swapchain;
         _ = self;
 
     }
+
     pub fn deinit(self: *Renderer, allocator: std.mem.Allocator, core: *core_mod.Core) void { 
         
         self.material_system.deinitGpu(core.device.handle, core.alloc_cb);

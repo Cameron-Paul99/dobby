@@ -2,7 +2,7 @@ const std = @import("std");
 const c = @import("clibs.zig").c;
 const sdl = @import("sdl.zig");
 const helper = @import("helper.zig");
-const core = @import("core.zig");
+const core_mod = @import("core.zig");
 const log = std.log;
 
 pub const SwapchainConfig = struct {
@@ -32,10 +32,8 @@ pub const Swapchain = struct {
     framebuffers: []c.VkFramebuffer = undefined,
     pub fn init(
         allocator: std.mem.Allocator,
-        alloc_cb: ?*c.VkAllocationCallbacks,
-        window_width: u32,
-        window_height: u32,
-        sc_d: SwapchainDevice,
+        core: *core_mod.Core,
+        window: *sdl.Window,
         config: SwapchainConfig,
         old: c.VkSwapchainKHR,
     ) !Swapchain {
@@ -43,20 +41,20 @@ pub const Swapchain = struct {
         var self: Swapchain = .{};
         self.config = config;
 
-        const support = try helper.SwapchainSupportInfo.init(allocator, sc_d.physical_device, sc_d.surface);
+        const support = try helper.SwapchainSupportInfo.init(allocator, core.physical_device, core.physical_device.surface);
         defer support.deinit(allocator);
 
         self.format = helper.PickSwapchainFormat(support.formats);
         const present_mode = helper.PickSwapchainPresentMode(config, support.present_modes);
 
         // IMPORTANT: extent needs window size inputs, not stored forever in the swapchain struct
-        self.extent = helper.MakeSwapchainExtent(support.capabilities, window_width, window_height);
+        self.extent = helper.MakeSwapchainExtent(support.capabilities, window.screen_width, window.screen_height);
 
         self.depth_format = c.VK_FORMAT_D32_SFLOAT;
 
         var ci = std.mem.zeroInit(c.VkSwapchainCreateInfoKHR, .{
             .sType = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-            .surface = sc_d.surface,
+            .surface = core.physical_device.surface,
             .minImageCount = support.capabilities.minImageCount + 1,
             .imageFormat = self.format,
             .imageColorSpace = c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
@@ -70,8 +68,8 @@ pub const Swapchain = struct {
             .oldSwapchain = old,
         });
 
-        var qfis = [_]u32{ sc_d.graphics_qfi, sc_d.present_qfi };
-        if (sc_d.graphics_qfi != sc_d.present_qfi) {
+        var qfis = [_]u32{ core.physical_device.graphics_queue_family, core.physical_device.present_queue_family };
+        if (core.physical_device.graphics_queue_family != core.physical_device.present_queue_family) {
             ci.imageSharingMode = c.VK_SHARING_MODE_CONCURRENT;
             ci.queueFamilyIndexCount = 2;
             ci.pQueueFamilyIndices = &qfis;
@@ -79,21 +77,21 @@ pub const Swapchain = struct {
             ci.imageSharingMode = c.VK_SHARING_MODE_EXCLUSIVE;
         }
 
-        try helper.check_vk(c.vkCreateSwapchainKHR(sc_d.device, &ci, alloc_cb, &self.handle));
-        errdefer self.deinit(allocator, sc_d.device, alloc_cb);
+        try helper.check_vk(c.vkCreateSwapchainKHR(core.device.handle, &ci, alloc_cb, &self.handle));
+        errdefer self.deinit(allocator, core.device.handle, alloc_cb);
 
         var count: u32 = 0;
-        try helper.check_vk(c.vkGetSwapchainImagesKHR(sc_d.device, self.handle, &count, null));
+        try helper.check_vk(c.vkGetSwapchainImagesKHR(core.device.handle, self.handle, &count, null));
 
         self.images = try allocator.alloc(c.VkImage, count);
         errdefer allocator.free(self.images);
-        try helper.check_vk(c.vkGetSwapchainImagesKHR(sc_d.device, self.handle, &count, self.images.ptr));
+        try helper.check_vk(c.vkGetSwapchainImagesKHR(core.device.handle, self.handle, &count, self.images.ptr));
 
         self.views = try allocator.alloc(c.VkImageView, count);
         errdefer allocator.free(self.views);
 
         for (self.images, self.views) |img, *view| {
-            view.* = try helper.CreateImageView(sc_d.device, img, self.format, c.VK_IMAGE_ASPECT_COLOR_BIT, alloc_cb);
+            view.* = try helper.CreateImageView(core.device.handle, img, self.format, c.VK_IMAGE_ASPECT_COLOR_BIT, alloc_cb);
         }
 
         // TODO: Create depth image for 3D. Also create 3D stuff here for swapchain.
