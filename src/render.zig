@@ -3,10 +3,16 @@ const std = @import("std");
 const helper = @import("helper.zig");
 const sc = @import("swapchain.zig");
 const core_mod = @import("core.zig");
+const math3d = @import("math.zig");
 const log = std.log;
 
 pub const MaterialTemplateId_u32 = u32;
 pub const MaterialInstanceId_u32 = u32;
+
+const Vec2 = math.Vec2;
+const Vec3 = math.Vec3;
+const Vec4 = math.Vec4;
+const Mat4 = math.Mat4;
 
 pub const AllocatedBuffer = struct {
     buffer: c.VkBuffer,
@@ -16,6 +22,7 @@ pub const AllocatedBuffer = struct {
 const MaterialTemplate = struct {
     pipeline: c.VkPipeline,
     pipeline_layout: c.VkPipelineLayout,
+    bind_point: c.VkPipelineBindPoint, 
 };
 
 const MaterialInstance = struct {
@@ -47,6 +54,7 @@ pub const Renderer = struct {
     render_pass: c.VkRenderPass,
     material_system: MaterialSystem,
     upload_context: UploadContext,
+    camera_pos: Vec3
     frame_number: i32 = 0,
 
     // pipelines / layouts
@@ -99,9 +107,47 @@ pub const Renderer = struct {
 
         var cmd = frame.main_command_buffer;
 
+        try helper.check_vk(c.vkResetCommandBuffer(cmd, 0));
 
+        const cmd_begin_info = std.mem.zeroInit(c.VkCommandBufferBeginInfo, .{
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        });
+        
+        try helper.check_vk(c.vkBeginCommandBuffer(cmd, &cmd_begin_info));
+        
+        const color_clear: c.VkClearValue = .{
+            .color = .{ .float32 = [_]f32{0.0, 0.0, 0.0, 1.0} },
+        };
 
+        //const depth_clear = c.VkClearValue {
+         //   .depthStencil = .{
+         //       .depth = 1.0,
+         //       .stencil = 0,
+         //   },
+        //};
+        //
+        const clear_values = [_]c.VkClearValue{
+            color_clear,  
+        };
 
+        const render_pass_begin_info = std.mem.zeroInit(c.VkRenderPassBeginInfo , .{
+            .sType = c.VK_STRUCTRE_TYPE_RENDER_PASS_BEGIN_INFO,
+            .renderPass = self.render_pass,
+            .framebuffer = swapchain.framebuffers[swapchain_image_index],
+            .renderArea = .{
+                .offset = .{ .x = 0, .y = 0 },
+                .extent = swapchain.extent,
+            },
+            .clearValueCount = @as(u32, @intCast(clear_values.len)),
+            .pClearValues = &clear_values[0],
+        });
+
+        c.vkCmdBeginRenderPass(cmd, &render_pass_begin_info, c.VK_SUBPASS_CONTENTS_INLINE);
+
+        try self.material_system.BindPipeline(cmd, "Triangle");
+
+        c.vkCmdDraw(cmd, 3, 1, 0, 0);
 
 
     }
@@ -177,9 +223,12 @@ pub const MaterialSystem = struct {
         pipeline: c.VkPipeline, 
         pipeline_layout: c.VkPipelineLayout, 
         texture_set: c.VkDescriptorSet,
+        bind_point: c.VkPipelineBindPoint,
         allocator: std.mem.Allocator) !MaterialInstanceId_u32 {
 
-            _ = try self.AddTemplate(template_name, pipeline, pipeline_layout, allocator);
+            _ = try self.AddTemplate(template_name, pipeline, pipeline_layout, bind_point, allocator);
+
+            self.bind_point = bind_point;
 
             const instance_id = try self.AddInstance(instance_name, texture_set, allocator); 
 
@@ -209,6 +258,7 @@ pub const MaterialSystem = struct {
         pipeline: c.VkPipeline, 
         pipeline_layout: c.VkPipelineLayout,
         allocator: std.mem.Allocator,
+        bind_point: c.VkPipelineBindPoint, 
         ) !MaterialTemplateId_u32 {
 
         const template_id: MaterialTemplateId_u32 = @intCast(self.templates.items.len);
@@ -216,6 +266,7 @@ pub const MaterialSystem = struct {
         try self.templates.append(allocator , .{
             .pipeline = pipeline,
             .pipeline_layout = pipeline_layout,
+            .bind_point = bind_point  
         });
 
         try self.templates_by_name.put(template_name, template_id);
@@ -223,6 +274,26 @@ pub const MaterialSystem = struct {
         return template_id;
 
     }
+
+    pub fn GetTemplateByName(
+        self: *MaterialSystem,
+        name: []const u8,
+    ) ?*MaterialTemplate {
+        const id = self.templates_by_name.get(name) orelse return null;
+        return &self.templates.items[@intCast(id)];
+    }
+
+    pub fn BindPipeline(
+        self: *MaterialSystem,
+        cmd: c.VkCommandBuffer,
+        name: []const u8,
+        ) !void {
+            
+        const tpl = try self.GetTemplateByName(name);
+        c.vkCmdBindPipeline(cmd, tpl.bind_point, tpl.pipeline)
+        
+    }
+
 
     pub fn init(allocator: std.mem.Allocator) !MaterialSystem {
         return .{
@@ -232,6 +303,7 @@ pub const MaterialSystem = struct {
 
             .instances = try std.ArrayList(MaterialInstance).initCapacity(allocator, 0),
             .instances_by_name = std.StringHashMap(MaterialInstanceId_u32).init(allocator),
+
         };
     }
 
@@ -451,6 +523,7 @@ pub fn CreatePipelines(
          triangle_pipeline_layout, 
          helper.VK_NULL_HANDLE,
          allocator,
+         c.VK_PIPELINE_BIND_POINT_GRAPHICS,
          );
 
 }
