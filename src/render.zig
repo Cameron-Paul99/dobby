@@ -30,7 +30,7 @@ const MaterialInstance = struct {
     texture_set: c.VkDescriptorSet,
 };
 
-const FRAME_OVERLAP = 2;
+const FRAME_OVERLAP = 4;
 
 const FrameData = struct {
     present_semaphore: c.VkSemaphore = helper.VK_NULL_HANDLE,
@@ -56,6 +56,7 @@ pub const Renderer = struct {
     upload_context: UploadContext,
  //   camera_pos: Vec3
     frame_number: i32 = 0,
+    images_in_flight: []c.VkFence = &.{},
 
     // pipelines / layouts
     // maybe upload context too
@@ -85,7 +86,7 @@ pub const Renderer = struct {
         try CreateCommands(&renderer, core.physical_device.graphics_queue_family, core);
 
         // Create Sync Structures
-        try CreateSyncStructures(&renderer, core); 
+        try CreateSyncStructures(&renderer, core, swapchain, allocator); 
 
 
         return renderer;
@@ -94,13 +95,13 @@ pub const Renderer = struct {
     pub fn DrawFrame(self: *Renderer, core: *core_mod.Core, swapchain: *sc.Swapchain) !void {
 
         const timeout: u64 = 1_000_000_000;
-        const frame = self.frames[@intCast(@mod(self.frame_number, FRAME_OVERLAP))];
+        const frame = &self.frames[@intCast(@mod(self.frame_number, FRAME_OVERLAP))];
 
         try helper.check_vk(c.vkWaitForFences(core.device.handle, 1 ,&frame.render_fence, c.VK_TRUE, timeout));
-        try helper.check_vk(c.ckResetFences(core.device.handle, 1, &frame.render_fence));
+        try helper.check_vk(c.vkResetFences(core.device.handle, 1, &frame.render_fence));
         
         var swapchain_image_index: u32 = undefined;
-        try helper.check_vk(c.vkAquireNextImageKHR(
+        try helper.check_vk(c.vkAcquireNextImageKHR(
                 core.device.handle, 
                 swapchain.handle, 
                 timeout, 
@@ -108,6 +109,20 @@ pub const Renderer = struct {
                 helper.VK_NULL_HANDLE, 
                 &swapchain_image_index
         ));
+
+        // TODO: Revisit images in flight to remove high frame overlap. Fix by per frame render-finished semaphores
+
+        //if (self.images_in_flight[swapchain_image_index]  != null) {
+           // try helper.check_vk(c.vkWaitForFences(
+          //          core.device.handle, 
+         //           1, 
+         //           &self.images_in_flight[swapchain_image_index], 
+         //           c.VK_TRUE, 
+        //            timeout
+         //   ));
+        //}
+
+       // self.images_in_flight[swapchain_image_index] = frame.render_fence;
 
         const cmd = frame.main_command_buffer;
 
@@ -124,6 +139,8 @@ pub const Renderer = struct {
             .color = .{ .float32 = [_]f32{0.0, 0.0, 0.0, 1.0} },
         };
 
+        // TODO: Depth addition
+
         //const depth_clear = c.VkClearValue {
          //   .depthStencil = .{
          //       .depth = 1.0,
@@ -136,7 +153,7 @@ pub const Renderer = struct {
         };
 
         const render_pass_begin_info = std.mem.zeroInit(c.VkRenderPassBeginInfo , .{
-            .sType = c.VK_STRUCTRE_TYPE_RENDER_PASS_BEGIN_INFO,
+            .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
             .renderPass = self.render_pass,
             .framebuffer = swapchain.framebuffers[swapchain_image_index],
             .renderArea = .{
@@ -165,7 +182,7 @@ pub const Renderer = struct {
             .pNext = null,
             .waitSemaphoreCount = 1,
             .pWaitSemaphores = &frame.present_semaphore,
-            .pWaitDstStageMask = wait_stages.ptr,
+            .pWaitDstStageMask = &wait_stages,
             .commandBufferCount = 1,
             .pCommandBuffers = &cmd,
             .signalSemaphoreCount = 1,
@@ -199,7 +216,16 @@ pub const Renderer = struct {
 
     }
 
-    pub fn deinit(self: *Renderer, allocator: std.mem.Allocator, core: *core_mod.Core) void { 
+    pub fn deinit(self: *Renderer, allocator: std.mem.Allocator, core: *core_mod.Core) void {
+
+        if (core.device.handle != null){
+            _ = c.vkDeviceWaitIdle(core.device.handle);
+        }
+
+        if (self.images_in_flight.len != 0) {
+            allocator.free(self.images_in_flight);
+            self.images_in_flight = &.{};
+        }
         
         self.material_system.deinitGpu(core.device.handle, core.alloc_cb);
         self.material_system.deinit(allocator);
@@ -339,7 +365,8 @@ pub const MaterialSystem = struct {
         name: []const u8,
         ) !void {
             
-        const tpl = try self.GetTemplateByName(name);
+        const tpl = self.GetTemplateByName(name) orelse
+            @panic("Missing pipeline template");
         c.vkCmdBindPipeline(cmd, tpl.bind_point, tpl.pipeline);
         
     }
@@ -431,7 +458,11 @@ pub fn CreateCommands(renderer: *Renderer ,graphics_qfi: u32, core: *core_mod.Co
 
 }
 
-pub fn CreateSyncStructures(renderer: *Renderer, core: *core_mod.Core) !void{
+pub fn CreateSyncStructures(
+    renderer: *Renderer, 
+    core: *core_mod.Core, 
+    swapchain: *sc.Swapchain, 
+    allocator: std.mem.Allocator) !void{
 
     const semaphore_ci = std.mem.zeroInit(c.VkSemaphoreCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
@@ -452,7 +483,16 @@ pub fn CreateSyncStructures(renderer: *Renderer, core: *core_mod.Core) !void{
         .sType = c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
     });
 
-    try helper.check_vk(c.vkCreateFence(core.device.handle, &upload_fence_ci, core.alloc_cb, &renderer.upload_context.upload_fence));
+    renderer.images_in_flight = try allocator.alloc(c.VkFence, swapchain.framebuffers.len);
+    @memset(renderer.images_in_flight, null);
+    std.debug.assert(swapchain.framebuffers.len == swapchain.images.len);
+
+    try helper.check_vk(c.vkCreateFence(
+            core.device.handle, 
+            &upload_fence_ci, 
+            core.alloc_cb, 
+            &renderer.upload_context.upload_fence
+    ));
 
     log.info("Created sync structures", .{});
 }

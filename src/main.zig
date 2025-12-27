@@ -31,7 +31,7 @@ pub fn main() !void {
     
 
     while (!game_window.should_close){
-        renderer.DrawFrame
+        try renderer.DrawFrame(&core, &sc);
         game_window.pollEvents();
         std.Thread.sleep(16 * std.time.ns_per_ms);
     }

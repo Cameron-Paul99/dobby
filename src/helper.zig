@@ -109,8 +109,37 @@ pub fn destroyDebugMessenger(renderer: *gpu_context.Core) void {
     renderer.instance.debug_messenger = null;
 }
 
+fn vkResultStr(r: c.VkResult) []const u8 {
+    return switch (r) {
+        c.VK_SUCCESS => "VK_SUCCESS",
+        c.VK_NOT_READY => "VK_NOT_READY",
+        c.VK_TIMEOUT => "VK_TIMEOUT",
+        c.VK_EVENT_SET => "VK_EVENT_SET",
+        c.VK_EVENT_RESET => "VK_EVENT_RESET",
+        c.VK_INCOMPLETE => "VK_INCOMPLETE",
+        c.VK_ERROR_OUT_OF_HOST_MEMORY => "VK_ERROR_OUT_OF_HOST_MEMORY",
+        c.VK_ERROR_OUT_OF_DEVICE_MEMORY => "VK_ERROR_OUT_OF_DEVICE_MEMORY",
+        c.VK_ERROR_INITIALIZATION_FAILED => "VK_ERROR_INITIALIZATION_FAILED",
+        c.VK_ERROR_DEVICE_LOST => "VK_ERROR_DEVICE_LOST",
+        c.VK_ERROR_MEMORY_MAP_FAILED => "VK_ERROR_MEMORY_MAP_FAILED",
+        c.VK_ERROR_LAYER_NOT_PRESENT => "VK_ERROR_LAYER_NOT_PRESENT",
+        c.VK_ERROR_EXTENSION_NOT_PRESENT => "VK_ERROR_EXTENSION_NOT_PRESENT",
+        c.VK_ERROR_FEATURE_NOT_PRESENT => "VK_ERROR_FEATURE_NOT_PRESENT",
+        c.VK_ERROR_INCOMPATIBLE_DRIVER => "VK_ERROR_INCOMPATIBLE_DRIVER",
+        c.VK_ERROR_TOO_MANY_OBJECTS => "VK_ERROR_TOO_MANY_OBJECTS",
+        c.VK_ERROR_FORMAT_NOT_SUPPORTED => "VK_ERROR_FORMAT_NOT_SUPPORTED",
+        c.VK_ERROR_SURFACE_LOST_KHR => "VK_ERROR_SURFACE_LOST_KHR",
+        c.VK_ERROR_OUT_OF_DATE_KHR => "VK_ERROR_OUT_OF_DATE_KHR",
+        c.VK_SUBOPTIMAL_KHR => "VK_SUBOPTIMAL_KHR",
+        else => "VK_<unknown>",
+    };
+}
+
 pub fn check_vk(result: c.VkResult) !void {
-    if (result != c.VK_SUCCESS) return error.VulkanError;
+    if (result != c.VK_SUCCESS) {
+        std.log.err("Vulkan call failed: {s} ({d})", .{ vkResultStr(result), result });
+        return error.VulkanError;
+    }
 }
 
 fn defaultDebugCallback(
