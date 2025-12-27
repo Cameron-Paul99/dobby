@@ -10,7 +10,7 @@ pub fn main() !void {
     
     // Window Creation
     var game_window = try sdl.Window.init(800, 600);
-    defer window.deinit();
+    defer game_window.deinit();
     
     // Allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -30,8 +30,9 @@ pub fn main() !void {
     defer renderer.deinit(allocator, &core); 
     
 
-    while (!window.should_close){
-        window.pollEvents();
+    while (!game_window.should_close){
+        renderer.DrawFrame
+        game_window.pollEvents();
         std.Thread.sleep(16 * std.time.ns_per_ms);
     }
 

@@ -41,14 +41,18 @@ pub const Swapchain = struct {
         var self: Swapchain = .{};
         self.config = config;
 
-        const support = try helper.SwapchainSupportInfo.init(allocator, core.physical_device, core.physical_device.surface);
+        const support = try helper.SwapchainSupportInfo.init(allocator, core.physical_device.handle, core.physical_device.surface);
         defer support.deinit(allocator);
 
         self.format = helper.PickSwapchainFormat(support.formats);
         const present_mode = helper.PickSwapchainPresentMode(config, support.present_modes);
 
         // IMPORTANT: extent needs window size inputs, not stored forever in the swapchain struct
-        self.extent = helper.MakeSwapchainExtent(support.capabilities, window.screen_width, window.screen_height);
+        self.extent = helper.MakeSwapchainExtent(
+            support.capabilities, 
+            @as(u32, @intCast(window.screen_width)), 
+            @as(u32, @intCast(window.screen_height)),
+        );
 
         self.depth_format = c.VK_FORMAT_D32_SFLOAT;
 
@@ -77,8 +81,8 @@ pub const Swapchain = struct {
             ci.imageSharingMode = c.VK_SHARING_MODE_EXCLUSIVE;
         }
 
-        try helper.check_vk(c.vkCreateSwapchainKHR(core.device.handle, &ci, alloc_cb, &self.handle));
-        errdefer self.deinit(allocator, core.device.handle, alloc_cb);
+        try helper.check_vk(c.vkCreateSwapchainKHR(core.device.handle, &ci, core.alloc_cb, &self.handle));
+        errdefer self.deinit(allocator, core.device.handle, core.alloc_cb);
 
         var count: u32 = 0;
         try helper.check_vk(c.vkGetSwapchainImagesKHR(core.device.handle, self.handle, &count, null));
@@ -91,7 +95,7 @@ pub const Swapchain = struct {
         errdefer allocator.free(self.views);
 
         for (self.images, self.views) |img, *view| {
-            view.* = try helper.CreateImageView(core.device.handle, img, self.format, c.VK_IMAGE_ASPECT_COLOR_BIT, alloc_cb);
+            view.* = try helper.CreateImageView(core.device.handle, img, self.format, c.VK_IMAGE_ASPECT_COLOR_BIT, core.alloc_cb);
         }
 
         // TODO: Create depth image for 3D. Also create 3D stuff here for swapchain.

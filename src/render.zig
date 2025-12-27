@@ -3,16 +3,16 @@ const std = @import("std");
 const helper = @import("helper.zig");
 const sc = @import("swapchain.zig");
 const core_mod = @import("core.zig");
-const math3d = @import("math.zig");
+//const math3d = @import("math.zig");
 const log = std.log;
 
 pub const MaterialTemplateId_u32 = u32;
 pub const MaterialInstanceId_u32 = u32;
 
-const Vec2 = math.Vec2;
-const Vec3 = math.Vec3;
-const Vec4 = math.Vec4;
-const Mat4 = math.Mat4;
+//const Vec2 = math.Vec2;
+//const Vec3 = math.Vec3;
+//const Vec4 = math.Vec4;
+//const Mat4 = math.Mat4;
 
 pub const AllocatedBuffer = struct {
     buffer: c.VkBuffer,
@@ -54,7 +54,7 @@ pub const Renderer = struct {
     render_pass: c.VkRenderPass,
     material_system: MaterialSystem,
     upload_context: UploadContext,
-    camera_pos: Vec3
+ //   camera_pos: Vec3
     frame_number: i32 = 0,
 
     // pipelines / layouts
@@ -93,9 +93,6 @@ pub const Renderer = struct {
     }
     pub fn DrawFrame(self: *Renderer, core: *core_mod.Core, swapchain: *sc.Swapchain) !void {
 
-        _ = core;
-        _ = swapchain;
-        
         const timeout: u64 = 1_000_000_000;
         const frame = self.frames[@intCast(@mod(self.frame_number, FRAME_OVERLAP))];
 
@@ -103,9 +100,16 @@ pub const Renderer = struct {
         try helper.check_vk(c.ckResetFences(core.device.handle, 1, &frame.render_fence));
         
         var swapchain_image_index: u32 = undefined;
-        try helper.check_vk(c.vkAquireNextImageKHR(core.device.handle, swapchain.handle, timeout, frame.present_semaphore, helper.VK_NULL_HANDLE, &swapchain_image_index));
+        try helper.check_vk(c.vkAquireNextImageKHR(
+                core.device.handle, 
+                swapchain.handle, 
+                timeout, 
+                frame.present_semaphore, 
+                helper.VK_NULL_HANDLE, 
+                &swapchain_image_index
+        ));
 
-        var cmd = frame.main_command_buffer;
+        const cmd = frame.main_command_buffer;
 
         try helper.check_vk(c.vkResetCommandBuffer(cmd, 0));
 
@@ -145,10 +149,47 @@ pub const Renderer = struct {
 
         c.vkCmdBeginRenderPass(cmd, &render_pass_begin_info, c.VK_SUBPASS_CONTENTS_INLINE);
 
+        // Bind pipeline and draw
         try self.material_system.BindPipeline(cmd, "Triangle");
-
         c.vkCmdDraw(cmd, 3, 1, 0, 0);
 
+        c.vkCmdEndRenderPass(cmd);
+        try helper.check_vk(c.vkEndCommandBuffer(cmd));
+
+        // Submit
+
+        const wait_stages = [_]c.VkPipelineStageFlags { c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+
+        const submit_info: c.VkSubmitInfo = .{
+            .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .pNext = null,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &frame.present_semaphore,
+            .pWaitDstStageMask = wait_stages.ptr,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &cmd,
+            .signalSemaphoreCount = 1,
+            .pSignalSemaphores = &frame.render_semaphore,
+        };
+
+        try helper.check_vk(c.vkQueueSubmit(core.device.graphics_queue, 1, &submit_info, frame.render_fence));
+
+        // Present
+
+        const present_info: c.VkPresentInfoKHR = .{
+            .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .pNext = null,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &frame.render_semaphore,
+            .swapchainCount = 1,
+            .pSwapchains = &swapchain.handle,
+            .pImageIndices = &swapchain_image_index,
+            .pResults = null,
+        };
+
+        _ = c.vkQueuePresentKHR(core.device.present_queue, &present_info);
+
+        self.frame_number += 1;
 
     }
     pub fn OnSwapchainRecreated(self: *Renderer, core: *core_mod.Core, swapchain: *sc.Swapchain) !void { 
@@ -224,13 +265,22 @@ pub const MaterialSystem = struct {
         pipeline_layout: c.VkPipelineLayout, 
         texture_set: c.VkDescriptorSet,
         bind_point: c.VkPipelineBindPoint,
-        allocator: std.mem.Allocator) !MaterialInstanceId_u32 {
+        allocator: std.mem.Allocator
+        ) !MaterialInstanceId_u32 {
 
-            _ = try self.AddTemplate(template_name, pipeline, pipeline_layout, bind_point, allocator);
+            _ = try self.AddTemplate(
+                template_name, 
+                pipeline, 
+                pipeline_layout, 
+                allocator, 
+                bind_point
+            );
 
-            self.bind_point = bind_point;
-
-            const instance_id = try self.AddInstance(instance_name, texture_set, allocator); 
+            const instance_id = try self.AddInstance(
+                instance_name, 
+                texture_set, 
+                allocator
+            ); 
 
             return instance_id;
     }
@@ -290,7 +340,7 @@ pub const MaterialSystem = struct {
         ) !void {
             
         const tpl = try self.GetTemplateByName(name);
-        c.vkCmdBindPipeline(cmd, tpl.bind_point, tpl.pipeline)
+        c.vkCmdBindPipeline(cmd, tpl.bind_point, tpl.pipeline);
         
     }
 
@@ -522,9 +572,9 @@ pub fn CreatePipelines(
          triangle_pipeline, 
          triangle_pipeline_layout, 
          helper.VK_NULL_HANDLE,
-         allocator,
          c.VK_PIPELINE_BIND_POINT_GRAPHICS,
-         );
+         allocator,
+    );
 
 }
 
