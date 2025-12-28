@@ -14,10 +14,7 @@ pub const MaterialInstanceId_u32 = u32;
 //const Vec4 = math.Vec4;
 //const Mat4 = math.Mat4;
 
-pub const AllocatedBuffer = struct {
-    buffer: c.VkBuffer,
-    allocation: c.VmaAllocation,
-};
+
 
 const MaterialTemplate = struct {
     pipeline: c.VkPipeline,
@@ -39,7 +36,7 @@ const FrameData = struct {
     command_pool: c.VkCommandPool = helper.VK_NULL_HANDLE,
     main_command_buffer: c.VkCommandBuffer = helper.VK_NULL_HANDLE,
 
-    object_buffer: AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE },
+    object_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     object_descriptor_set: c.VkDescriptorSet = helper.VK_NULL_HANDLE,
 };
 
@@ -168,6 +165,16 @@ pub const Renderer = struct {
 
         // Bind pipeline and draw
         try self.material_system.BindPipeline(cmd, "Triangle");
+        
+       // const verts = [_]helper.Vertex{
+       //     .{ .pos = .{ 0.0, -0.5 }, .color = .{ 1.0, 0.0, 0.0 } },
+      //      .{ .pos = .{ 0.5,  0.5 }, .color = .{ 0.0, 1.0, 0.0 } },
+     //       .{ .pos = .{ -0.5, 0.5 }, .color = .{ 0.0, 0.0, 1.0 } },
+     //   };
+        
+     //   const offsets = [_]c.VkDeviceSize{0};
+     //   c.vkCmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer, &offsets[0]);
+
         c.vkCmdDraw(cmd, 3, 1, 0, 0);
 
         c.vkCmdEndRenderPass(cmd);

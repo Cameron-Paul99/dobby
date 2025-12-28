@@ -496,6 +496,114 @@ pub fn MakeShaderModules(device: c.VkDevice, alloc_cb: ?*c.VkAllocationCallbacks
 
 }
 
+pub const Vertex = extern struct {
+    pos: [2]f32,
+    color: [3]f32,
+};
+
+pub const AllocatedBuffer = struct {
+    buffer: c.VkBuffer,
+    allocation: c.VmaAllocation,
+    size: c.VkDeviceSize = 0,
+};
+
+pub fn CreateVertexBuffer(
+    vertices: []const Vertex,
+    vma: c.VmaAllocator,
+    ) !AllocatedBuffer {
+    
+    const size: c.VkDeviceSize = @intCast(vertices.len * @sizeOf(Vertex));
+
+    const staging = try CreateBuffer(
+        vma, 
+        size, 
+        c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
+        c.VMA_MEMORY_USAGE_CPU_ONLY, 
+        0,
+    );
+
+    var mapped: ?*anyopaque = null;
+    try check_vk(c.vmaMapMemory(vma, staging.allocation, &mapped));
+
+    const dst: [*]u8 = @ptrCast(mapped.?);
+    const src: []const u8 = std.mem.asBytes(vertices);
+
+    @memcpy(dst[0..src.len], src);
+    c.vmaUnmapMemory(vma, staging.allocation);
+
+    const vb = try CreateBuffer(
+        vma,
+        size,
+        c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        c.VMA_MEMORY_USAGE_GPU_ONLY,
+        0,
+    );
+
+    //TODO: add an immediate submit. Though it is optional
+
+    return vb;
+    
+
+}
+
+pub fn CreateIndexBuffer() void {
+
+
+}
+
+pub fn CreateBuffer(
+    vma: c.VmaAllocator, 
+    size: c.VkDeviceSize,
+    usage: c.VkBufferUsageFlags,
+    mem_usage: c.VkBufferUsage,
+    alloc_flags: c.VmaAllocationCreateFlags) !AllocatedBuffer {
+
+    const out: AllocatedBuffer = .{.size = size};
+
+    const buffer_ci = std.mem.zeroInit(c.VkBufferCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = size,
+        .usage = usage,
+        .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+    });
+
+    const ainfo = std.mem.zeroInit(c.VmaAllocationCreateInfo, .{
+        .usage = mem_usage,
+        .flags = alloc_flags,
+    });
+
+    try check_vk(c.vmaCreateBuffer(vma, &buffer_ci, &ainfo, &out.buffer, &out.allocation, null));
+
+    return out;
+
+}
+
+pub fn CopyBuffer(
+    cmd: c.VkCommandBuffer, 
+    src: c.VkBuffer,
+    dst: c.VkBuffer,
+    size: c.VkDeviceSize) void {
+    
+    const region = c.VkBufferCopy {
+        .srcOffset = 0,
+        .dstOffset = 0,
+        .size = size,
+    };
+
+    c.vkCmdCopyBuffer(cmd, src, dst, 1, &region);
+
+}
+
+pub fn DestroyBuffer(vma: c.VmaAllocator, b: *AllocatedBuffer) void{
+
+    if (b.buffer != null){
+        
+        c.vmaDestroyBuffer(vma, b.buffer, b.allocation);
+        b.* = .{};
+
+    }
+
+}
 
 
     
