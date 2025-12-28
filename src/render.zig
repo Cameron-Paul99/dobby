@@ -40,7 +40,7 @@ const FrameData = struct {
     object_descriptor_set: c.VkDescriptorSet = helper.VK_NULL_HANDLE,
 };
 
-const UploadContext = struct {
+pub const UploadContext = struct {
     upload_fence: c.VkFence = helper.VK_NULL_HANDLE,
     command_pool: c.VkCommandPool = helper.VK_NULL_HANDLE,
     command_buffer: c.VkCommandBuffer = helper.VK_NULL_HANDLE,
@@ -51,9 +51,13 @@ pub const Renderer = struct {
     render_pass: c.VkRenderPass,
     material_system: MaterialSystem,
     upload_context: UploadContext,
+    vma: c.VmaAllocator,
  //   camera_pos: Vec3
     frame_number: i32 = 0,
     images_in_flight: []c.VkFence = &.{},
+    vertex_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+    index_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+    index_count: u32 = 0,
 
     // pipelines / layouts
     // maybe upload context too
@@ -69,22 +73,39 @@ pub const Renderer = struct {
         // Pipeline Material Creation 
         const material_system = try MaterialSystem.init(allocator);
 
+        // VMA allocation
+        const vma = try CreateVMAAllocator(core);
+        
         var renderer = Renderer {
             .frames = .{ FrameData{} } ** FRAME_OVERLAP, 
             .render_pass = render_pass, 
             .material_system = material_system,
             .upload_context = .{},
+            .vma = vma,
         };
         
         // Pipeline Creation
         try CreatePipelines(core, swapchain, &renderer, allocator);
-        
+
         // Commands Creation
         try CreateCommands(&renderer, core.physical_device.graphics_queue_family, core);
 
         // Create Sync Structures
-        try CreateSyncStructures(&renderer, core, swapchain, allocator); 
+        try CreateSyncStructures(&renderer, core, swapchain, allocator);
 
+        // Create Vertex Buffer
+        const verts = [_]helper.Vertex{
+            .{ .pos = .{ -0.5, -0.5 }, .color = .{ 1.0, 0.0, 0.0 } },
+            .{ .pos = .{  0.5, -0.5 }, .color = .{ 0.0, 1.0, 0.0 } },
+            .{ .pos = .{  0.5,  0.5 }, .color = .{ 0.0, 0.0, 1.0 } },
+            .{ .pos = .{ -0.5,  0.5 }, .color = .{ 1.0, 1.0, 0.0 } },
+        };
+
+        // Create Index Buffer
+        const inds = [_]helper.Index_u16{ 0, 1, 2 , 2 , 3 , 0 };
+
+        renderer.vertex_buffer = try helper.CreateVertexBuffer(renderer.vma, verts[0..], &renderer.upload_context, core);
+        renderer.index_buffer = try helper.CreateIndexBuffer(renderer.vma, inds[0..], &renderer.upload_context, core);
 
         return renderer;
         
@@ -174,8 +195,10 @@ pub const Renderer = struct {
         
      //   const offsets = [_]c.VkDeviceSize{0};
      //   c.vkCmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer, &offsets[0]);
-
-        c.vkCmdDraw(cmd, 3, 1, 0, 0);
+        const offsets = [_]c.VkDeviceSize{0};
+        c.vkCmdBindVertexBuffers(cmd, 0, 1, &self.vertex_buffer.buffer, &offsets[0]);
+        c.vkCmdBindIndexBuffer(cmd, self.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT16);
+        c.vkCmdDrawIndexed(cmd, self.index_count, 1, 0, 0, 0);
 
         c.vkCmdEndRenderPass(cmd);
         try helper.check_vk(c.vkEndCommandBuffer(cmd));
@@ -229,6 +252,12 @@ pub const Renderer = struct {
             _ = c.vkDeviceWaitIdle(core.device.handle);
         }
 
+        helper.DestroyBuffer(self.vma, &self.vertex_buffer);
+        helper.DestroyBuffer(self.vma, &self.index_buffer);
+
+        if (self.vma != null){
+            c.vmaDestroyAllocator(self.vma);
+        }
         if (self.images_in_flight.len != 0) {
             allocator.free(self.images_in_flight);
             self.images_in_flight = &.{};
@@ -448,7 +477,7 @@ pub fn CreateCommands(renderer: *Renderer ,graphics_qfi: u32, core: *core_mod.Co
     
     const upload_command_pool_ci = std.mem.zeroInit(c.VkCommandPoolCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-        .flags = 0,
+        .flags = c.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
         .queueFamilyIndex = graphics_qfi,
     });
 
@@ -625,5 +654,19 @@ pub fn CreatePipelines(
 
 }
 
+pub fn CreateVMAAllocator(core: *core_mod.Core) !c.VmaAllocator {
 
+    var vma_ci = std.mem.zeroInit(c.VmaAllocatorCreateInfo, .{
+        .physicalDevice = core.physical_device.handle,
+        .device = core.device.handle,
+        .instance = core.instance.handle,
+    }); 
+
+    var allocator: c.VmaAllocator = undefined;
+    try helper.check_vk(c.vmaCreateAllocator(&vma_ci, &allocator));
+
+    return allocator;
+
+
+}
 

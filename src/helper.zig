@@ -3,6 +3,7 @@ const c = @import("clibs.zig").c;
 const sdl = @import("sdl.zig");
 const gpu_context = @import("core.zig");
 const sc = @import("swapchain.zig");
+const render = @import("render.zig");
 const log = std.log;
 
 pub const VK_NULL_HANDLE = null;
@@ -501,6 +502,8 @@ pub const Vertex = extern struct {
     color: [3]f32,
 };
 
+pub const Index_u16 = u16;
+
 pub const AllocatedBuffer = struct {
     buffer: c.VkBuffer,
     allocation: c.VmaAllocation,
@@ -508,13 +511,14 @@ pub const AllocatedBuffer = struct {
 };
 
 pub fn CreateVertexBuffer(
-    vertices: []const Vertex,
     vma: c.VmaAllocator,
-    ) !AllocatedBuffer {
+    vertices: []const Vertex,
+    upload_ctx: *render.UploadContext,
+    core: *gpu_context.Core) !AllocatedBuffer {
     
     const size: c.VkDeviceSize = @intCast(vertices.len * @sizeOf(Vertex));
 
-    const staging = try CreateBuffer(
+    var staging = try CreateBuffer(
         vma, 
         size, 
         c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
@@ -522,14 +526,16 @@ pub fn CreateVertexBuffer(
         0,
     );
 
+    defer DestroyBuffer(vma, &staging);
+
     var mapped: ?*anyopaque = null;
     try check_vk(c.vmaMapMemory(vma, staging.allocation, &mapped));
+    defer c.vmaUnmapMemory(vma, staging.allocation);
 
     const dst: [*]u8 = @ptrCast(mapped.?);
-    const src: []const u8 = std.mem.asBytes(vertices);
+    const src: []const u8 = std.mem.sliceAsBytes(vertices);
 
     @memcpy(dst[0..src.len], src);
-    c.vmaUnmapMemory(vma, staging.allocation);
 
     const vb = try CreateBuffer(
         vma,
@@ -540,14 +546,52 @@ pub fn CreateVertexBuffer(
     );
 
     //TODO: add an immediate submit. Though it is optional
+    //
+    try CopyBuffer(core, upload_ctx, staging.buffer, vb.buffer, size);
 
     return vb;
     
 
 }
 
-pub fn CreateIndexBuffer() void {
+pub fn CreateIndexBuffer(
+    vma: c.VmaAllocator, 
+    indices: []const Index_u16,
+    upload_ctx: *render.UploadContext,
+    core: *gpu_context.Core) !AllocatedBuffer{
 
+    const size: c.VkDeviceSize = @intCast(indices.len * @sizeOf(Index_u16));
+
+    var staging = try CreateBuffer(
+        vma,
+        size,
+        c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        c.VMA_MEMORY_USAGE_CPU_ONLY,
+        0,
+    );
+
+    defer DestroyBuffer(vma, &staging);
+
+    var mapped: ?*anyopaque = null;
+    try check_vk(c.vmaMapMemory(vma, staging.allocation, &mapped));
+    defer c.vmaUnmapMemory(vma, staging.allocation);
+
+    const dst: [*]u8 = @ptrCast(mapped.?);
+    const src: []const u8 = std.mem.sliceAsBytes(indices);
+
+    @memcpy(dst[0..src.len], src);
+
+    const ib = try CreateBuffer(
+        vma,
+        size,
+        c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        c.VMA_MEMORY_USAGE_GPU_ONLY,
+        0,
+    );
+
+    try CopyBuffer( core, upload_ctx, staging.buffer, ib.buffer, size);
+
+    return ib;
 
 }
 
@@ -555,10 +599,14 @@ pub fn CreateBuffer(
     vma: c.VmaAllocator, 
     size: c.VkDeviceSize,
     usage: c.VkBufferUsageFlags,
-    mem_usage: c.VkBufferUsage,
+    mem_usage: c.VmaMemoryUsage,
     alloc_flags: c.VmaAllocationCreateFlags) !AllocatedBuffer {
 
-    const out: AllocatedBuffer = .{.size = size};
+    var out: AllocatedBuffer = .{ 
+        .buffer = VK_NULL_HANDLE, 
+        .allocation = VK_NULL_HANDLE,
+        .size = size
+    };
 
     const buffer_ci = std.mem.zeroInit(c.VkBufferCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -579,18 +627,40 @@ pub fn CreateBuffer(
 }
 
 pub fn CopyBuffer(
-    cmd: c.VkCommandBuffer, 
+    core: *gpu_context.Core,
+    upload_ctx: *render.UploadContext, 
     src: c.VkBuffer,
     dst: c.VkBuffer,
-    size: c.VkDeviceSize) void {
-    
+    size: c.VkDeviceSize) !void {
+
+    try check_vk(c.vkResetFences(core.device.handle, 1, &upload_ctx.upload_fence));
+    try check_vk(c.vkResetCommandBuffer(upload_ctx.command_buffer, 0));
+
     const region = c.VkBufferCopy {
         .srcOffset = 0,
         .dstOffset = 0,
         .size = size,
     };
 
-    c.vkCmdCopyBuffer(cmd, src, dst, 1, &region);
+    const begin = std.mem.zeroInit(c.VkCommandBufferBeginInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    });
+
+    try check_vk(c.vkBeginCommandBuffer(upload_ctx.command_buffer, &begin));
+
+    c.vkCmdCopyBuffer(upload_ctx.command_buffer, src, dst, 1, &region);
+
+    try check_vk(c.vkEndCommandBuffer(upload_ctx.command_buffer));
+
+    const submit = std.mem.zeroInit(c.VkSubmitInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &upload_ctx.command_buffer,
+    });
+
+    try check_vk(c.vkQueueSubmit(core.device.graphics_queue, 1, &submit, upload_ctx.upload_fence));
+    _ = c.vkWaitForFences(core.device.handle, 1, &upload_ctx.upload_fence, c.VK_TRUE, std.math.maxInt(u64));
 
 }
 
@@ -599,7 +669,11 @@ pub fn DestroyBuffer(vma: c.VmaAllocator, b: *AllocatedBuffer) void{
     if (b.buffer != null){
         
         c.vmaDestroyBuffer(vma, b.buffer, b.allocation);
-        b.* = .{};
+        b.* = .{
+            .buffer = null,
+            .allocation = null,
+            .size = 0,
+        };
 
     }
 

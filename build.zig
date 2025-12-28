@@ -22,9 +22,11 @@ pub fn build(b: *std.Build) !void {
 
     exe.linkSystemLibrary(vk_lib_name);
     exe.addIncludePath(.{ .cwd_relative = "thirdparty/sdl3/include" });
+    exe.addCSourceFile(.{ .file = b.path("src/vk_mem_alloc.cpp"), .flags = &.{ "" } });
     exe.addIncludePath(b.path("thirdparty/vma/"));
 
-    exe.linkLibC();
+    //exe.linkLibC();
+    exe.linkLibCpp();
 
     compile_all_shaders(b, exe);
 
