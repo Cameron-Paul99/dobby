@@ -103,9 +103,11 @@ pub const Renderer = struct {
 
         // Create Index Buffer
         const inds = [_]helper.Index_u16{ 0, 1, 2 , 2 , 3 , 0 };
-
+        
+        // Set Buffers
         renderer.vertex_buffer = try helper.CreateVertexBuffer(renderer.vma, verts[0..], &renderer.upload_context, core);
         renderer.index_buffer = try helper.CreateIndexBuffer(renderer.vma, inds[0..], &renderer.upload_context, core);
+        renderer.index_count = @intCast(inds.len);
 
         return renderer;
         
@@ -571,8 +573,37 @@ pub fn CreatePipelines(
         .pName = "main",
     });
 
+    const binding = [_]c.VkVertexInputBindingDescription{
+        .{
+            .binding = 0,
+            .stride = @sizeOf(helper.Vertex),
+            .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX,
+        }
+    };
+
+    const attrs = [_]c.VkVertexInputAttributeDescription{
+        .{
+            .location = 0,
+            .binding = 0,
+            .format = c.VK_FORMAT_R32G32_SFLOAT,
+            .offset = @offsetOf(helper.Vertex, "pos"),
+        },
+
+        .{
+            .location = 1,
+            .binding = 0,
+            .format = c.VK_FORMAT_R32G32B32_SFLOAT,
+            .offset = @offsetOf(helper.Vertex, "color"),
+        },
+
+    };
+
     const vertex_input_state_ci = std.mem.zeroInit(c.VkPipelineVertexInputStateCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = binding.len,
+        .pVertexBindingDescriptions = &binding[0],
+        .vertexAttributeDescriptionCount = attrs.len,
+        .pVertexAttributeDescriptions = &attrs[0],
     });
 
     const input_assembly_state_ci = std.mem.zeroInit(c.VkPipelineInputAssemblyStateCreateInfo, .{
@@ -585,7 +616,7 @@ pub fn CreatePipelines(
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         .polygonMode = c.VK_POLYGON_MODE_FILL,
         .cullMode = c.VK_CULL_MODE_NONE,
-        .frontFace = c.VK_FRONT_FACE_CLOCKWISE,
+        .frontFace = c.VK_FRONT_FACE_COUNTER_CLOCKWISE,
         .lineWidth = 1.0,
     });
 
@@ -597,8 +628,8 @@ pub fn CreatePipelines(
 
     const depth_stencil_state_ci = std.mem.zeroInit(c.VkPipelineDepthStencilStateCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-        .depthTestEnable = c.VK_TRUE,
-        .depthWriteEnable = c.VK_TRUE,
+        .depthTestEnable = c.VK_FALSE,
+        .depthWriteEnable = c.VK_FALSE,
         .depthCompareOp = c.VK_COMPARE_OP_LESS_OR_EQUAL,
         .depthBoundsTestEnable = c.VK_FALSE,
         .stencilTestEnable = c.VK_FALSE,
