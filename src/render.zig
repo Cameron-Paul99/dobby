@@ -685,6 +685,18 @@ pub fn CreatePipelines(
 
 }
 
+pub fn CreateDescriptors(){
+
+    // Descriptor pool
+    const pool_sizes = [_]c.vk.DescriptorPoolSize{
+        .{ .type = c.vk.DESCRIPTOR_TYPE_UNIFORM_BUFFER,         .descriptorCount = 256 },
+        .{ .type = c.vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 2048 },
+    };
+
+
+}
+
+
 pub fn CreateVMAAllocator(core: *core_mod.Core) !c.VmaAllocator {
 
     var vma_ci = std.mem.zeroInit(c.VmaAllocatorCreateInfo, .{
