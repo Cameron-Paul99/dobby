@@ -3,7 +3,7 @@ const std = @import("std");
 const helper = @import("helper.zig");
 const sc = @import("swapchain.zig");
 const core_mod = @import("core.zig");
-//const math3d = @import("math.zig");
+const math = @import("math.zig");
 const log = std.log;
 
 pub const MaterialTemplateId_u32 = u32;
@@ -13,8 +13,6 @@ pub const MaterialInstanceId_u32 = u32;
 //const Vec3 = math.Vec3;
 //const Vec4 = math.Vec4;
 //const Mat4 = math.Mat4;
-
-
 
 const MaterialTemplate = struct {
     pipeline: c.VkPipeline,
@@ -35,9 +33,15 @@ const FrameData = struct {
     render_fence: c.VkFence = helper.VK_NULL_HANDLE,
     command_pool: c.VkCommandPool = helper.VK_NULL_HANDLE,
     main_command_buffer: c.VkCommandBuffer = helper.VK_NULL_HANDLE,
+    set_frame: c.VkDescriptorSet = helper.VK_NULL_HANDLE,
+    camera_ubo: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
 
-    object_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
-    object_descriptor_set: c.VkDescriptorSet = helper.VK_NULL_HANDLE,
+  //  object_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+  //  object_descriptor_set: c.VkDescriptorSet = helper.VK_NULL_HANDLE,
+};
+
+const GPUCameraData = struct {
+    view_proj: math.Mat4,
 };
 
 pub const UploadContext = struct {
@@ -57,6 +61,11 @@ pub const Renderer = struct {
     images_in_flight: []c.VkFence = &.{},
     vertex_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     index_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+    dummy_ssbo: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+    descriptor_pool: c.VkDescriptorPool = helper.VK_NULL_HANDLE,
+    set_layout_frame: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
+    set_layout_material: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
+    set_layout_compute: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE, 
     index_count: u32 = 0,
 
     // pipelines / layouts
@@ -257,9 +266,6 @@ pub const Renderer = struct {
         helper.DestroyBuffer(self.vma, &self.vertex_buffer);
         helper.DestroyBuffer(self.vma, &self.index_buffer);
 
-        if (self.vma != null){
-            c.vmaDestroyAllocator(self.vma);
-        }
         if (self.images_in_flight.len != 0) {
             allocator.free(self.images_in_flight);
             self.images_in_flight = &.{};
@@ -308,6 +314,10 @@ pub const Renderer = struct {
             self.upload_context.upload_fence = helper.VK_NULL_HANDLE; 
 
         }
+
+        if (self.vma != null){
+            c.vmaDestroyAllocator(self.vma);
+        }
     }
 };
 
@@ -332,7 +342,7 @@ pub const MaterialSystem = struct {
         allocator: std.mem.Allocator
         ) !MaterialInstanceId_u32 {
 
-            _ = try self.AddTemplate(
+           const template_id = try self.AddTemplate(
                 template_name, 
                 pipeline, 
                 pipeline_layout, 
@@ -340,9 +350,10 @@ pub const MaterialSystem = struct {
                 bind_point
             );
 
-            const instance_id = try self.AddInstance(
+           const instance_id = try self.AddInstance(
                 instance_name, 
-                texture_set, 
+                texture_set,
+                template_id,
                 allocator
             ); 
 
@@ -352,12 +363,14 @@ pub const MaterialSystem = struct {
     pub fn AddInstance(
         self: *MaterialSystem, 
         instance_name: []const u8, 
-        texture_set: c.VkDescriptorSet, allocator: std.mem.Allocator)  !MaterialInstanceId_u32 {
+        texture_set: c.VkDescriptorSet,
+        template_id: MaterialTemplateId_u32,
+        allocator: std.mem.Allocator)  !MaterialInstanceId_u32 {
 
         const instance_id: MaterialInstanceId_u32 = @intCast(self.instances.items.len);
 
         try self.instances.append(allocator , .{
-            .template_id = instance_id,
+            .template_id = template_id,
             .texture_set = texture_set,
         });
 
@@ -685,13 +698,245 @@ pub fn CreatePipelines(
 
 }
 
-pub fn CreateDescriptors(){
+//TODO: Combined Image Sampler will be added outside Descriptors. Implement it after Sampler and Image Views.
+
+
+
+// TODO: Add SSBO
+pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
 
     // Descriptor pool
     const pool_sizes = [_]c.vk.DescriptorPoolSize{
-        .{ .type = c.vk.DESCRIPTOR_TYPE_UNIFORM_BUFFER,         .descriptorCount = 256 },
-        .{ .type = c.vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 2048 },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         .descriptorCount = 64 },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1024 },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         .descriptorCount = 128  },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          .descriptorCount = 64 },
     };
+
+    const pool_ci = std.mem.zeroInit(c.VkDescriptorPoolCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .flags = 0,
+        .maxSets = 1024,
+        .poolSizeCount = @as(u32, @intCast(pool_sizes.len)),
+        .pPoolSizes = &pool_sizes[0]
+    });
+
+    try helper.check_vk(c.vkCreateDescriptorPool(core.device.handle, &pool_ci, core.alloc_cb, &renderer.descriptor_pool));
+
+    // -------------------------------------------------------------------------
+    // 2) Set 0 (Frame/Scene) layout:
+    //    binding 0: UBO (camera/time)
+    //    binding 1: SSBO (big packed arena)  -- you can leave it unused for now
+    // -------------------------------------------------------------------------
+    const frame_buffer_binding = [_]c.VkDescriptorSetLayoutBinding{
+        std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
+            .binding = 0,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = null,
+        }),
+        std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
+            .binding = 1,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT | c.VK_SHADER_STAGE_COMPUTE_BIT,
+            .pImmutableSamplers = null,
+        }),
+    };
+
+    const frame_layout_ci = std.mem.zeroInit(c.VkDescriptorSetLayoutCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = @as(u32, @intCast(frame_buffer_binding.len)),
+        .pBindings = &frame_buffer_binding[0],
+    });
+
+    try helper.check_vk(c.vkCreateDescriptorSetLayout(core.device.handle, &frame_layout_ci, core.alloc_cb, &renderer.set_layout_frame));
+
+    // =========================================================================
+    // 3) Set 1 (Material) layout:
+    //    binding 0..N: combined image samplers (textures)
+    // =========================================================================
+    const MAX_TEXTURES_PER_MATERIAL: u32 = 4;
+
+
+    const material_bindings = [_]c.VkDescriptorSetLayoutBinding{
+        std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
+            .binding = 0,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = null,
+        }),
+        std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
+            .binding = 1,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = null,
+        }),
+        std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
+            .binding = 2,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = null,
+        }),
+        std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
+            .binding = 3,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = null,
+        }),
+    };
+
+    comptime {
+        if (material_bindings.len != MAX_TEXTURES_PER_MATERIAL)
+            @compileError("material_bindings must match MAX_TEXTURES_PER_MATERIAL");
+    }
+
+    const material_layout_ci = std.mem.zeroInit(c.VkDescriptorSetLayoutCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = MAX_TEXTURES_PER_MATERIAL,
+        .pBindings = material_bindings.ptr,
+    });
+
+
+
+    try helper.check_vk(c.vkCreateDescriptorSetLayout(core.device.handle, &material_layout_ci, core.alloc_cb, &renderer.set_layout_material));
+
+
+    // -------------------------------------------------------------------------
+    // 4) Set 2 (Compute) layout:
+    //    binding 0..M: storage images (RW)
+    //
+    // Again: fixed small count keeps it simple and memory-predictable.
+    // -------------------------------------------------------------------------
+    const MAX_STORAGE_IMAGES: u32 = 4;
+    const compute_bindings = [_]c.VkDescriptorSetLayoutBinding{
+        std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
+            .binding = 0,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            .descriptorCount = 1,
+            .stageFlags = c.VK_SHADER_STAGE_COMPUTE_BIT,
+            .pImmutableSamplers = null,
+        }),
+        std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
+            .binding = 1,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            .descriptorCount = 1,
+            .stageFlags = c.VK_SHADER_STAGE_COMPUTE_BIT,
+            .pImmutableSamplers = null,
+        }),
+        std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
+            .binding = 2,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            .descriptorCount = 1,
+            .stageFlags = c.VK_SHADER_STAGE_COMPUTE_BIT,
+            .pImmutableSamplers = null,
+        }),
+        std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
+            .binding = 3,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            .descriptorCount = 1,
+            .stageFlags = c.VK_SHADER_STAGE_COMPUTE_BIT,
+            .pImmutableSamplers = null,
+        }),
+    };
+
+    comptime {
+        if (MAX_STORAGE_IMAGES != compute_bindings.len)
+            @compileError("MAX_STORAGE_IMAGES must match compute_bindings.len");
+    }
+
+    const compute_layout_ci = std.mem.zeroInit(c.VkDescriptorSetLayoutCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = MAX_STORAGE_IMAGES,
+        .pBindings = compute_bindings.ptr,
+    });
+
+    try helper.check_vk(c.vkCreateDescriptorSetLayout(core.device.handle, &compute_layout_ci, core.alloc_cb, &renderer.set_layout_compute));
+
+    // -------------------------------------------------------------------------
+    // 5) Allocate only what you need now:
+    //    Allocate Set 0 per-frame descriptor sets. Material/Compute sets can be allocated later.
+    // -------------------------------------------------------------------------
+
+    const frame_count: u32 = @as(u32, @intCast(renderer.frames.len));
+
+    const frame_layouts: [FRAME_OVERLAP]c.VkDescriptorSetLayout = undefined;
+    const tmp_sets:    [FRAME_OVERLAP]c.VkDescriptorSet = undefined;
+
+    for (frame_layouts) |*l| l.* = renderer.set_layout_frame;
+
+    const alloc_info = std.mem.zeroInit(c.VkDescriptorSetAllocateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = renderer.descriptor_pool,
+        .descriptorSetCount = frame_count,
+        .pSetLayouts = frame_layouts.ptr,
+    });
+    
+    try helper.check_vk(c.vkAllocateDescriptorSets(core.device.handle, &alloc_info, tmp_sets.ptr));
+
+    for (tmp_sets, 0..) |set, i|{
+        renderer.frames[i].set_frame = set;
+
+    }
+
+    // -------------------------------------------------------------------------
+    // 6) Create per-frame camera UBO + (optional) one dummy SSBO for binding 1
+    // -------------------------------------------------------------------------
+
+    const CAMERA_UBO_SIZE: c.VkDeviceSize = @intCast(@sizeOf(GPUCameraData));
+
+    for (0..frame_count) |i| {
+        if (renderer.frames[i].camera_ubo.buffer == helper.VK_NULL_HANDLE) {
+            renderer.frames[i].camera_ubo = try helper.CreateBuffer(
+                renderer.vma,
+                CAMERA_UBO_SIZE,
+                c.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                c.VMA_MEMORY_USAGE_CPU_TO_GPU,
+                0,
+            );
+        }
+
+        const camera_info = std.mem.zeroInit(c.VkDescriptorBufferInfo, .{
+            .buffer = renderer.frames[i].camera_ubo.buffer,
+            .offset = 0,
+            .range = CAMERA_UBO_SIZE,
+        });
+
+        const writes = [_]c.VkWriteDescriptorSet{
+            std.mem.zeroInit(c.VkWriteDescriptorSet, .{
+                .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = renderer.frames[i].set_frame,
+                .dstBinding = 0,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .pBufferInfo = &camera_info,
+                .pImageInfo = null,
+                .pTexelBufferView = null,
+            }),
+        };
+
+        c.vkUpdateDescriptorSets(core.device.handle, @as(u32, @intCast(writes.len)), writes.ptr, 0, null);
+    }
+
+
+
+    // DUMMY SSBO buffer
+
+    // if (renderer.dummy_ssbo.buffer == helper.VK_NULL_HANDLE) {
+    //     renderer.dummy_ssbo = try helper.CreateBuffer(
+    //         renderer.vma,
+    //         16,
+    //         c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+    //         c.VMA_MEMORY_USAGE_CPU_TO_GPU,
+    //         0,
+    //     );
+    // }
 
 
 }

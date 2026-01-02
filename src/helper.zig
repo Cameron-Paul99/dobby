@@ -679,29 +679,29 @@ pub fn DestroyBuffer(vma: c.VmaAllocator, b: *AllocatedBuffer) void{
 
 }
 
-pub fn CreateImage(){
+pub fn CreateImage() void{
 
 
 
 
 }
 
-pub fn TransitionImageLayout(){
+pub fn TransitionImageLayout() void{
 
 
 
 }
 
-pub fn CopyBufferToImage(){
+pub fn CopyBufferToImage() void{
 
 
 }
 
-pub fn BeginSingleTimeCommands(){
+pub fn BeginSingleTimeCommands() void{
 
 }
 
-pub fn EndSingleTimeCommands(){
+pub fn EndSingleTimeCommands() void{
 
 
 }
