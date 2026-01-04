@@ -686,6 +686,15 @@ pub fn CreateImage() void{
 
 }
 
+pub fn CreateSampler() void{
+
+}
+
+pub fn CreateImageView void{
+
+
+}
+
 pub fn TransitionImageLayout() void{
 
 
