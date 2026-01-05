@@ -976,12 +976,6 @@ pub fn CreateSampler(renderer: *Renderer , core: *core_mod.Core) !void{
     try helper.check_vk(c.vkCreateSampler(core.device.handle, &sampler_ci, core.alloc_cb, &renderer.sampler_linear_repeat));
 }
 
-pub fn CreateImage() void{
-
-
-
-
-}
 
 pub fn CreateVMAAllocator(core: *core_mod.Core) !c.VmaAllocator {
 
