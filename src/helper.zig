@@ -362,7 +362,12 @@ pub fn MakeSwapchainExtent(capabilities: c.VkSurfaceCapabilitiesKHR, window_widt
 
 }
 
-pub fn CreateImageView(device: c.VkDevice, image: c.VkImage, format: c.VkFormat, aspect_flags: c.VkImageAspectFlags, alloc_cb: ?*c.VkAllocationCallbacks) !c.VkImageView{
+pub fn CreateImageView(
+    device: c.VkDevice, 
+    image: c.VkImage, 
+    format: c.VkFormat, 
+    aspect_flags: c.VkImageAspectFlags, 
+    alloc_cb: ?*c.VkAllocationCallbacks) !c.VkImageView{
 
     const view_info = std.mem.zeroInit(c.VkImageViewCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -679,21 +684,102 @@ pub fn DestroyBuffer(vma: c.VmaAllocator, b: *AllocatedBuffer) void{
 
 }
 
-pub fn CreateImage() void{
+pub const AllocatedImage = struct {
+    image: c.VkImage = VK_NULL_HANDLE,
+    allocation: c.VmaAllocation = null,
+    view: c.VkImageView = VK_NULL_HANDLE, // usually store this too
+    width: u32 = 0,
+    height: u32 = 0,
+    format: c.VkFormat = c.VK_FORMAT_UNDEFINED,
+};
 
+pub const ImageMemoryClass = enum {
+    gpu_only,        // textures, render targets
+    cpu_upload,      // rare: linear images
+};
 
+pub fn CreateImage(
+    extent: c.VkExtent,
+    format: c.VkFormat,
+    tiling: c.VkImageTiling,
+    usage: c.VkImageUsageFlags,
+    mem_class: ImageMemoryClass,
+    alloc_cb: ?*const c.VkAllocationCallbacks,
+) !AllocatedImage {
+
+    const image_ci = std.mem.zeroInit(c.VkImageCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .pNext = null,
+        .flags = 0,
+        .imageType = c.VK_IMAGE_TYPE_2D,
+        .format = format,
+        .extent = extent,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = c.VK_SAMPLE_COUNT_1_BIT,
+        .tiling = tiling,
+        .usage = usage,
+        .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices = null,
+        .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+    });
+
+    var alloc_ci = std.mem.zeroInit(c.VmaAllocationCreateInfo, .{
+        .usage = c.VMA_MEMORY_USAGE_AUTO,
+        .flags = 0,
+        .requiredFlags = 0,
+        .preferredFlags = 0,
+        .memoryTypeBits = 0,
+        .pool = null,
+        .pUserData = null,
+        .priority = 0,
+    });
+
+    switch (mem_class) {
+        .gpu_only => {
+            alloc_ci.usage = c.VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+            alloc_ci.flags |= c.VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
+        },
+        .cpu_upload => {
+            alloc_ci.usage = c.VMA_MEMORY_USAGE_AUTO;
+            alloc_ci.flags |=
+                c.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                c.VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        },
+    }
+
+    var image: c.VkImage = VK_NULL_HANDLE;
+    var allocation: c.VmaAllocation = null;
+
+    try check_vk(c.vmaCreateImage(
+        alloc_cb,
+        &image_ci,
+        &alloc_ci,
+        &image,
+        &allocation,
+        null, // or &alloc_info if you want VmaAllocationInfo back
+    ));
+
+    return .{
+        .image = image,
+        .allocation = allocation,
+        .width = extent.width,
+        .height = extent.height,
+        .format = format,
+    };
+
+}
+
+pub fn CreateTextureImage() void{
 
 
 }
 
-pub fn CreateSampler() void{
-
-}
-
-pub fn CreateImageView void{
+//pub fn CreateImageView () void{
 
 
-}
+//}
 
 pub fn TransitionImageLayout() void{
 

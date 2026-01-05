@@ -65,7 +65,8 @@ pub const Renderer = struct {
     descriptor_pool: c.VkDescriptorPool = helper.VK_NULL_HANDLE,
     set_layout_frame: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
     set_layout_material: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
-    set_layout_compute: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE, 
+    set_layout_compute: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
+    sampler_linear_repeat: c.VkSampler = helper.VK_NULL_HANDLE,
     index_count: u32 = 0,
 
     // pipelines / layouts
@@ -101,6 +102,9 @@ pub const Renderer = struct {
 
         // Create Sync Structures
         try CreateSyncStructures(&renderer, core, swapchain, allocator);
+
+        // Create Samplers
+        try CreateSampler(&renderer , core);
 
         // Create Vertex Buffer
         const verts = [_]helper.Vertex{
@@ -278,6 +282,12 @@ pub const Renderer = struct {
         if (self.render_pass != null) {
             c.vkDestroyRenderPass(core.device.handle, self.render_pass, core.alloc_cb);
             self.render_pass = null;
+        }
+
+        if (self.sampler_linear_repeat != null){
+            c.vkDestroySampler(core.device.handle, self.sampler_linear_repeat, core.alloc_cb);
+            self.sampler_linear_repeat = null;
+
         }
 
         for (&self.frames) |*f| {
@@ -941,6 +951,37 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
 
 }
 
+pub fn CreateSampler(renderer: *Renderer , core: *core_mod.Core) !void{
+
+    const sampler_ci = c.VkSamplerCreateInfo {
+        .sType = c.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .pNext = null,
+        .flags = 0,
+        .magFilter = c.VK_FILTER_LINEAR,
+        .minFilter = c.VK_FILTER_LINEAR,
+        .mipmapMode = c.VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        .minLod = 0.0,
+        .maxLod = c.VK_LOD_CLAMP_NONE,
+        .addressModeU = c.VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeV = c.VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeW = c.VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .anisotropyEnable = c.VK_TRUE,
+        .maxAnisotropy = 16.0,
+        .compareEnable = c.VK_FALSE,
+        .compareOp = c.VK_COMPARE_OP_ALWAYS,
+        .borderColor = c.VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+        .unnormalizedCoordinates = c.VK_FALSE,
+    };
+
+    try helper.check_vk(c.vkCreateSampler(core.device.handle, &sampler_ci, core.alloc_cb, &renderer.sampler_linear_repeat));
+}
+
+pub fn CreateImage() void{
+
+
+
+
+}
 
 pub fn CreateVMAAllocator(core: *core_mod.Core) !c.VmaAllocator {
 

@@ -227,7 +227,16 @@ pub const Core = struct {
         const device_name = @as([*:0]const u8, @ptrCast(@alignCast(self.physical_device.properties.deviceName[0..])));
 
         log.info("Selected physical device: {s}", .{ device_name });
+        
+        // Supported physical device features
+        // TODO: Add more supported features if needed
+        var supported_feats: c.VkPhysicalDeviceFeatures = undefined;
+        c.vkGetPhysicalDeviceFeatures(self.physical_device.handle, &supported_feats);
 
+        var enabled_feats = std.mem.zeroInit(c.VkPhysicalDeviceFeatures, .{});
+        if (supported_feats.samplerAnisotropy == c.VK_TRUE) {
+            enabled_feats.samplerAnisotropy = c.VK_TRUE;
+        }
 
         // Logical Device
         var queue_create_infos = std.ArrayListUnmanaged(c.VkDeviceQueueCreateInfo){};
@@ -262,7 +271,7 @@ pub const Core = struct {
             .ppEnabledLayerNames = null,
             .enabledExtensionCount = @as(u32, @intCast(required_device_extensions.len)),
             .ppEnabledExtensionNames = required_device_extensions.ptr,
-            .pEnabledFeatures = null,
+            .pEnabledFeatures = &enabled_feats,
         });
 
         try helper.check_vk(c.vkCreateDevice(self.physical_device.handle, &device_info, self.alloc_cb, &self.device.handle));
