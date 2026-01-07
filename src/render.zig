@@ -4,6 +4,7 @@ const helper = @import("helper.zig");
 const sc = @import("swapchain.zig");
 const core_mod = @import("core.zig");
 const math = @import("math.zig");
+const text = @import("textures.zig");
 const log = std.log;
 
 pub const MaterialTemplateId_u32 = u32;
@@ -54,6 +55,7 @@ pub const Renderer = struct {
     frames: [FRAME_OVERLAP]FrameData,
     render_pass: c.VkRenderPass,
     material_system: MaterialSystem,
+    texture_manager: TextureManager,
     upload_context: UploadContext,
     vma: c.VmaAllocator,
  //   camera_pos: Vec3
@@ -105,6 +107,10 @@ pub const Renderer = struct {
 
         // Create Samplers
         try CreateSampler(&renderer , core);
+
+        // Create Textures
+        var texture_manager = try text.TextureManager(allocator);
+        renderer.texture_manager = texture_manager;
 
         // Create Vertex Buffer
         const verts = [_]helper.Vertex{
@@ -266,6 +272,8 @@ pub const Renderer = struct {
         if (core.device.handle != null){
             _ = c.vkDeviceWaitIdle(core.device.handle);
         }
+
+        self.texture_manager.deinit(allocator);
 
         helper.DestroyBuffer(self.vma, &self.vertex_buffer);
         helper.DestroyBuffer(self.vma, &self.index_buffer);

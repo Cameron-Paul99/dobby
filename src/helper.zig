@@ -786,29 +786,155 @@ pub fn ChooseTranscodeFormat(cs: KtxColorSpace) struct {
 
 
 
-pub fn TransitionImageLayout() void{
+pub fn TransitionImageLayout(
+    renderer: *render.Renderer,
+    core: *gpu_context.Core,
+    allocated_image: *AllocatedImage,
+    old_layout: c.VkImageLayout,
+    new_layout: c.VkImageLayout,) !void{
 
-    BeginSingleTimeCommands();
+    var src_access: c.VkAccessFlags = 0;
+    var dst_access: c.VkAccessFlags = 0;
+    var src_stage: c.VkPipelineStageFlags = 0;
+    var dst_stage: c.VkPipelineStageFlags = 0;
 
-    EndSingleTimeCommands();
+    if (old_layout == c.VK_IMAGE_LAYOUT_UNDEFINED and new_layout == c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    {
+        dst_access = c.VK_ACCESS_TRANSFER_WRITE_BIT;
+        src_stage = c.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        dst_stage = c.VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+    }else if (old_layout == c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL and new_layout == c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL){
+
+        src_access = c.VK_ACCESS_TRANSFER_WRITE_BIT;
+        dst_access = c.VK_ACCESS_SHADER_READ_BIT;
+        src_stage = c.VK_PIPELINE_STAGE_TRANSFER_BIT;
+        dst_stage = c.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+
+    }else {
+        
+        return error.UnsupportedImageLayoutTransition;
+        
+    }
+
+    var cmd = BeginSingleTimeCommands(renderer, core);
+    defer EndSingleTimeCommands(core, renderer, cmd);
+
+    const subresource = c.VkImageSubresourceRange{
+        .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+        .baseMipLevel = 0,
+        .levelCount = 1,
+        .baseArrayLayer = 0,
+        .layerCount = 1,
+    };
+
+    const barrier = c.VkImageMemoryBarrier{
+        .sType = c.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = null,
+        .srcAccessMask = src_access,
+        .dstAccessMask = dst_access,
+        .oldLayout = old_layout,
+        .newLayout = new_layout,
+        .srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+        .image = allocated_image.image,
+        .subresourceRange = subresource, 
+    };
+
+    c.vkCmdPipelineBarrier(
+        cmd,
+        src_stage,
+        dst_stage,
+        0, // VkDependencyFlags
+        0, null, // memory barriers
+        0, null, // buffer memory barriers
+        1, &barrier, // image memory barriers
+    ); 
 
 }
 
-pub fn CopyBufferToImage() void{
+pub fn CopyBufferToImage(
+    core: *core_mod.Core, 
+    renderer: *Renderer, 
+    allocated_image: *AllocatedImage,
+    allocated_buffer: *AllocatedBuffer) !void{
 
-    BeginSingleTimeCommands();
+    var cmd = BeginSingleTimeCommands(core);
+    defer EndSingleTimeCommands(core, renderer, cmd);
 
-    EndSingleTimeCommands();
+    const subresource = c.VkImageSubresourceLayers{
+        .aspectMask = c.VK_IMAGE_ASPECT_FLAGS_COLOR,
+        .mipLevel = 0,
+        .baseArrayLevel = 0,
+        .layerCount = 1,
+    };
 
+    const region = c.VkBufferImageCopy{
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource = subresource,
+        .imageOffset = .{.x = 0, .y = 0, .z = 0},
+        .imageExtent = .{ .width = allocated_image.width, .height = allocated_image.height, .depth = 1 }
+    };
+
+    c.vkCmdCopyBufferToImage(
+        cmd,
+        allocated_buffer.buffer,
+        allocated_image.image,
+        c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1,
+        &region,
+    );
 
 }
 
-pub fn BeginSingleTimeCommands() void{
+pub fn BeginSingleTimeCommands(renderer: *render.Renderer, core: *core_mod.Core) !c.VkCommandBuffer{
+
+    const info = std.mem.zeroInit(c.VkCommandBufferAllocateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandPool = renderer.upload_context.command_pool,
+        .commandBufferCount = 1,
+    });
+
+    var cmd: c.VkCommandBuffer = undefined;
+
+    try check_vk(c.vkAllocateCommandBuffers(core.device.handle, &info, &cmd));
+
+      var begin_info = c.VkCommandBufferBeginInfo{
+        .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .pNext = null,
+        .flags = c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        .pInheritanceInfo = null,
+    };
+
+     try check_vk(c.vkBeginCommandBuffer(cmd, &begin_info));
+
+     return cmd;
 
 }
 
-pub fn EndSingleTimeCommands() void{
+pub fn EndSingleTimeCommands(core: *core_mod.Core, renderer: *render.Renderer, cmd: c.VkCommandBuffer) !void{
 
+    try check_vk(c.vkEndCommandBuffer(cmd));
+
+    const submit_info = c.VkSubmitInfo{
+        .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .pNext = null,
+        .waitSemaphoreCount = 0,
+        .pWaitSemaphores = null,
+        .pWaitDstStageMask = null,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &cmd,
+        .signalSemaphoreCount = 0,
+        .pSignalSemaphores = null,
+    };
+
+    try check_vk(c.vkQueueSubmit(core.device.graphics_queue, 1, &submit_info, c.VK_NULL_HANDLE));
+    try check_vk(c.vkQueueWaitIdle(data.core.device.graphics_queue));
+
+    c.vkFreeCommandBuffers(core.device.handle, renderer.upload_context.command_pool, 1, &cmd);
 
 }
 

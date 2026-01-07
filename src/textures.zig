@@ -44,7 +44,6 @@ pub fn CreateTextureImage(
     name: []const u8,
     renderer: *render.Renderer,
     core: *core_mod.Core,
-    texture_manager: *TextureManager,
     allocator: std.mem.Allocator,
     color_space: helper.KtxColorSpace,
     path_z: [:0]const u8 ) void{
@@ -99,12 +98,13 @@ pub fn CreateTextureImage(
     texture_manager.AddTexture(
         name, 
         texture_image, 
-        allocator);
+        allocator
+    );
     
-    helper.TransitionImageLayout();
+    try helper.TransitionImageLayout(renderer, core, &texture_image, c.VK_IMAGE_LAYOUT_UNDEFINED, c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    helper.CopyBufferToImage();
+    try helper.CopyBufferToImage(core, renderer, &texture_image, &staging_buffer);
 
-    helper.TransitionImageLayout();
+    try helper.TransitionImageLayout(renderer, core, &texture_image,  c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
 }

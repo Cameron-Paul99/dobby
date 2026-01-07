@@ -30,10 +30,6 @@ pub fn main() !void {
     var renderer = try render.Renderer.init(allocator, &core, &sc);
     defer renderer.deinit(allocator, &core);
 
-    // Texture Manager
-    var texture_Manager = try text.TextureManager(allocator);
-    defer texture_manager.deinit(allocator);
-
     while (!game_window.should_close){
         try renderer.DrawFrame(&core, &sc);
         game_window.pollEvents();
