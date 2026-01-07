@@ -771,23 +771,34 @@ pub fn CreateImage(
 
 }
 
-pub fn CreateTextureImage() void{
+pub const KtxColorSpace = enum { srgb, linear };
 
-
+pub fn ChooseTranscodeFormat(cs: KtxColorSpace) struct {
+    ktx_fmt: c.ktx_transcode_fmt_e,
+    vk_fmt: c.VkFormat,
+} {
+    return switch (cs) {
+        .srgb => .{ .ktx_fmt = c.KTX_TTF_BC7_RGBA, .vk_fmt = c.VK_FORMAT_BC7_SRGB_BLOCK },
+        .linear => .{ .ktx_fmt = c.KTX_TTF_BC7_RGBA, .vk_fmt = c.VK_FORMAT_BC7_UNORM_BLOCK },
+    };
 }
 
-//pub fn CreateImageView () void{
 
 
-//}
 
 pub fn TransitionImageLayout() void{
 
+    BeginSingleTimeCommands();
 
+    EndSingleTimeCommands();
 
 }
 
 pub fn CopyBufferToImage() void{
+
+    BeginSingleTimeCommands();
+
+    EndSingleTimeCommands();
 
 
 }

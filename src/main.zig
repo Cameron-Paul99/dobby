@@ -5,6 +5,7 @@ const core_mod = @import("core.zig");
 const swapchain_mod = @import("swapchain.zig");
 const render = @import("render.zig");
 const helper = @import("helper.zig");
+const text = @import("textures.zig");
 
 pub fn main() !void {
     
@@ -27,8 +28,11 @@ pub fn main() !void {
     
     // Renderer creation
     var renderer = try render.Renderer.init(allocator, &core, &sc);
-    defer renderer.deinit(allocator, &core); 
-    
+    defer renderer.deinit(allocator, &core);
+
+    // Texture Manager
+    var texture_Manager = try text.TextureManager(allocator);
+    defer texture_manager.deinit(allocator);
 
     while (!game_window.should_close){
         try renderer.DrawFrame(&core, &sc);
