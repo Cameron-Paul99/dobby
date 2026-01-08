@@ -108,9 +108,12 @@ pub const Renderer = struct {
         // Create Samplers
         try CreateSampler(&renderer , core);
 
-        // Create Textures
+        // Create Texture Manager
         var texture_manager = try text.TextureManager(allocator);
         renderer.texture_manager = texture_manager;
+
+        // Create Textures
+        text.CreateTextureImage("Slot", &renderer, core, allocator, helper.KtxColorSpace.srgb, "/textures/Slot.ktx2");
 
         // Create Vertex Buffer
         const verts = [_]helper.Vertex{

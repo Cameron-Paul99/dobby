@@ -46,7 +46,7 @@ pub fn CreateTextureImage(
     core: *core_mod.Core,
     allocator: std.mem.Allocator,
     color_space: helper.KtxColorSpace,
-    path_z: [:0]const u8 ) void{
+    path_z: [:0]const u8 ) !void{
 
     var tex2: ?*c.ktxTexture2 = null;
     const create_flags: c.ktxTextureCreateFlags = c.KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT;
