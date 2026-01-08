@@ -55,7 +55,7 @@ pub const Renderer = struct {
     frames: [FRAME_OVERLAP]FrameData,
     render_pass: c.VkRenderPass,
     material_system: MaterialSystem,
-    texture_manager: TextureManager,
+    texture_manager: text.TextureManager,
     upload_context: UploadContext,
     vma: c.VmaAllocator,
  //   camera_pos: Vec3
@@ -94,6 +94,7 @@ pub const Renderer = struct {
             .material_system = material_system,
             .upload_context = .{},
             .vma = vma,
+            .texture_manager =  try text.TextureManager.init(allocator),
         };
         
         // Pipeline Creation
@@ -108,12 +109,8 @@ pub const Renderer = struct {
         // Create Samplers
         try CreateSampler(&renderer , core);
 
-        // Create Texture Manager
-        var texture_manager = try text.TextureManager(allocator);
-        renderer.texture_manager = texture_manager;
-
         // Create Textures
-        text.CreateTextureImage("Slot", &renderer, core, allocator, helper.KtxColorSpace.srgb, "/textures/Slot.ktx2");
+        try text.CreateTextureImage("Slot", &renderer, core, allocator, helper.KtxColorSpace.srgb, "/textures/Slot.ktx2");
 
         // Create Vertex Buffer
         const verts = [_]helper.Vertex{

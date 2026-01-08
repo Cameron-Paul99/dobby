@@ -8,7 +8,7 @@ pub const TextureId_u32 = u32;
 
 pub const TextureManager = struct {
     textures: std.ArrayList(helper.AllocatedImage),
-    textures_by_name: std.StringHashMap(TextureId),
+    textures_by_name: std.StringHashMap(TextureId_u32),
     // plus sampler presets or references
     pub fn AddTexture(
         self: *TextureManager, 
@@ -27,8 +27,8 @@ pub const TextureManager = struct {
     }
     pub fn init(allocator: std.mem.Allocator) !TextureManager {
         return .{
-            .textures = try std.ArrayList(MaterialTemplate).initCapacity(allocator, 0),
-            .textures_by_name = std.StringHashMap(MaterialTemplateId_u32).init(allocator),
+            .textures = try std.ArrayList(helper.AllocatedImage).initCapacity(allocator, 0),
+            .textures_by_name = std.StringHashMap(TextureId_u32).init(allocator),
         };
     }
 
@@ -53,11 +53,18 @@ pub fn CreateTextureImage(
     const rc0 = c.ktxTexture2_CreateFromNamedFile(path_z, create_flags, &tex2);
 
     if (rc0 != c.KTX_SUCCESS or tex2 == null) return error.KtxLoadFailed;
-    defer c.ktxTexture_Destroy(@ptrCast(tex2)); // destroys + frees internal data
+    const base_tex: [*c]c.ktxTexture = @ptrCast(tex2.?);
+    defer {
+        if (base_tex.*.vtbl) |vtbl| {
+            if (vtbl.*.Destroy) |destroy_fn| {
+                destroy_fn(base_tex);
+            }
+        }
+    }
 
     const choice = helper.ChooseTranscodeFormat(color_space);
 
-    if (c.ktxTexture2_NeedsTranscoding(tex2.?) == c.KTX_TRUE){
+    if (c.ktxTexture2_NeedsTranscoding(tex2.?)){
         const rcT = c.ktxTexture2_TranscodeBasis(tex2.?, choice.ktx_fmt, 0);
         if (rcT != c.KTX_SUCCESS) return error.KtxTranscodeFailed;
     }
@@ -66,12 +73,14 @@ pub fn CreateTextureImage(
     const base_h: u32 = @intCast(tex2.?.baseHeight);
     const mip_levels: u32 = @intCast(tex2.?.numLevels);
 
+    _ = mip_levels;
+
     const extent: c.VkExtent3D = .{.width = base_w, .height = base_h, .depth = 1};
 
     const data_size: c.VkDeviceSize = @as(c.VkDeviceSize, @intCast(tex2.?.dataSize));
     const src_ptr: [*]const u8 = @ptrCast(tex2.?.pData);
 
-    const staging_buffer = try helper.CreateBuffer(
+    var staging_buffer = try helper.CreateBuffer(
         renderer.vma,
         data_size,
         c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -79,23 +88,23 @@ pub fn CreateTextureImage(
         c.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | c.VMA_ALLOCATION_CREATE_MAPPED_BIT,
     );
 
-    defer helper.DestroyBuffer(staging_buffer);
+    defer helper.DestroyBuffer(renderer.vma, &staging_buffer);
 
     var mapped: ?*anyopaque = null;
-    _ = c.vmaMapMemory(core.vma, staging.allocation, &mapped);
-    defer c.vmaUnmapMemory(vma, staging.allocation);
+    _ = c.vmaMapMemory(renderer.vma, staging_buffer.allocation, &mapped);
+    defer c.vmaUnmapMemory(renderer.vma, staging_buffer.allocation);
     @memcpy( @as( [*]u8 , @ptrCast(mapped.?))[0..data_size], src_ptr[0..data_size]);
 
-    const texture_image = try helper.CreateImage(
+    var texture_image = try helper.CreateImage(
+        renderer.vma,
         extent,
-        choice,
+        choice.vk_fmt,
         c.VK_IMAGE_TILING_OPTIMAL,
         c.VK_IMAGE_USAGE_SAMPLED_BIT | c.VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        helper.gpu_upload,
-        core.alloc_cb,
+        helper.ImageMemoryClass.gpu_only,
     );
 
-    texture_manager.AddTexture(
+    _ = try renderer.texture_manager.AddTexture(
         name, 
         texture_image, 
         allocator

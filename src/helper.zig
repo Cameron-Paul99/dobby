@@ -699,12 +699,12 @@ pub const ImageMemoryClass = enum {
 };
 
 pub fn CreateImage(
-    extent: c.VkExtent,
+    vma: c.VmaAllocator,
+    extent: c.VkExtent3D,
     format: c.VkFormat,
     tiling: c.VkImageTiling,
     usage: c.VkImageUsageFlags,
     mem_class: ImageMemoryClass,
-    alloc_cb: ?*const c.VkAllocationCallbacks,
 ) !AllocatedImage {
 
     const image_ci = std.mem.zeroInit(c.VkImageCreateInfo, .{
@@ -753,7 +753,7 @@ pub fn CreateImage(
     var allocation: c.VmaAllocation = null;
 
     try check_vk(c.vmaCreateImage(
-        alloc_cb,
+        vma,
         &image_ci,
         &alloc_ci,
         &image,
@@ -817,8 +817,10 @@ pub fn TransitionImageLayout(
         
     }
 
-    var cmd = BeginSingleTimeCommands(renderer, core);
-    defer EndSingleTimeCommands(core, renderer, cmd);
+    const cmd = try BeginSingleTimeCommands(renderer, core);
+    defer EndSingleTimeCommands(core, renderer, cmd) catch |err| {
+        @panic(@errorName(err));
+    }; 
 
     const subresource = c.VkImageSubresourceRange{
         .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
@@ -854,18 +856,20 @@ pub fn TransitionImageLayout(
 }
 
 pub fn CopyBufferToImage(
-    core: *core_mod.Core, 
-    renderer: *Renderer, 
+    core: *gpu_context.Core, 
+    renderer: *render.Renderer, 
     allocated_image: *AllocatedImage,
     allocated_buffer: *AllocatedBuffer) !void{
 
-    var cmd = BeginSingleTimeCommands(core);
-    defer EndSingleTimeCommands(core, renderer, cmd);
+    const cmd = try BeginSingleTimeCommands(renderer , core);
+    defer EndSingleTimeCommands(core, renderer, cmd) catch |err| {
+        @panic(@errorName(err));
+    }; 
 
     const subresource = c.VkImageSubresourceLayers{
-        .aspectMask = c.VK_IMAGE_ASPECT_FLAGS_COLOR,
+        .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
         .mipLevel = 0,
-        .baseArrayLevel = 0,
+        .baseArrayLayer = 0,
         .layerCount = 1,
     };
 
@@ -889,7 +893,9 @@ pub fn CopyBufferToImage(
 
 }
 
-pub fn BeginSingleTimeCommands(renderer: *render.Renderer, core: *core_mod.Core) !c.VkCommandBuffer{
+pub fn BeginSingleTimeCommands(
+    renderer: *render.Renderer, 
+    core: *gpu_context.Core) !c.VkCommandBuffer{
 
     const info = std.mem.zeroInit(c.VkCommandBufferAllocateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -915,7 +921,10 @@ pub fn BeginSingleTimeCommands(renderer: *render.Renderer, core: *core_mod.Core)
 
 }
 
-pub fn EndSingleTimeCommands(core: *core_mod.Core, renderer: *render.Renderer, cmd: c.VkCommandBuffer) !void{
+pub fn EndSingleTimeCommands(
+    core: *gpu_context.Core, 
+    renderer: *render.Renderer, 
+    cmd: c.VkCommandBuffer) !void{
 
     try check_vk(c.vkEndCommandBuffer(cmd));
 
@@ -931,8 +940,9 @@ pub fn EndSingleTimeCommands(core: *core_mod.Core, renderer: *render.Renderer, c
         .pSignalSemaphores = null,
     };
 
-    try check_vk(c.vkQueueSubmit(core.device.graphics_queue, 1, &submit_info, c.VK_NULL_HANDLE));
-    try check_vk(c.vkQueueWaitIdle(data.core.device.graphics_queue));
+
+    try check_vk(c.vkQueueSubmit(core.device.graphics_queue, 1, &submit_info, renderer.upload_context.upload_fence));
+    try check_vk(c.vkQueueWaitIdle(core.device.graphics_queue));
 
     c.vkFreeCommandBuffers(core.device.handle, renderer.upload_context.command_pool, 1, &cmd);
 
