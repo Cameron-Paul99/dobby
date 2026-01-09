@@ -25,6 +25,14 @@ pub const TextureManager = struct {
 
         return texture_id;
     }
+    pub fn GetTextureByName(
+        self: *TextureManager,
+        name: []const u8,
+    ) ?*helper.AllocatedImage {
+        const id = self.textures_by_name.get(name) orelse return null;
+        return &self.textures.items[@intCast(id)];
+    }
+
     pub fn init(allocator: std.mem.Allocator) !TextureManager {
         return .{
             .textures = try std.ArrayList(helper.AllocatedImage).initCapacity(allocator, 0),
@@ -116,4 +124,17 @@ pub fn CreateTextureImage(
 
     try helper.TransitionImageLayout(renderer, core, &texture_image,  c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
+}
+
+pub fn CreateTextureImageView(core: *core_mod.Core, renderer: *render.Renderer, name: []const u8) !void{
+
+    const allocated_image = renderer.texture_manager.GetTextureByName(name);
+
+    allocated_image.?.view = try helper.CreateImageView(
+        core.device.handle,
+        allocated_image.?.image,
+        allocated_image.?.format,
+        c.VK_IMAGE_ASPECT_COLOR_BIT,
+        core.alloc_cb,
+    );
 }

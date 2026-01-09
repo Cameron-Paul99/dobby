@@ -106,11 +106,14 @@ pub const Renderer = struct {
         // Create Sync Structures
         try CreateSyncStructures(&renderer, core, swapchain, allocator);
 
-        // Create Samplers
-        try CreateSampler(&renderer , core);
-
         // Create Textures
         try text.CreateTextureImage("Slot", &renderer, core, allocator, helper.KtxColorSpace.srgb, "/textures/Slot.ktx2");
+
+        // Create Texture View
+        try text.CreateTextureImageView(core, &renderer, "Slot");
+
+        // Create Samplers
+        try CreateSampler(&renderer , core);
 
         // Create Vertex Buffer
         const verts = [_]helper.Vertex{
@@ -127,6 +130,9 @@ pub const Renderer = struct {
         renderer.vertex_buffer = try helper.CreateVertexBuffer(renderer.vma, verts[0..], &renderer.upload_context, core);
         renderer.index_buffer = try helper.CreateIndexBuffer(renderer.vma, inds[0..], &renderer.upload_context, core);
         renderer.index_count = @intCast(inds.len);
+        
+        // Create Descriptors
+        try CreateDescriptors(&renderer, core);
 
         return renderer;
         
@@ -207,6 +213,10 @@ pub const Renderer = struct {
 
         // Bind pipeline and draw
         try self.material_system.BindPipeline(cmd, "Triangle");
+        
+        //TODO: Bind Descriptor sets and also update shaders.
+        const frame_set = frame.set_frame;
+        _ = frame_set;
         
        // const verts = [_]helper.Vertex{
        //     .{ .pos = .{ 0.0, -0.5 }, .color = .{ 1.0, 0.0, 0.0 } },
@@ -579,10 +589,16 @@ pub fn CreatePipelines(
     defer c.vkDestroyShaderModule(core.device.handle, triangle_mods.vert_mod, core.alloc_cb);
     defer c.vkDestroyShaderModule(core.device.handle, triangle_mods.frag_mod, core.alloc_cb);
 
+    const set_layouts = [_]c.VkDescriptorSetLayout{
+        renderer.set_layout_frame,     // set 0
+        renderer.set_layout_material,  // set 1
+    };
+
     const pipeline_layout_ci = std.mem.zeroInit(c.VkPipelineLayoutCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = @as(u32, @intCast(set_layouts.len)),
+        .pSetLayouts = &set_layouts[0],
     });
-
 
     // Pipeline Layout creation
     var triangle_pipeline_layout: c.VkPipelineLayout = undefined;
@@ -724,7 +740,7 @@ pub fn CreatePipelines(
 pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
 
     // Descriptor pool
-    const pool_sizes = [_]c.vk.DescriptorPoolSize{
+    const pool_sizes = [_]c.VkDescriptorPoolSize{
         .{ .type = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         .descriptorCount = 64 },
         .{ .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1024 },
         .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         .descriptorCount = 128  },
@@ -817,13 +833,10 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
     const material_layout_ci = std.mem.zeroInit(c.VkDescriptorSetLayoutCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .bindingCount = MAX_TEXTURES_PER_MATERIAL,
-        .pBindings = material_bindings.ptr,
+        .pBindings = &material_bindings[0],
     });
 
-
-
     try helper.check_vk(c.vkCreateDescriptorSetLayout(core.device.handle, &material_layout_ci, core.alloc_cb, &renderer.set_layout_material));
-
 
     // -------------------------------------------------------------------------
     // 4) Set 2 (Compute) layout:
@@ -871,7 +884,7 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
     const compute_layout_ci = std.mem.zeroInit(c.VkDescriptorSetLayoutCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .bindingCount = MAX_STORAGE_IMAGES,
-        .pBindings = compute_bindings.ptr,
+        .pBindings = &compute_bindings[0],
     });
 
     try helper.check_vk(c.vkCreateDescriptorSetLayout(core.device.handle, &compute_layout_ci, core.alloc_cb, &renderer.set_layout_compute));
@@ -883,19 +896,21 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
 
     const frame_count: u32 = @as(u32, @intCast(renderer.frames.len));
 
-    const frame_layouts: [FRAME_OVERLAP]c.VkDescriptorSetLayout = undefined;
-    const tmp_sets:    [FRAME_OVERLAP]c.VkDescriptorSet = undefined;
+    var frame_layouts: [FRAME_OVERLAP]c.VkDescriptorSetLayout = undefined;
+    var tmp_sets:    [FRAME_OVERLAP]c.VkDescriptorSet = undefined;
 
-    for (frame_layouts) |*l| l.* = renderer.set_layout_frame;
+    for (&frame_layouts) |*l| {
+        l.* = renderer.set_layout_frame;
+    }
 
     const alloc_info = std.mem.zeroInit(c.VkDescriptorSetAllocateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
         .descriptorPool = renderer.descriptor_pool,
         .descriptorSetCount = frame_count,
-        .pSetLayouts = frame_layouts.ptr,
+        .pSetLayouts = &frame_layouts[0],
     });
     
-    try helper.check_vk(c.vkAllocateDescriptorSets(core.device.handle, &alloc_info, tmp_sets.ptr));
+    try helper.check_vk(c.vkAllocateDescriptorSets(core.device.handle, &alloc_info, &tmp_sets[0]));
 
     for (tmp_sets, 0..) |set, i|{
         renderer.frames[i].set_frame = set;
@@ -939,10 +954,47 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
             }),
         };
 
-        c.vkUpdateDescriptorSets(core.device.handle, @as(u32, @intCast(writes.len)), writes.ptr, 0, null);
+        c.vkUpdateDescriptorSets(core.device.handle, @as(u32, @intCast(writes.len)), &writes[0], 0, null);
     }
 
+    var material_set: c.VkDescriptorSet = null;
 
+    const material_alloc = std.mem.zeroInit(c.VkDescriptorSetAllocateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = renderer.descriptor_pool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &renderer.set_layout_material,
+    });
+
+    try helper.check_vk(c.vkAllocateDescriptorSets(core.device.handle, &material_alloc, &material_set));
+
+    const slot_id = renderer.texture_manager.textures_by_name.get("Slot") orelse
+        return error.TextureNotFound;
+    const slot_tex = &renderer.texture_manager.textures.items[@intCast(slot_id)];
+
+    const image_info = std.mem.zeroInit(c.VkDescriptorImageInfo, .{
+        .sampler = renderer.sampler_linear_repeat,
+        .imageView = slot_tex.view,
+        .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    });
+
+    const img_write = std.mem.zeroInit(c.VkWriteDescriptorSet, .{
+        .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = material_set,
+        .dstBinding = 0, // binding 0 in set 1
+        .dstArrayElement = 0,
+        .descriptorCount = 1,
+        .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .pImageInfo = &image_info,
+        .pBufferInfo = null,
+        .pTexelBufferView = null,
+    });
+
+    c.vkUpdateDescriptorSets(core.device.handle, 1, &img_write, 0, null);
+
+    const inst_id = renderer.material_system.instances_by_name.get("Triangle_Instance") orelse
+        return error.MaterialInstanceNotFound;
+    renderer.material_system.instances.items[@intCast(inst_id)].texture_set = material_set;
 
     // DUMMY SSBO buffer
 

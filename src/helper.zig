@@ -688,6 +688,7 @@ pub const AllocatedImage = struct {
     image: c.VkImage = VK_NULL_HANDLE,
     allocation: c.VmaAllocation = null,
     view: c.VkImageView = VK_NULL_HANDLE, // usually store this too
+    sampler: c.VkSampler = VK_NULL_HANDLE,
     width: u32 = 0,
     height: u32 = 0,
     format: c.VkFormat = c.VK_FORMAT_UNDEFINED,
