@@ -1,5 +1,8 @@
 const std = @import("std");
 const c = @import("clibs.zig").c;
+const render = @import("render.zig");
+const core_mod = @import("core.zig");
+const sc = @import("swapchain.zig");
 
 pub const Window = struct {
 
@@ -41,7 +44,10 @@ pub const Window = struct {
 
     }
 
-    pub fn pollEvents(self: *Window) void {
+    pub fn pollEvents(
+        self: *Window,
+        renderer: *render.Renderer, 
+    ) void {
 
         var evt: c.SDL_Event = undefined;
 
@@ -55,6 +61,14 @@ pub const Window = struct {
                 c.SDL_EVENT_MOUSE_BUTTON_DOWN => std.debug.print("Mouse button pressed\n", .{}),
                 c.SDL_EVENT_MOUSE_BUTTON_UP => std.debug.print("Mouse button released\n", .{}),
                 c.SDL_EVENT_MOUSE_MOTION => std.debug.print("Mouse moved\n", .{}),
+                c.SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED => {
+
+                    if (renderer.renderer_init){
+                        renderer.request_swapchain_recreate = true;
+                    }else{
+                        renderer.renderer_init = true;
+                    }
+                },
                 else => std.debug.print("Other SDL event: {}\n", .{evt.type}),
             } 
         

@@ -31,9 +31,8 @@ pub fn main() !void {
     defer renderer.deinit(allocator, &core);
 
     while (!game_window.should_close){
-        try renderer.DrawFrame(&core, &sc);
-        game_window.pollEvents();
-        std.Thread.sleep(16 * std.time.ns_per_ms);
+        try renderer.DrawFrame(&core, &sc, &game_window, allocator);
+        game_window.pollEvents(&renderer);
     }
 
 }

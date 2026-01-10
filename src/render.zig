@@ -5,6 +5,7 @@ const sc = @import("swapchain.zig");
 const core_mod = @import("core.zig");
 const math = @import("math.zig");
 const text = @import("textures.zig");
+const sdl = @import("sdl.zig");
 const log = std.log;
 
 pub const MaterialTemplateId_u32 = u32;
@@ -69,6 +70,8 @@ pub const Renderer = struct {
     set_layout_material: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
     set_layout_compute: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
     sampler_linear_repeat: c.VkSampler = helper.VK_NULL_HANDLE,
+    request_swapchain_recreate: bool = false,
+    renderer_init: bool = false,
     index_count: u32 = 0,
 
     // pipelines / layouts
@@ -142,37 +145,78 @@ pub const Renderer = struct {
         return renderer;
         
     }
-    pub fn DrawFrame(self: *Renderer, core: *core_mod.Core, swapchain: *sc.Swapchain) !void {
+    pub fn DrawFrame(
+        self: *Renderer, 
+        core: *core_mod.Core, 
+        swapchain: *sc.Swapchain,
+        win: *sdl.Window,
+        allocator: std.mem.Allocator) !void {
+
+        if (self.request_swapchain_recreate and self.renderer_init) {
+          
+        // Avoid zero-size swapchain
+            if (win.screen_width == 0 or win.screen_height == 0) {
+                return;
+            }
+
+            try self.OnSwapchainRecreated(
+                    core,
+                    swapchain,
+                    win,
+                    allocator,
+                );
+     
+            log.info("recreated swapchain", .{});
+            self.request_swapchain_recreate = false;
+            return;
+
+        }
 
         const timeout: u64 = 1_000_000_000;
         const frame = &self.frames[@intCast(@mod(self.frame_number, FRAME_OVERLAP))];
+        if (frame.render_fence != helper.VK_NULL_HANDLE) {
+            try helper.check_vk(
+                c.vkWaitForFences(core.device.handle, 1, &frame.render_fence, c.VK_TRUE, timeout)
+            );
+        }
 
-        try helper.check_vk(c.vkWaitForFences(core.device.handle, 1 ,&frame.render_fence, c.VK_TRUE, timeout));
         try helper.check_vk(c.vkResetFences(core.device.handle, 1, &frame.render_fence));
+
         
         var swapchain_image_index: u32 = undefined;
-        try helper.check_vk(c.vkAcquireNextImageKHR(
-                core.device.handle, 
-                swapchain.handle, 
-                timeout, 
-                frame.present_semaphore, 
-                helper.VK_NULL_HANDLE, 
-                &swapchain_image_index
-        ));
+        const acquire = c.vkAcquireNextImageKHR(
+            core.device.handle,
+            swapchain.handle,
+            timeout,
+            frame.present_semaphore,
+            helper.VK_NULL_HANDLE,
+            &swapchain_image_index,
+        );
+
+        switch (acquire) {
+            c.VK_SUCCESS => {},
+            c.VK_SUBOPTIMAL_KHR,
+            c.VK_ERROR_OUT_OF_DATE_KHR => {
+            self.request_swapchain_recreate = true;
+            return;
+        },
+        else => return error.VulkanError,
+        }
 
         // TODO: Revisit images in flight to remove high frame overlap. Fix by per frame render-finished semaphores
+        const in_flight = self.images_in_flight[swapchain_image_index];
+        if (in_flight != helper.VK_NULL_HANDLE and in_flight != frame.render_fence) {
+            try helper.check_vk(c.vkWaitForFences(
+                core.device.handle,
+                1,
+                &in_flight,
+                c.VK_TRUE,
+                timeout,
+            ));
+        }
 
-        //if (self.images_in_flight[swapchain_image_index]  != null) {
-           // try helper.check_vk(c.vkWaitForFences(
-          //          core.device.handle, 
-         //           1, 
-         //           &self.images_in_flight[swapchain_image_index], 
-         //           c.VK_TRUE, 
-        //            timeout
-         //   ));
-        //}
+        self.images_in_flight[swapchain_image_index] = frame.render_fence;
 
-       // self.images_in_flight[swapchain_image_index] = frame.render_fence;
 
         const cmd = frame.main_command_buffer;
 
@@ -217,7 +261,7 @@ pub const Renderer = struct {
         c.vkCmdBeginRenderPass(cmd, &render_pass_begin_info, c.VK_SUBPASS_CONTENTS_INLINE);
 
         // Bind pipeline and draw
-        try self.material_system.BindPipeline(cmd, "Triangle");
+        const tpl = try self.material_system.BindPipeline(cmd, "Triangle");
         
         //TODO: Bind Descriptor sets and also update shaders.
        const frame_set = frame.set_frame;
@@ -232,21 +276,14 @@ pub const Renderer = struct {
        c.vkCmdBindDescriptorSets(
             cmd,
             c.VK_PIPELINE_BIND_POINT_GRAPHICS,
-            self.material_system.templates.items[0].pipeline_layout,
+            tpl.pipeline_layout,
             0,
             @as(u32, @intCast(sets.len)),
             &sets[0],
             0,
             null,
        );
-       // const verts = [_]helper.Vertex{
-       //     .{ .pos = .{ 0.0, -0.5 }, .color = .{ 1.0, 0.0, 0.0 } },
-      //      .{ .pos = .{ 0.5,  0.5 }, .color = .{ 0.0, 1.0, 0.0 } },
-     //       .{ .pos = .{ -0.5, 0.5 }, .color = .{ 0.0, 0.0, 1.0 } },
-     //   };
-        
-     //   const offsets = [_]c.VkDeviceSize{0};
-     //   c.vkCmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer, &offsets[0]);
+
         const offsets = [_]c.VkDeviceSize{0};
         c.vkCmdBindVertexBuffers(cmd, 0, 1, &self.vertex_buffer.buffer, &offsets[0]);
         c.vkCmdBindIndexBuffer(cmd, self.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT16);
@@ -286,16 +323,78 @@ pub const Renderer = struct {
             .pResults = null,
         };
 
-        _ = c.vkQueuePresentKHR(core.device.present_queue, &present_info);
-
+        const pres = c.vkQueuePresentKHR(core.device.present_queue, &present_info);
+        if (pres == c.VK_SUBOPTIMAL_KHR or pres == c.VK_ERROR_OUT_OF_DATE_KHR) {
+            self.request_swapchain_recreate = true;
+        }
         self.frame_number += 1;
 
     }
-    pub fn OnSwapchainRecreated(self: *Renderer, core: *core_mod.Core, swapchain: *sc.Swapchain) !void { 
-        _ = core;
-        _ = swapchain;
-        _ = self;
 
+
+
+    pub fn OnSwapchainRecreated(
+        self: *Renderer,
+        core: *core_mod.Core,
+        swapchain: *sc.Swapchain,
+        win: *sdl.Window,
+        allocator: std.mem.Allocator,
+    ) !void {
+
+
+        // 1. Create new swapchain FIRST
+        var new_swap = try sc.Swapchain.init(
+            allocator,
+            core,
+            win,
+            .{ .vsync = false },
+            swapchain.handle, // oldSwapchain
+        );
+
+        // 2. Wait until GPU is idle (temporary but safe)
+        _ = c.vkDeviceWaitIdle(core.device.handle);
+
+        // 3) Destroy OLD framebuffers (they reference old render pass)
+        for (swapchain.framebuffers) |fb| {
+            c.vkDestroyFramebuffer(core.device.handle, fb, core.alloc_cb);
+        }
+        allocator.free(swapchain.framebuffers);
+        swapchain.framebuffers = &.{};
+
+        self.material_system.deinitGpu(core.device.handle, core.alloc_cb);
+        self.material_system.templates.clearRetainingCapacity();
+        self.material_system.templates_by_name.clearRetainingCapacity();
+
+        try CreatePipelines(core, &new_swap, self, allocator);
+
+        try CreateDescriptors(self, core);
+
+        // 3. Destroy OLD swapchain-dependent resources
+        if (self.render_pass != helper.VK_NULL_HANDLE) {
+            c.vkDestroyRenderPass(core.device.handle, self.render_pass, core.alloc_cb);
+            self.render_pass = helper.VK_NULL_HANDLE;
+        }
+        // 4. Create render pass for NEW swapchain
+        self.render_pass = try sc.CreateRenderPass(
+            &new_swap,
+            core.device.handle,
+            core.alloc_cb,
+        );
+
+        // 5. Create framebuffers for NEW swapchain
+        sc.CreateFrameBuffers(
+            core.device.handle,
+            &new_swap,
+            self.render_pass,
+            allocator,
+            core.alloc_cb,
+        );
+
+        // 7. Destroy old swapchain
+        swapchain.deinit(allocator, core.device.handle, core.alloc_cb);
+
+        // 8. Swap new → old
+        swapchain.* = new_swap;
     }
 
     pub fn deinit(self: *Renderer, allocator: std.mem.Allocator, core: *core_mod.Core) void {
@@ -485,14 +584,23 @@ pub const MaterialSystem = struct {
         self: *MaterialSystem,
         cmd: c.VkCommandBuffer,
         name: []const u8,
-        ) !void {
+        ) !*MaterialTemplate {
             
         const tpl = self.GetTemplateByName(name) orelse
             @panic("Missing pipeline template");
         c.vkCmdBindPipeline(cmd, tpl.bind_point, tpl.pipeline);
+        return tpl;
         
     }
+    pub fn ClearRetainingCapacity(self: *MaterialSystem) void {
+        self.templates.items.len = 0;
+        self.templates_by_name.clearRetainingCapacity();
 
+        // Only clear instances if you truly rebuild them
+        // Otherwise leave them intact
+        // self.instances.items.len = 0;
+        // self.instances_by_name.clearRetainingCapacity();
+    }
 
     pub fn init(allocator: std.mem.Allocator) !MaterialSystem {
         return .{
@@ -777,6 +885,8 @@ pub fn CreatePipelines(
          c.VK_PIPELINE_BIND_POINT_GRAPHICS,
          allocator,
     );
+
+    std.debug.assert(renderer.material_system.templates_by_name.contains("Triangle"));
 
 }
 
