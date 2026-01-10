@@ -3,6 +3,7 @@ const c = @import("clibs.zig").c;
 const helper = @import("helper.zig");
 const core_mod = @import("core.zig");
 const render = @import("render.zig");
+const log = std.log;
 
 pub const TextureId_u32 = u32;
 
@@ -44,7 +45,11 @@ pub const TextureManager = struct {
         self.textures.deinit(allocator);
         self.textures_by_name.deinit();
     }
-
+    pub fn deinitGpu(self: *TextureManager, core: *core_mod.Core, vma: c.VmaAllocator) void {
+        for (self.textures.items) |*t| {
+            helper.DestroyImage(core, vma, t);
+        }
+    }
   };
 
 
@@ -56,9 +61,15 @@ pub fn CreateTextureImage(
     color_space: helper.KtxColorSpace,
     path_z: [:0]const u8 ) !void{
 
+    const exe_dir = try std.fs.selfExeDirPathAlloc(allocator);
+    defer allocator.free(exe_dir);
+
+    const full_path_z = try std.fs.path.joinZ(allocator, &.{ exe_dir, "..", path_z }); 
+    defer allocator.free(full_path_z);
+
     var tex2: ?*c.ktxTexture2 = null;
     const create_flags: c.ktxTextureCreateFlags = c.KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT;
-    const rc0 = c.ktxTexture2_CreateFromNamedFile(path_z, create_flags, &tex2);
+    const rc0 = c.ktxTexture2_CreateFromNamedFile(full_path_z, create_flags, &tex2);
 
     if (rc0 != c.KTX_SUCCESS or tex2 == null) return error.KtxLoadFailed;
     const base_tex: [*c]c.ktxTexture = @ptrCast(tex2.?);
@@ -85,8 +96,26 @@ pub fn CreateTextureImage(
 
     const extent: c.VkExtent3D = .{.width = base_w, .height = base_h, .depth = 1};
 
-    const data_size: c.VkDeviceSize = @as(c.VkDeviceSize, @intCast(tex2.?.dataSize));
-    const src_ptr: [*]const u8 = @ptrCast(tex2.?.pData);
+
+    var offset: usize = 0;
+    var level0_size: usize = 0;
+
+    if (base_tex.*.vtbl) |vtbl| {
+        // GetImageOffset
+        const get_off_fn = vtbl.*.GetImageOffset orelse return error.KtxLoadFailed;
+        const rc_off = get_off_fn(base_tex, 0, 0, 0, &offset);
+        if (rc_off != c.KTX_SUCCESS) return error.KtxLoadFailed;
+
+        // GetImageSize
+        const get_size_fn = vtbl.*.GetImageSize orelse return error.KtxLoadFailed;
+        level0_size = get_size_fn(base_tex, 0);
+
+    } else {
+        return error.KtxLoadFailed;
+    }
+
+    const data_size: c.VkDeviceSize = @as(c.VkDeviceSize, @intCast(level0_size));
+    const src_ptr: [*]const u8 = @ptrCast(tex2.?.pData + offset);
 
     var staging_buffer = try helper.CreateBuffer(
         renderer.vma,
@@ -123,7 +152,7 @@ pub fn CreateTextureImage(
     try helper.CopyBufferToImage(core, renderer, &texture_image, &staging_buffer);
 
     try helper.TransitionImageLayout(renderer, core, &texture_image,  c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
+     log.info("Created Textures", .{});
 }
 
 pub fn CreateTextureImageView(core: *core_mod.Core, renderer: *render.Renderer, name: []const u8) !void{

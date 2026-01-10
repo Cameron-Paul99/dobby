@@ -47,6 +47,9 @@ pub const Swapchain = struct {
         self.format = helper.PickSwapchainFormat(support.formats);
         const present_mode = helper.PickSwapchainPresentMode(config, support.present_modes);
 
+        log.info("Present mode: {}", .{present_mode});
+
+
         // IMPORTANT: extent needs window size inputs, not stored forever in the swapchain struct
         self.extent = helper.MakeSwapchainExtent(
             support.capabilities, 

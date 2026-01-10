@@ -23,7 +23,7 @@ pub fn main() !void {
     defer core.deinit(allocator);
     
     // Swapchain creation
-    var sc = try swapchain_mod.Swapchain.init(allocator, &core , &game_window, .{}, null);
+    var sc = try swapchain_mod.Swapchain.init(allocator, &core , &game_window, .{.vsync = false}, null);
     defer sc.deinit(allocator, core.device.handle ,core.alloc_cb);
     
     // Renderer creation

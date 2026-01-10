@@ -96,6 +96,11 @@ pub const Renderer = struct {
             .vma = vma,
             .texture_manager =  try text.TextureManager.init(allocator),
         };
+
+        errdefer renderer.deinit(allocator, core);
+
+        // Create Descriptor Layouts
+        try CreateDescriptorLayouts(&renderer, core);
         
         // Pipeline Creation
         try CreatePipelines(core, swapchain, &renderer, allocator);
@@ -107,7 +112,7 @@ pub const Renderer = struct {
         try CreateSyncStructures(&renderer, core, swapchain, allocator);
 
         // Create Textures
-        try text.CreateTextureImage("Slot", &renderer, core, allocator, helper.KtxColorSpace.srgb, "/textures/Slot.ktx2");
+        try text.CreateTextureImage("Slot", &renderer, core, allocator, helper.KtxColorSpace.srgb, "textures/Slot.ktx2");
 
         // Create Texture View
         try text.CreateTextureImageView(core, &renderer, "Slot");
@@ -117,10 +122,10 @@ pub const Renderer = struct {
 
         // Create Vertex Buffer
         const verts = [_]helper.Vertex{
-            .{ .pos = .{ -0.5, -0.5 }, .color = .{ 1.0, 0.0, 0.0 } },
-            .{ .pos = .{  0.5, -0.5 }, .color = .{ 0.0, 1.0, 0.0 } },
-            .{ .pos = .{  0.5,  0.5 }, .color = .{ 0.0, 0.0, 1.0 } },
-            .{ .pos = .{ -0.5,  0.5 }, .color = .{ 1.0, 1.0, 0.0 } },
+            .{ .pos = .{ -0.5, -0.5 }, .color = .{ 1.0, 0.0, 0.0 }, .texcoord = .{0.0, 1.0 }},
+            .{ .pos = .{  0.5, -0.5 }, .color = .{ 0.0, 1.0, 0.0 }, .texcoord = .{1.0, 1.0}},
+            .{ .pos = .{  0.5,  0.5 }, .color = .{ 0.0, 0.0, 1.0 }, .texcoord = .{1.0, 0.0 }},
+            .{ .pos = .{ -0.5,  0.5 }, .color = .{ 1.0, 1.0, 0.0 }, .texcoord = .{0.0, 0.0}},
         };
 
         // Create Index Buffer
@@ -215,9 +220,25 @@ pub const Renderer = struct {
         try self.material_system.BindPipeline(cmd, "Triangle");
         
         //TODO: Bind Descriptor sets and also update shaders.
-        const frame_set = frame.set_frame;
-        _ = frame_set;
-        
+       const frame_set = frame.set_frame;
+
+       const inst_id = self.material_system.instances_by_name.get("Triangle_Instance") orelse
+            return error.MaterialInstanceNotFound;
+
+       const mat_set = self.material_system.instances.items[@intCast(inst_id)].texture_set;
+
+       const sets = [_]c.VkDescriptorSet {frame_set, mat_set };
+
+       c.vkCmdBindDescriptorSets(
+            cmd,
+            c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            self.material_system.templates.items[0].pipeline_layout,
+            0,
+            @as(u32, @intCast(sets.len)),
+            &sets[0],
+            0,
+            null,
+       );
        // const verts = [_]helper.Vertex{
        //     .{ .pos = .{ 0.0, -0.5 }, .color = .{ 1.0, 0.0, 0.0 } },
       //      .{ .pos = .{ 0.5,  0.5 }, .color = .{ 0.0, 1.0, 0.0 } },
@@ -283,6 +304,26 @@ pub const Renderer = struct {
             _ = c.vkDeviceWaitIdle(core.device.handle);
         }
 
+        if (self.descriptor_pool != null){
+            c.vkDestroyDescriptorPool(core.device.handle, self.descriptor_pool, core.alloc_cb);
+        }
+
+        if (self.set_layout_frame != null) {
+            c.vkDestroyDescriptorSetLayout(core.device.handle, self.set_layout_frame, core.alloc_cb);
+            self.set_layout_frame = null;
+        }
+
+        if (self.set_layout_material != null) {
+            c.vkDestroyDescriptorSetLayout(core.device.handle, self.set_layout_material, core.alloc_cb);
+            self.set_layout_material = null;
+        }
+
+        if (self.set_layout_compute != null) {
+            c.vkDestroyDescriptorSetLayout(core.device.handle, self.set_layout_compute, core.alloc_cb);
+            self.set_layout_compute = null;
+        }
+        
+        self.texture_manager.deinitGpu(core, self.vma);
         self.texture_manager.deinit(allocator);
 
         helper.DestroyBuffer(self.vma, &self.vertex_buffer);
@@ -322,6 +363,8 @@ pub const Renderer = struct {
                 c.vkDestroyFence(core.device.handle, f.render_fence, core.alloc_cb);
                 f.render_fence = helper.VK_NULL_HANDLE;
             }
+
+            helper.DestroyBuffer(self.vma, &f.camera_ubo);
 
         // Destroying the pool implicitly releases its command buffers
             if (f.command_pool != helper.VK_NULL_HANDLE) {
@@ -642,14 +685,19 @@ pub fn CreatePipelines(
             .format = c.VK_FORMAT_R32G32B32_SFLOAT,
             .offset = @offsetOf(helper.Vertex, "color"),
         },
-
+        .{
+            .location = 2,
+            .binding = 0,
+            .format = c.VK_FORMAT_R32G32_SFLOAT,
+            .offset = @offsetOf(helper.Vertex, "texcoord"),
+        },
     };
 
     const vertex_input_state_ci = std.mem.zeroInit(c.VkPipelineVertexInputStateCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .vertexBindingDescriptionCount = binding.len,
+        .vertexBindingDescriptionCount = @as(u32, @intCast(binding.len)),
         .pVertexBindingDescriptions = &binding[0],
-        .vertexAttributeDescriptionCount = attrs.len,
+        .vertexAttributeDescriptionCount = @as(u32, @intCast(attrs.len)),
         .pVertexAttributeDescriptions = &attrs[0],
     });
 
@@ -734,10 +782,7 @@ pub fn CreatePipelines(
 
 //TODO: Combined Image Sampler will be added outside Descriptors. Implement it after Sampler and Image Views.
 
-
-
-// TODO: Add SSBO
-pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
+pub fn CreateDescriptorLayouts(renderer: *Renderer, core: *core_mod.Core) !void {
 
     // Descriptor pool
     const pool_sizes = [_]c.VkDescriptorPoolSize{
@@ -888,6 +933,11 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
     });
 
     try helper.check_vk(c.vkCreateDescriptorSetLayout(core.device.handle, &compute_layout_ci, core.alloc_cb, &renderer.set_layout_compute));
+}
+
+// TODO: Add SSBO
+pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
+
 
     // -------------------------------------------------------------------------
     // 5) Allocate only what you need now:

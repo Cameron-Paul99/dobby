@@ -505,6 +505,7 @@ pub fn MakeShaderModules(device: c.VkDevice, alloc_cb: ?*c.VkAllocationCallbacks
 pub const Vertex = extern struct {
     pos: [2]f32,
     color: [3]f32,
+    texcoord: [2]f32,
 };
 
 pub const Index_u16 = u16;
@@ -667,6 +668,17 @@ pub fn CopyBuffer(
     try check_vk(c.vkQueueSubmit(core.device.graphics_queue, 1, &submit, upload_ctx.upload_fence));
     _ = c.vkWaitForFences(core.device.handle, 1, &upload_ctx.upload_fence, c.VK_TRUE, std.math.maxInt(u64));
 
+}
+
+pub fn DestroyImage(core: *gpu_context.Core, vma: c.VmaAllocator, img: *AllocatedImage) void {
+    if (img.view != null) {
+        c.vkDestroyImageView(core.device.handle, img.view, core.alloc_cb);
+        img.view = null;
+    }
+    if (img.image != null) {
+        c.vmaDestroyImage(vma, img.image, img.allocation);
+        img.* = .{ .image = null, .allocation = null, .view = null, .width = 0, .height = 0, .format = c.VK_FORMAT_UNDEFINED };
+    }
 }
 
 pub fn DestroyBuffer(vma: c.VmaAllocator, b: *AllocatedBuffer) void{
@@ -941,7 +953,7 @@ pub fn EndSingleTimeCommands(
         .pSignalSemaphores = null,
     };
 
-
+    try check_vk(c.vkResetFences(core.device.handle, 1, &renderer.upload_context.upload_fence));
     try check_vk(c.vkQueueSubmit(core.device.graphics_queue, 1, &submit_info, renderer.upload_context.upload_fence));
     try check_vk(c.vkQueueWaitIdle(core.device.graphics_queue));
 
