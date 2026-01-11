@@ -1,1 +1,21 @@
-## Hello 
+## [0.0.1] - Initial Rendering - Cameron Paul - 01/11/26
+- Instance, Logical device, and physical device setup
+- Swapchain creation
+- Basic Math library
+- Pipeline creation for Triangles
+- Sync Structures for CPU and GPU
+- Render Pass and Framebuffers
+- Material System and Texture Manager
+- Command Buffer creation
+- Image, Image views, texture image views, and Sampler
+- SDL window
+- Draw Frame, Recreate Swapchain, Deinit of all resources
+- Initial Descriptors
+- Initial Descriptor layouts
+- VMA creation
+- Validation Layers
+- Index and Vertex buffers
+- Copy Buffer
+- Single time commands
+- End single time commands
+- Transition Images to GPU and CPU
