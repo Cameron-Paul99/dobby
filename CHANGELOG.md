@@ -1,3 +1,7 @@
+## [0.0.2] - Depth attachment and uncapped frame rate - Cameron Paul - 01/11/26
+- Depth attachment is added
+- Upcapped frame rate test is complete
+
 ## [0.0.1] - Initial Rendering - Cameron Paul - 01/11/26
 - Instance, Logical device, and physical device setup
 - Swapchain creation

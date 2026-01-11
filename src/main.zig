@@ -24,7 +24,7 @@ pub fn main() !void {
     
     // Swapchain creation
     var sc = try swapchain_mod.Swapchain.init(allocator, &core , &game_window, .{.vsync = false}, null);
-    defer sc.deinit(allocator, core.device.handle ,core.alloc_cb);
+    defer sc.deinit(&core, allocator, core.alloc_cb);
     
     // Renderer creation
     var renderer = try render.Renderer.init(allocator, &core, &sc);

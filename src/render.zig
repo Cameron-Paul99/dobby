@@ -89,7 +89,7 @@ pub const Renderer = struct {
         const material_system = try MaterialSystem.init(allocator);
 
         // VMA allocation
-        const vma = try CreateVMAAllocator(core);
+        const vma = try helper.CreateVMAAllocator(core);
         
         var renderer = Renderer {
             .frames = .{ FrameData{} } ** FRAME_OVERLAP, 
@@ -233,17 +233,16 @@ pub const Renderer = struct {
             .color = .{ .float32 = [_]f32{0.0, 0.0, 0.0, 1.0} },
         };
 
-        // TODO: Depth addition
-
-        //const depth_clear = c.VkClearValue {
-         //   .depthStencil = .{
-         //       .depth = 1.0,
-         //       .stencil = 0,
-         //   },
-        //};
-        //
+        const depth_clear = c.VkClearValue {
+            .depthStencil = .{
+                .depth = 1.0,
+                .stencil = 0,
+            },
+        };
+        
         const clear_values = [_]c.VkClearValue{
-            color_clear,  
+            color_clear,
+            depth_clear,
         };
 
         const render_pass_begin_info = std.mem.zeroInit(c.VkRenderPassBeginInfo , .{
@@ -391,7 +390,7 @@ pub const Renderer = struct {
         );
 
         // 7. Destroy old swapchain
-        swapchain.deinit(allocator, core.device.handle, core.alloc_cb);
+        swapchain.deinit(core, allocator ,core.alloc_cb);
 
         // 8. Swap new → old
         swapchain.* = new_swap;
@@ -1197,19 +1196,5 @@ pub fn CreateSampler(renderer: *Renderer , core: *core_mod.Core) !void{
 }
 
 
-pub fn CreateVMAAllocator(core: *core_mod.Core) !c.VmaAllocator {
 
-    var vma_ci = std.mem.zeroInit(c.VmaAllocatorCreateInfo, .{
-        .physicalDevice = core.physical_device.handle,
-        .device = core.device.handle,
-        .instance = core.instance.handle,
-    }); 
-
-    var allocator: c.VmaAllocator = undefined;
-    try helper.check_vk(c.vmaCreateAllocator(&vma_ci, &allocator));
-
-    return allocator;
-
-
-}
 
