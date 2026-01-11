@@ -962,7 +962,21 @@ pub fn EndSingleTimeCommands(
 }
 
     
+pub fn CreateVMAAllocator(core: *gpu_context.Core) !c.VmaAllocator {
 
+    var vma_ci = std.mem.zeroInit(c.VmaAllocatorCreateInfo, .{
+        .physicalDevice = core.physical_device.handle,
+        .device = core.device.handle,
+        .instance = core.instance.handle,
+    }); 
+
+    var allocator: c.VmaAllocator = undefined;
+    try check_vk(c.vmaCreateAllocator(&vma_ci, &allocator));
+
+    return allocator;
+
+
+}
 
 
     
