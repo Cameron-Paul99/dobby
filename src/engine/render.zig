@@ -3,10 +3,11 @@ const std = @import("std");
 const helper = @import("helper.zig");
 const sc = @import("swapchain.zig");
 const core_mod = @import("core.zig");
-const math = @import("../math.zig");
 const text = @import("textures.zig");
-const sdl = @import("../sdl.zig");
+const utils = @import("utils");
+const sdl = @import("sdl.zig");
 const log = std.log;
+const math = utils.math;
 
 pub const MaterialTemplateId_u32 = u32;
 pub const MaterialInstanceId_u32 = u32;
@@ -735,7 +736,9 @@ pub fn CreatePipelines(
     ) !void {
     
     // AI says this function is wrong. Keep this in mind going forward.
-    const triangle_mods = try helper.MakeShaderModules(core.device.handle, core.alloc_cb, "triangle.vert", "triangle.frag");
+    const triangle_mods = try helper.MakeShaderModules(core.device.handle, core.alloc_cb, 
+        "shaders/triangle.vert.spv", 
+        "shaders/triangle.frag.spv");
     defer c.vkDestroyShaderModule(core.device.handle, triangle_mods.vert_mod, core.alloc_cb);
     defer c.vkDestroyShaderModule(core.device.handle, triangle_mods.frag_mod, core.alloc_cb);
 

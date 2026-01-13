@@ -1,10 +1,11 @@
 const std = @import("std");
 const c = @import("clibs.zig").c;
-const sdl = @import("../sdl.zig");
+const utils = @import("utils");
 const gpu_context = @import("core.zig");
 const sc = @import("swapchain.zig");
 const render = @import("render.zig");
 const log = std.log;
+const sdl = utils.sdl;
 
 pub const VK_NULL_HANDLE = null;
 pub const INVALID = std.math.maxInt(u32);

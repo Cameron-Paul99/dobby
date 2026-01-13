@@ -1,11 +1,14 @@
 const std = @import("std");
+const utils = @import("utils");
+const engine = @import("engine");
+const core_mod = engine.core;
+const swapchain_mod = engine.swapchain;
+const render = engine.renderer;
+const helper = engine.helper;
+const text = engine.textures;
+const c = engine.c;
 const print = std.debug.print;
-const sdl = @import("sdl.zig");
-const core_mod = @import("../renderer/core.zig");
-const swapchain_mod = @import("../renderer/swapchain.zig");
-const render = @import("../renderer/render.zig");
-const helper = @import("../renderer/helper.zig");
-const text = @import("../renderer/textures.zig");
+const sdl = engine.sdl;
 
 pub fn main() !void {
     
