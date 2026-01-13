@@ -3,9 +3,9 @@ const std = @import("std");
 const helper = @import("helper.zig");
 const sc = @import("swapchain.zig");
 const core_mod = @import("core.zig");
-const math = @import("math.zig");
+const math = @import("../math.zig");
 const text = @import("textures.zig");
-const sdl = @import("sdl.zig");
+const sdl = @import("../sdl.zig");
 const log = std.log;
 
 pub const MaterialTemplateId_u32 = u32;

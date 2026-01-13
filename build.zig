@@ -4,12 +4,14 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+
+    // Editor SDL 
     const exe = b.addExecutable(.{
         .name = "dobby",
         .root_module = b.addModule(
             "dobby", 
             .{
-                .root_source_file = b.path("src/main.zig"),
+                .root_source_file = b.path("src/apps/editor_sdl_main.zig"),
                 .target = target,
                 .optimize = optimize,
         }),
@@ -24,7 +26,7 @@ pub fn build(b: *std.Build) !void {
 
     exe.linkSystemLibrary(vk_lib_name);
     exe.addIncludePath(.{ .cwd_relative = "thirdparty/sdl3/include" });
-    exe.addCSourceFile(.{ .file = b.path("src/vk_mem_alloc.cpp"), .flags = &.{ "" } });
+    exe.addCSourceFile(.{ .file = b.path("src/renderer/vk_mem_alloc.cpp"), .flags = &.{ "" } });
     exe.addIncludePath(b.path("thirdparty/vma/"));
 
     //exe.linkLibC();

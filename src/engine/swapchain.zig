@@ -1,6 +1,6 @@
 const std = @import("std");
 const c = @import("clibs.zig").c;
-const sdl = @import("sdl.zig");
+const sdl = @import("../sdl.zig");
 const helper = @import("helper.zig");
 const core_mod = @import("core.zig");
 const log = std.log;

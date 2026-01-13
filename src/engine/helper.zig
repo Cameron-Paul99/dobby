@@ -1,6 +1,6 @@
 const std = @import("std");
 const c = @import("clibs.zig").c;
-const sdl = @import("sdl.zig");
+const sdl = @import("../sdl.zig");
 const gpu_context = @import("core.zig");
 const sc = @import("swapchain.zig");
 const render = @import("render.zig");

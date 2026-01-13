@@ -1,8 +1,8 @@
 const std = @import("std");
-const c = @import("clibs.zig").c;
-const render = @import("render.zig");
-const core_mod = @import("core.zig");
-const sc = @import("swapchain.zig");
+const c = @import("../renderer/clibs.zig").c;
+const render = @import("../renderer/render.zig");
+const core_mod = @import("../renderer/core.zig");
+const sc = @import("../renderer/swapchain.zig");
 
 pub const Window = struct {
 

@@ -1,6 +1,6 @@
 const std = @import("std");
 const c = @import("clibs.zig").c;
-const sdl = @import("sdl.zig");
+const sdl = @import("../sdl.zig");
 const helper = @import("helper.zig");
 const target = @import("builtin").target;
 const swapchain = @import("swapchain.zig");
