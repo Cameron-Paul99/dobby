@@ -4,8 +4,10 @@ const utils = @import("utils");
 const gpu_context = @import("core.zig");
 const sc = @import("swapchain.zig");
 const render = @import("render.zig");
+const text = @import("textures.zig");
 const log = std.log;
 const sdl = utils.sdl;
+
 
 pub const VK_NULL_HANDLE = null;
 pub const INVALID = std.math.maxInt(u32);
@@ -797,9 +799,6 @@ pub fn ChooseTranscodeFormat(cs: KtxColorSpace) struct {
     };
 }
 
-
-
-
 pub fn TransitionImageLayout(
     renderer: *render.Renderer,
     core: *gpu_context.Core,
@@ -978,6 +977,76 @@ pub fn CreateVMAAllocator(core: *gpu_context.Core) !c.VmaAllocator {
 
 
 }
+
+pub const SpriteDraw = struct {
+    pos: [2]f32,
+    size: [2]f32,
+    rot: f32,
+    uv_min: [2]f32,
+    uv_max: [2]f32,
+    tint: [4]f32,
+    texture: text.TextureId_u32,
+};
+
+pub fn PushTexture(
+    name: []const u8,
+    core: *gpu_context.Core,
+    renderer: *render.Renderer,
+    allocator: std.mem.Allocator,
+    ) !void {
+        
+        const path_z: [:0]const u8 = try std.fmt.allocPrintSentinel(
+            allocator, 
+            "textures/{s}.ktx2", 
+            .{ name },
+            0,
+        ); 
+        defer allocator.free(path_z);
+        // Create Textures
+        try text.CreateTextureImage(
+            name, 
+            renderer, 
+            core, 
+            allocator, 
+            KtxColorSpace.srgb, 
+            path_z,
+        );
+
+        // Create Texture View
+        try text.CreateTextureImageView(core, renderer, name);
+
+}
+
+pub fn UploadInstanceData(
+    vma: c.VmaAllocator,
+    upload_ctx: *render.UploadContext,
+    core: *gpu_context.Core,
+    dst: *AllocatedBuffer,
+    instances: []const SpriteDraw,
+) !void {
+    const size = instances.len * @sizeOf(SpriteDraw);
+
+    var staging = try CreateBuffer(
+        vma,
+        size,
+        c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        c.VMA_MEMORY_USAGE_CPU_ONLY,
+        0,
+    );
+    defer DestroyBuffer(vma, &staging);
+
+    var mapped: ?*anyopaque = null;
+    try check_vk(c.vmaMapMemory(vma, staging.allocation, &mapped));
+    defer c.vmaUnmapMemory(vma, staging.allocation);
+
+    const dst_bytes: [*]u8 = @ptrCast(mapped.?);
+    const src_bytes = std.mem.sliceAsBytes(instances);
+    @memcpy(dst_bytes[0..src_bytes.len], src_bytes);
+
+    try CopyBuffer(core, upload_ctx, staging.buffer, dst.buffer, size);
+}
+
+
 
 
     

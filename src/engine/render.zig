@@ -30,6 +30,8 @@ const MaterialInstance = struct {
 
 const FRAME_OVERLAP = 4;
 
+const MAX_SPRITES = 1;
+
 const FrameData = struct {
     present_semaphore: c.VkSemaphore = helper.VK_NULL_HANDLE,
     render_semaphore: c.VkSemaphore = helper.VK_NULL_HANDLE,
@@ -66,6 +68,7 @@ pub const Renderer = struct {
     vertex_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     index_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     dummy_ssbo: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+    sprite_instance_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     descriptor_pool: c.VkDescriptorPool = helper.VK_NULL_HANDLE,
     set_layout_frame: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
     set_layout_material: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
@@ -74,6 +77,9 @@ pub const Renderer = struct {
     request_swapchain_recreate: bool = false,
     renderer_init: bool = false,
     index_count: u32 = 0,
+    instance_count: u32 = 0,
+    sprite_draws: std.ArrayList(helper.SpriteDraw),
+    sprites: std.ArrayList(helper.SpriteDraw),
 
     // pipelines / layouts
     // maybe upload context too
@@ -99,7 +105,10 @@ pub const Renderer = struct {
             .upload_context = .{},
             .vma = vma,
             .texture_manager =  try text.TextureManager.init(allocator),
+            .sprite_draws = try std.ArrayList(helper.SpriteDraw).initCapacity(allocator, 0),
         };
+
+        try renderer.sprite_draws.ensureTotalCapacity(MAX_SPRITES);
 
         errdefer renderer.deinit(allocator, core);
 
@@ -115,14 +124,9 @@ pub const Renderer = struct {
         // Create Sync Structures
         try CreateSyncStructures(&renderer, core, swapchain, allocator);
 
-        // Create Textures
-        try text.CreateTextureImage("Slot", &renderer, core, allocator, helper.KtxColorSpace.srgb, "textures/Slot.ktx2");
-
-        // Create Texture View
-        try text.CreateTextureImageView(core, &renderer, "Slot");
-
         // Create Samplers
         try CreateSampler(&renderer , core);
+
 
         // Create Vertex Buffer
         const verts = [_]helper.Vertex{
@@ -136,22 +140,45 @@ pub const Renderer = struct {
         const inds = [_]helper.Index_u16{ 0, 1, 2 , 2 , 3 , 0 };
         
         // Set Buffers
-        renderer.vertex_buffer = try helper.CreateVertexBuffer(renderer.vma, verts[0..], &renderer.upload_context, core);
-        renderer.index_buffer = try helper.CreateIndexBuffer(renderer.vma, inds[0..], &renderer.upload_context, core);
+        renderer.vertex_buffer = try helper.CreateVertexBuffer(
+            renderer.vma, 
+            verts[0..], 
+            &renderer.upload_context, 
+            core
+        );
+
+        renderer.index_buffer = try helper.CreateIndexBuffer(
+            renderer.vma, 
+            inds[0..], 
+            &renderer.upload_context,
+            core
+        );
+
+        renderer.sprite_instance_buffer = try helper.CreateBuffer(
+            renderer.vma,
+            MAX_SPRITES * @sizeOf(helper.SpriteDraw),
+            c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            c.VMA_MEMORY_USAGE_GPU_ONLY,
+            0,
+        );
+        
         renderer.index_count = @intCast(inds.len);
+        //renderer.instance_count = @intCast()
         
         // Create Descriptors
-        try CreateDescriptors(&renderer, core);
+        try CreateDescriptors(&renderer, core, allocator);
 
         return renderer;
         
     }
+    
     pub fn DrawFrame(
         self: *Renderer, 
         core: *core_mod.Core, 
         swapchain: *sc.Swapchain,
         win: *sdl.Window,
-        allocator: std.mem.Allocator) !void {
+        allocator: std.mem.Allocator
+        scene: *Scene) !void {
 
         if (self.request_swapchain_recreate and self.renderer_init) {
           
@@ -285,9 +312,31 @@ pub const Renderer = struct {
        );
 
         const offsets = [_]c.VkDeviceSize{0};
-        c.vkCmdBindVertexBuffers(cmd, 0, 1, &self.vertex_buffer.buffer, &offsets[0]);
+        const buffers = [_]c.VkBuffer{ 
+            self.vertex_buffer.buffer, 
+            self.sprite_instance_buffer.buffer, 
+        };
+
+        self.sprite_draws.clearRetainingCapacity();
+
+        for (scene.sprites.items) |sprite| {
+            try self.sprite_draws.append(sprite);
+        }
+
+        self.instance_count = self.sprite_draws.items.len;
+
+        if (self.instance_count > 0) {
+            try helper.UploadInstanceData(
+                self.vma,
+                &self.upload_context,
+                core,
+                &self.sprite_instance_buffer,
+                self.sprite_draws.items,
+            );
+        }      
+        c.vkCmdBindVertexBuffers(cmd, 0, buffers.len, &buffers, &offsets);
         c.vkCmdBindIndexBuffer(cmd, self.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT16);
-        c.vkCmdDrawIndexed(cmd, self.index_count, 1, 0, 0, 0);
+        c.vkCmdDrawIndexed(cmd, self.index_count, self.instance_count, 0, 0, 0);
 
         c.vkCmdEndRenderPass(cmd);
         try helper.check_vk(c.vkEndCommandBuffer(cmd));
@@ -331,8 +380,6 @@ pub const Renderer = struct {
 
     }
 
-
-
     pub fn OnSwapchainRecreated(
         self: *Renderer,
         core: *core_mod.Core,
@@ -367,7 +414,7 @@ pub const Renderer = struct {
 
         try CreatePipelines(core, &new_swap, self, allocator);
 
-        try CreateDescriptors(self, core);
+        try CreateDescriptors(self, core, allocator);
 
         // 3. Destroy OLD swapchain-dependent resources
         if (self.render_pass != helper.VK_NULL_HANDLE) {
@@ -427,6 +474,7 @@ pub const Renderer = struct {
 
         helper.DestroyBuffer(self.vma, &self.vertex_buffer);
         helper.DestroyBuffer(self.vma, &self.index_buffer);
+        helper.DestroyBuffer(self.vma, &self.sprite_instance_buffer);
 
         if (self.images_in_flight.len != 0) {
             allocator.free(self.images_in_flight);
@@ -778,7 +826,13 @@ pub fn CreatePipelines(
             .binding = 0,
             .stride = @sizeOf(helper.Vertex),
             .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX,
-        }
+        },
+        .{
+            .binding = 1,
+            .stride = @sizeOf(helper.SpriteDraw),
+            .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX,
+
+        },
     };
 
     const attrs = [_]c.VkVertexInputAttributeDescription{
@@ -1048,7 +1102,7 @@ pub fn CreateDescriptorLayouts(renderer: *Renderer, core: *core_mod.Core) !void 
 }
 
 // TODO: Add SSBO
-pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
+pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core, allocator: std.mem.Allocator) !void{
 
 
     // -------------------------------------------------------------------------
@@ -1130,33 +1184,20 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
 
     try helper.check_vk(c.vkAllocateDescriptorSets(core.device.handle, &material_alloc, &material_set));
 
-    const slot_id = renderer.texture_manager.textures_by_name.get("Slot") orelse
-        return error.TextureNotFound;
-    const slot_tex = &renderer.texture_manager.textures.items[@intCast(slot_id)];
+    const tex_count = renderer.texture_manager.textures.items.len; 
+    if (tex_count == 0) {
+        try helper.PushTexture("Slot", core, renderer, allocator);
+        try CreateDefaultTexture(renderer, core, material_set);
+        return;
+    }
 
-    const image_info = std.mem.zeroInit(c.VkDescriptorImageInfo, .{
-        .sampler = renderer.sampler_linear_repeat,
-        .imageView = slot_tex.view,
-        .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-    });
-
-    const img_write = std.mem.zeroInit(c.VkWriteDescriptorSet, .{
-        .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = material_set,
-        .dstBinding = 0, // binding 0 in set 1
-        .dstArrayElement = 0,
-        .descriptorCount = 1,
-        .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .pImageInfo = &image_info,
-        .pBufferInfo = null,
-        .pTexelBufferView = null,
-    });
-
-    c.vkUpdateDescriptorSets(core.device.handle, 1, &img_write, 0, null);
-
-    const inst_id = renderer.material_system.instances_by_name.get("Triangle_Instance") orelse
-        return error.MaterialInstanceNotFound;
-    renderer.material_system.instances.items[@intCast(inst_id)].texture_set = material_set;
+    try CreateTexturesForMaterial(
+        renderer,
+        core,
+        material_set,
+        allocator,
+        tex_count,
+    );
 
     // DUMMY SSBO buffer
 
@@ -1173,7 +1214,90 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
 
 }
 
-pub fn CreateSampler(renderer: *Renderer , core: *core_mod.Core) !void{
+fn CreateTexturesForMaterial(
+    renderer: *Renderer, 
+    core: *core_mod.Core,
+    material_set: c.VkDescriptorSet,
+    allocator: std.mem.Allocator,
+    tex_count: usize) !void {
+
+    var image_infos = try allocator.alloc(c.VkDescriptorImageInfo, tex_count);
+    defer allocator.free(image_infos);
+
+    for (renderer.texture_manager.textures.items, 0..) |tex, i| {
+        image_infos[i] = .{
+            .sampler = renderer.sampler_linear_repeat,
+            .imageView = tex.view,
+            .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        };
+    }
+
+    const img_write = std.mem.zeroInit(c.VkWriteDescriptorSet, .{
+        .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = material_set,
+        .dstBinding = 0, // binding 0 in set 1
+        .dstArrayElement = 0        ,
+        .descriptorCount = @as(u32, @intCast(tex_count)),
+        .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .pImageInfo = &image_infos[0],
+        .pBufferInfo = null,
+        .pTexelBufferView = null,
+    });
+
+    c.vkUpdateDescriptorSets(
+        core.device.handle,
+        1,
+        &img_write,
+        0,
+        null,
+    );
+
+    const inst_id = renderer.material_system.instances_by_name.get("Triangle_Instance") orelse
+        return error.MaterialInstanceNotFound;
+    renderer.material_system.instances.items[@intCast(inst_id)].texture_set = material_set;
+
+    log.info("Amount of textures {d}", .{tex_count});
+
+}
+
+fn CreateDefaultTexture(
+    renderer: *Renderer, 
+    core: *core_mod.Core,
+    material_set: c.VkDescriptorSet,
+) !void{
+    const slot_id = renderer.texture_manager.textures_by_name.get("Slot") orelse
+        return error.TextureNotFound;
+    const slot_tex = &renderer.texture_manager.textures.items[@intCast(slot_id)];
+
+    const image_info = std.mem.zeroInit(c.VkDescriptorImageInfo, .{
+        .sampler = renderer.sampler_linear_repeat,
+        .imageView = slot_tex.view,
+        .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    });
+
+    const img_write = std.mem.zeroInit(c.VkWriteDescriptorSet, .{
+        .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = material_set,
+        .dstBinding = 0, // binding 0 in set 1
+        .dstArrayElement = 0        ,
+        .descriptorCount = 1,
+        .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .pImageInfo = &image_info,
+        .pBufferInfo = null,
+        .pTexelBufferView = null,
+    });
+
+    c.vkUpdateDescriptorSets(core.device.handle, 1, &img_write, 0, null);
+
+    const inst_id = renderer.material_system.instances_by_name.get("Triangle_Instance") orelse
+        return error.MaterialInstanceNotFound;
+    renderer.material_system.instances.items[@intCast(inst_id)].texture_set = material_set;
+
+     log.info("Default Texture", .{});
+
+}
+
+fn CreateSampler(renderer: *Renderer , core: *core_mod.Core) !void{
 
     const sampler_ci = c.VkSamplerCreateInfo {
         .sType = c.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,

@@ -12,8 +12,21 @@ pub fn main() void {
 
     std.log.info("asset cooker has started", .{});
 
+   // while(true) {
+      //  try cookShaders();
+      //  try cookTextures();
 
-    
+    //    std.time.sleep(300 * std.time.ns_per_ms);
+    //}
+
+}
+
+fn cookShaders() void {
+
+}
+
+fn cookTextures() void {
+
 
 
 }
