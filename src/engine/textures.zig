@@ -5,61 +5,27 @@ const core_mod = @import("core.zig");
 const render = @import("render.zig");
 const log = std.log;
 
-pub const TextureId_u32 = u32;
+pub Atlas = struct {
+    width: u32,
+    height: u32,
+    pixels: []u8,
+    cursor_x: u32 = 0,
+    cursor_y: u32 = 0,
+    row_h: u32 = 0,
+    pub fn init(allocator: std.mem.Allocator) !void{
+        try allocator.alloc(u8, width * height * 4);
+        @memset(atlas.pixels, 0); 
+    };
+}
 
-pub const TextureManager = struct {
-    textures: std.ArrayList(helper.AllocatedImage),
-    textures_by_name: std.StringHashMap(TextureId_u32),
-    // plus sampler presets or references
-    pub fn AddTexture(
-        self: *TextureManager, 
-        texture_name: []const u8,
-        texture: helper.AllocatedImage,
-        allocator: std.mem.Allocator,
-    )!TextureId_u32{
-
-        const texture_id: TextureId_u32 = @intCast(self.textures.items.len);
-
-        try self.textures.append(allocator, texture);
-
-        try self.textures_by_name.put(texture_name, texture_id);
-
-        return texture_id;
-    }
-    pub fn GetTextureByName(
-        self: *TextureManager,
-        name: []const u8,
-    ) ?*helper.AllocatedImage {
-        const id = self.textures_by_name.get(name) orelse return null;
-        return &self.textures.items[@intCast(id)];
-    }
-
-    pub fn init(allocator: std.mem.Allocator) !TextureManager {
-        return .{
-            .textures = try std.ArrayList(helper.AllocatedImage).initCapacity(allocator, 0),
-            .textures_by_name = std.StringHashMap(TextureId_u32).init(allocator),
-        };
-    }
-
-    pub fn deinit(self: *TextureManager, allocator: std.mem.Allocator) void {
-        self.textures.deinit(allocator);
-        self.textures_by_name.deinit();
-    }
-    pub fn deinitGpu(self: *TextureManager, core: *core_mod.Core, vma: c.VmaAllocator) void {
-        for (self.textures.items) |*t| {
-            helper.DestroyImage(core, vma, t);
-        }
-    }
-  };
 
 
 pub fn CreateTextureImage(
-    name: []const u8,
     renderer: *render.Renderer,
     core: *core_mod.Core,
     allocator: std.mem.Allocator,
     color_space: helper.KtxColorSpace,
-    path_z: [:0]const u8 ) !void{
+    path_z: [:0]const u8 ) !helper.AllocatedImage{
 
     const exe_dir = try std.fs.selfExeDirPathAlloc(allocator);
     defer allocator.free(exe_dir);
@@ -141,28 +107,23 @@ pub fn CreateTextureImage(
         helper.ImageMemoryClass.gpu_only,
     );
 
-    _ = try renderer.texture_manager.AddTexture(
-        name, 
-        texture_image, 
-        allocator
-    );
     
     try helper.TransitionImageLayout(renderer, core, &texture_image, c.VK_IMAGE_LAYOUT_UNDEFINED, c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     try helper.CopyBufferToImage(core, renderer, &texture_image, &staging_buffer);
 
     try helper.TransitionImageLayout(renderer, core, &texture_image,  c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
      log.info("Created Textures", .{});
+     return texture_image;
 }
 
-pub fn CreateTextureImageView(core: *core_mod.Core, renderer: *render.Renderer, name: []const u8) !void{
+pub fn CreateTextureImageView(core: *core_mod.Core, allocated_image: *helper.AllocatedImage) !void{
 
-    const allocated_image = renderer.texture_manager.GetTextureByName(name);
-
-    allocated_image.?.view = try helper.CreateImageView(
+    allocated_image.view = try helper.CreateImageView(
         core.device.handle,
-        allocated_image.?.image,
-        allocated_image.?.format,
+        allocated_image.image,
+        allocated_image.format,
         c.VK_IMAGE_ASPECT_COLOR_BIT,
         core.alloc_cb,
     );

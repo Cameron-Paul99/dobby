@@ -7,6 +7,7 @@ const render = @import("render.zig");
 const text = @import("textures.zig");
 const log = std.log;
 const sdl = utils.sdl;
+const math = utils.math;
 
 
 pub const VK_NULL_HANDLE = null;
@@ -978,44 +979,14 @@ pub fn CreateVMAAllocator(core: *gpu_context.Core) !c.VmaAllocator {
 
 }
 
-pub const SpriteDraw = struct {
-    pos: [2]f32,
-    size: [2]f32,
-    rot: f32,
+pub const SpriteDraw = extern struct {
+    sprite_pos: [2]f32,
+    sprite_scale: [2]f32,
+    sprite_rotation: f32,
     uv_min: [2]f32,
     uv_max: [2]f32,
     tint: [4]f32,
-    texture: text.TextureId_u32,
 };
-
-pub fn PushTexture(
-    name: []const u8,
-    core: *gpu_context.Core,
-    renderer: *render.Renderer,
-    allocator: std.mem.Allocator,
-    ) !void {
-        
-        const path_z: [:0]const u8 = try std.fmt.allocPrintSentinel(
-            allocator, 
-            "textures/{s}.ktx2", 
-            .{ name },
-            0,
-        ); 
-        defer allocator.free(path_z);
-        // Create Textures
-        try text.CreateTextureImage(
-            name, 
-            renderer, 
-            core, 
-            allocator, 
-            KtxColorSpace.srgb, 
-            path_z,
-        );
-
-        // Create Texture View
-        try text.CreateTextureImageView(core, renderer, name);
-
-}
 
 pub fn UploadInstanceData(
     vma: c.VmaAllocator,
@@ -1047,7 +1018,12 @@ pub fn UploadInstanceData(
 }
 
 
-
+pub const Sprite = struct {
+    image: AllocatedImage = .{},
+    uv_min: math.Vec2 = .{.x = 0.0, .y = 0.0},
+    uv_max: math.Vec2 = .{.x = 1.1, .y = 1.1},
+    size: math.Vec2,
+};
 
     
     

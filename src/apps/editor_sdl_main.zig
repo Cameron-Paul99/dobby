@@ -33,9 +33,16 @@ pub fn main() !void {
     var renderer = try render.Renderer.init(allocator, &core, &sc);
     defer renderer.deinit(allocator, &core);
 
+    var sprites =  try std.ArrayList(helper.SpriteDraw).initCapacity(allocator, 0);
+    defer sprites.deinit(allocator);
+
     while (!game_window.should_close){
-        try renderer.DrawFrame(&core, &sc, &game_window, allocator);
+        try renderer.DrawFrame(&core, &sc, &game_window, allocator, sprites.items);
         game_window.pollEvents(&renderer);
     }
 
+}
+
+pub fn PushSprite(sprites: *std.ArrayList(helper.SpriteDraw), sprite: helper.SpriteDraw) !void{
+    try sprites.append(sprite);
 }

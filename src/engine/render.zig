@@ -59,7 +59,7 @@ pub const Renderer = struct {
     frames: [FRAME_OVERLAP]FrameData,
     render_pass: c.VkRenderPass,
     material_system: MaterialSystem,
-    texture_manager: text.TextureManager,
+    default_tex: helper.AllocatedImage = .{},
     upload_context: UploadContext,
     vma: c.VmaAllocator,
  //   camera_pos: Vec3
@@ -79,7 +79,6 @@ pub const Renderer = struct {
     index_count: u32 = 0,
     instance_count: u32 = 0,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
-    sprites: std.ArrayList(helper.SpriteDraw),
 
     // pipelines / layouts
     // maybe upload context too
@@ -104,11 +103,10 @@ pub const Renderer = struct {
             .material_system = material_system,
             .upload_context = .{},
             .vma = vma,
-            .texture_manager =  try text.TextureManager.init(allocator),
             .sprite_draws = try std.ArrayList(helper.SpriteDraw).initCapacity(allocator, 0),
         };
 
-        try renderer.sprite_draws.ensureTotalCapacity(MAX_SPRITES);
+        try renderer.sprite_draws.ensureTotalCapacity(allocator , MAX_SPRITES);
 
         errdefer renderer.deinit(allocator, core);
 
@@ -124,9 +122,19 @@ pub const Renderer = struct {
         // Create Sync Structures
         try CreateSyncStructures(&renderer, core, swapchain, allocator);
 
+        // Create Default texture
+        renderer.default_tex = try text.CreateTextureImage(
+            &renderer, 
+            core,
+            allocator,
+            helper.KtxColorSpace.srgb,
+            "textures/Slot.ktx2",
+        );
+
+        try text.CreateTextureImageView(core, &renderer.default_tex);
+
         // Create Samplers
         try CreateSampler(&renderer , core);
-
 
         // Create Vertex Buffer
         const verts = [_]helper.Vertex{
@@ -166,7 +174,7 @@ pub const Renderer = struct {
         //renderer.instance_count = @intCast()
         
         // Create Descriptors
-        try CreateDescriptors(&renderer, core, allocator);
+        try CreateDescriptors(&renderer, core);
 
         return renderer;
         
@@ -177,8 +185,8 @@ pub const Renderer = struct {
         core: *core_mod.Core, 
         swapchain: *sc.Swapchain,
         win: *sdl.Window,
-        allocator: std.mem.Allocator
-        scene: *Scene) !void {
+        allocator: std.mem.Allocator,
+        sprites: []helper.SpriteDraw, ) !void {
 
         if (self.request_swapchain_recreate and self.renderer_init) {
           
@@ -231,7 +239,6 @@ pub const Renderer = struct {
         else => return error.VulkanError,
         }
 
-        // TODO: Revisit images in flight to remove high frame overlap. Fix by per frame render-finished semaphores
         const in_flight = self.images_in_flight[swapchain_image_index];
         if (in_flight != helper.VK_NULL_HANDLE and in_flight != frame.render_fence) {
             try helper.check_vk(c.vkWaitForFences(
@@ -311,7 +318,7 @@ pub const Renderer = struct {
             null,
        );
 
-        const offsets = [_]c.VkDeviceSize{0};
+        const offsets = [_]c.VkDeviceSize{0, 0};
         const buffers = [_]c.VkBuffer{ 
             self.vertex_buffer.buffer, 
             self.sprite_instance_buffer.buffer, 
@@ -319,11 +326,11 @@ pub const Renderer = struct {
 
         self.sprite_draws.clearRetainingCapacity();
 
-        for (scene.sprites.items) |sprite| {
-            try self.sprite_draws.append(sprite);
+        for (sprites) |sprite| {
+            try self.sprite_draws.append(allocator, sprite);
         }
 
-        self.instance_count = self.sprite_draws.items.len;
+        self.instance_count = @as(u32, @intCast(self.sprite_draws.items.len));
 
         if (self.instance_count > 0) {
             try helper.UploadInstanceData(
@@ -414,7 +421,7 @@ pub const Renderer = struct {
 
         try CreatePipelines(core, &new_swap, self, allocator);
 
-        try CreateDescriptors(self, core, allocator);
+        try CreateDescriptors(self, core);
 
         // 3. Destroy OLD swapchain-dependent resources
         if (self.render_pass != helper.VK_NULL_HANDLE) {
@@ -468,13 +475,13 @@ pub const Renderer = struct {
             c.vkDestroyDescriptorSetLayout(core.device.handle, self.set_layout_compute, core.alloc_cb);
             self.set_layout_compute = null;
         }
-        
-        self.texture_manager.deinitGpu(core, self.vma);
-        self.texture_manager.deinit(allocator);
 
+        self.sprite_draws.deinit(allocator);
+        
         helper.DestroyBuffer(self.vma, &self.vertex_buffer);
         helper.DestroyBuffer(self.vma, &self.index_buffer);
         helper.DestroyBuffer(self.vma, &self.sprite_instance_buffer);
+        helper.DestroyImage(core, self.vma, &self.default_tex);
 
         if (self.images_in_flight.len != 0) {
             allocator.free(self.images_in_flight);
@@ -855,6 +862,43 @@ pub fn CreatePipelines(
             .format = c.VK_FORMAT_R32G32_SFLOAT,
             .offset = @offsetOf(helper.Vertex, "texcoord"),
         },
+        .{
+            .location = 3,
+            .binding = 1,
+            .format = c.VK_FORMAT_R32G32_SFLOAT,
+            .offset = @offsetOf(helper.SpriteDraw, "sprite_pos"),
+        },
+        .{
+            .location = 4,
+            .binding = 1,
+            .format = c.VK_FORMAT_R32G32_SFLOAT,
+            .offset = @offsetOf(helper.SpriteDraw, "sprite_scale"),
+        },
+        .{
+            .location = 5,
+            .binding = 1,
+            .format = c.VK_FORMAT_R32G32_SFLOAT,
+            .offset = @offsetOf(helper.SpriteDraw, "sprite_rotation"),
+        },
+        .{
+            .location = 6,
+            .binding = 1,
+            .format = c.VK_FORMAT_R32G32_SFLOAT,
+            .offset = @offsetOf(helper.SpriteDraw, "uv_min"),
+        },
+        .{
+            .location = 7,
+            .binding = 1,
+            .format = c.VK_FORMAT_R32G32_SFLOAT,
+            .offset = @offsetOf(helper.SpriteDraw, "uv_max"),
+        },
+        .{
+            .location = 8,
+            .binding = 1,
+            .format = c.VK_FORMAT_R32G32B32A32_SFLOAT,
+            .offset = @offsetOf(helper.SpriteDraw, "tint"),
+        },
+
     };
 
     const vertex_input_state_ci = std.mem.zeroInit(c.VkPipelineVertexInputStateCreateInfo, .{
@@ -1102,7 +1146,7 @@ pub fn CreateDescriptorLayouts(renderer: *Renderer, core: *core_mod.Core) !void 
 }
 
 // TODO: Add SSBO
-pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core, allocator: std.mem.Allocator) !void{
+pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
 
 
     // -------------------------------------------------------------------------
@@ -1184,21 +1228,11 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core, allocator: s
 
     try helper.check_vk(c.vkAllocateDescriptorSets(core.device.handle, &material_alloc, &material_set));
 
-    const tex_count = renderer.texture_manager.textures.items.len; 
-    if (tex_count == 0) {
-        try helper.PushTexture("Slot", core, renderer, allocator);
-        try CreateDefaultTexture(renderer, core, material_set);
-        return;
-    }
-
-    try CreateTexturesForMaterial(
-        renderer,
-        core,
-        material_set,
-        allocator,
-        tex_count,
-    );
-
+    
+    //try helper.PushTexture("Slot", core, renderer, allocator);
+    try CreateDefaultTexture(renderer, core, material_set);
+    
+    
     // DUMMY SSBO buffer
 
     // if (renderer.dummy_ssbo.buffer == helper.VK_NULL_HANDLE) {
@@ -1265,13 +1299,10 @@ fn CreateDefaultTexture(
     core: *core_mod.Core,
     material_set: c.VkDescriptorSet,
 ) !void{
-    const slot_id = renderer.texture_manager.textures_by_name.get("Slot") orelse
-        return error.TextureNotFound;
-    const slot_tex = &renderer.texture_manager.textures.items[@intCast(slot_id)];
 
     const image_info = std.mem.zeroInit(c.VkDescriptorImageInfo, .{
         .sampler = renderer.sampler_linear_repeat,
-        .imageView = slot_tex.view,
+        .imageView = renderer.default_tex.view,
         .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     });
 
