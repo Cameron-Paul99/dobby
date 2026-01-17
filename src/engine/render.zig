@@ -32,6 +32,8 @@ const FRAME_OVERLAP = 4;
 
 const MAX_SPRITES = 1;
 
+const MAX_ATLASES = 3;
+
 const FrameData = struct {
     present_semaphore: c.VkSemaphore = helper.VK_NULL_HANDLE,
     render_semaphore: c.VkSemaphore = helper.VK_NULL_HANDLE,
@@ -40,7 +42,7 @@ const FrameData = struct {
     main_command_buffer: c.VkCommandBuffer = helper.VK_NULL_HANDLE,
     set_frame: c.VkDescriptorSet = helper.VK_NULL_HANDLE,
     camera_ubo: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
-
+    material_set: c.VkDescriptorSet = helper.VK_NULL_HANDLE,
   //  object_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
   //  object_descriptor_set: c.VkDescriptorSet = helper.VK_NULL_HANDLE,
 };
@@ -79,6 +81,11 @@ pub const Renderer = struct {
     index_count: u32 = 0,
     instance_count: u32 = 0,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
+    pending_atlas: bool = false,
+    atlas_textures: std.ArrayList(helper.AllocatedImage),
+    batches: [MAX_ATLASES]std.ArrayList(SpriteDraw);
+
+
 
     // pipelines / layouts
     // maybe upload context too
@@ -104,6 +111,7 @@ pub const Renderer = struct {
             .upload_context = .{},
             .vma = vma,
             .sprite_draws = try std.ArrayList(helper.SpriteDraw).initCapacity(allocator, 0),
+            .atlas_textures = try std.ArrayList(helper.AllocatedImage).initCapacity(allocator, 0), 
         };
 
         try renderer.sprite_draws.ensureTotalCapacity(allocator , MAX_SPRITES);
@@ -175,6 +183,7 @@ pub const Renderer = struct {
         
         // Create Descriptors
         try CreateDescriptors(&renderer, core);
+
 
         return renderer;
         
@@ -300,12 +309,9 @@ pub const Renderer = struct {
         //TODO: Bind Descriptor sets and also update shaders.
        const frame_set = frame.set_frame;
 
-       const inst_id = self.material_system.instances_by_name.get("Triangle_Instance") orelse
-            return error.MaterialInstanceNotFound;
+       try BindAtlas(self, core, frame.material_set, &self.default_tex);
 
-       const mat_set = self.material_system.instances.items[@intCast(inst_id)].texture_set;
-
-       const sets = [_]c.VkDescriptorSet {frame_set, mat_set };
+       const sets = [_]c.VkDescriptorSet {frame_set, frame.material_set };
 
        c.vkCmdBindDescriptorSets(
             cmd,
@@ -343,7 +349,7 @@ pub const Renderer = struct {
         }      
         c.vkCmdBindVertexBuffers(cmd, 0, buffers.len, &buffers, &offsets);
         c.vkCmdBindIndexBuffer(cmd, self.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT16);
-        c.vkCmdDrawIndexed(cmd, self.index_count, self.instance_count, 0, 0, 0);
+        c.vkCmdDrawIndexed(cmd, self.index_count, 1 , 0, 0, 0);
 
         c.vkCmdEndRenderPass(cmd);
         try helper.check_vk(c.vkEndCommandBuffer(cmd));
@@ -386,6 +392,8 @@ pub const Renderer = struct {
         self.frame_number += 1;
 
     }
+
+
 
     pub fn OnSwapchainRecreated(
         self: *Renderer,
@@ -1215,23 +1223,31 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
         };
 
         c.vkUpdateDescriptorSets(core.device.handle, @as(u32, @intCast(writes.len)), &writes[0], 0, null);
+
+        if (renderer.frames[i].material_set == helper.VK_NULL_HANDLE){
+
+           // var material_set: c.VkDescriptorSet = null;
+
+            const material_alloc = std.mem.zeroInit(c.VkDescriptorSetAllocateInfo, .{
+                .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                .descriptorPool = renderer.descriptor_pool,
+                .descriptorSetCount = 1,
+                .pSetLayouts = &renderer.set_layout_material,
+            });
+
+            try helper.check_vk(c.vkAllocateDescriptorSets(
+                    core.device.handle, 
+                    &material_alloc, 
+                    &renderer.frames[i].material_set
+                    )
+                );
+        }
+
     }
 
-    var material_set: c.VkDescriptorSet = null;
-
-    const material_alloc = std.mem.zeroInit(c.VkDescriptorSetAllocateInfo, .{
-        .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = renderer.descriptor_pool,
-        .descriptorSetCount = 1,
-        .pSetLayouts = &renderer.set_layout_material,
-    });
-
-    try helper.check_vk(c.vkAllocateDescriptorSets(core.device.handle, &material_alloc, &material_set));
-
     
+
     //try helper.PushTexture("Slot", core, renderer, allocator);
-    try CreateDefaultTexture(renderer, core, material_set);
-    
     
     // DUMMY SSBO buffer
 
@@ -1248,61 +1264,16 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
 
 }
 
-fn CreateTexturesForMaterial(
+fn BindAtlas(
     renderer: *Renderer, 
     core: *core_mod.Core,
     material_set: c.VkDescriptorSet,
-    allocator: std.mem.Allocator,
-    tex_count: usize) !void {
-
-    var image_infos = try allocator.alloc(c.VkDescriptorImageInfo, tex_count);
-    defer allocator.free(image_infos);
-
-    for (renderer.texture_manager.textures.items, 0..) |tex, i| {
-        image_infos[i] = .{
-            .sampler = renderer.sampler_linear_repeat,
-            .imageView = tex.view,
-            .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        };
-    }
-
-    const img_write = std.mem.zeroInit(c.VkWriteDescriptorSet, .{
-        .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = material_set,
-        .dstBinding = 0, // binding 0 in set 1
-        .dstArrayElement = 0        ,
-        .descriptorCount = @as(u32, @intCast(tex_count)),
-        .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .pImageInfo = &image_infos[0],
-        .pBufferInfo = null,
-        .pTexelBufferView = null,
-    });
-
-    c.vkUpdateDescriptorSets(
-        core.device.handle,
-        1,
-        &img_write,
-        0,
-        null,
-    );
-
-    const inst_id = renderer.material_system.instances_by_name.get("Triangle_Instance") orelse
-        return error.MaterialInstanceNotFound;
-    renderer.material_system.instances.items[@intCast(inst_id)].texture_set = material_set;
-
-    log.info("Amount of textures {d}", .{tex_count});
-
-}
-
-fn CreateDefaultTexture(
-    renderer: *Renderer, 
-    core: *core_mod.Core,
-    material_set: c.VkDescriptorSet,
+    atlas: *helper.AllocatedImage,
 ) !void{
 
     const image_info = std.mem.zeroInit(c.VkDescriptorImageInfo, .{
         .sampler = renderer.sampler_linear_repeat,
-        .imageView = renderer.default_tex.view,
+        .imageView = atlas.view,
         .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     });
 
@@ -1320,11 +1291,7 @@ fn CreateDefaultTexture(
 
     c.vkUpdateDescriptorSets(core.device.handle, 1, &img_write, 0, null);
 
-    const inst_id = renderer.material_system.instances_by_name.get("Triangle_Instance") orelse
-        return error.MaterialInstanceNotFound;
-    renderer.material_system.instances.items[@intCast(inst_id)].texture_set = material_set;
-
-     log.info("Default Texture", .{});
+    // log.info("Binded Atlas", .{});
 
 }
 

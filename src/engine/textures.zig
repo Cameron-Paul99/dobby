@@ -5,20 +5,6 @@ const core_mod = @import("core.zig");
 const render = @import("render.zig");
 const log = std.log;
 
-pub Atlas = struct {
-    width: u32,
-    height: u32,
-    pixels: []u8,
-    cursor_x: u32 = 0,
-    cursor_y: u32 = 0,
-    row_h: u32 = 0,
-    pub fn init(allocator: std.mem.Allocator) !void{
-        try allocator.alloc(u8, width * height * 4);
-        @memset(atlas.pixels, 0); 
-    };
-}
-
-
 
 pub fn CreateTextureImage(
     renderer: *render.Renderer,

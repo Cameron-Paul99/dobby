@@ -9,6 +9,24 @@ const text = engine.textures;
 const c = engine.c;
 const print = std.debug.print;
 const sdl = engine.sdl;
+const math = utils.math;
+
+
+pub const Sprite = struct {
+    image: helper.AllocatedImage = .{},
+    uv_min: math.Vec2 = .{.x = 0.0, .y = 0.0},
+    uv_max: math.Vec2 = .{.x = 1.1, .y = 1.1},
+    size: math.Vec2,
+};
+
+pub const Atlas = struct {
+    width: u32,
+    height: u32,
+    pixels: []u8,
+    cursor_x: u32 = 0,
+    cursor_y: u32 = 0,
+    row_h: u32 = 0,
+};
 
 pub fn main() !void {
     
@@ -33,11 +51,11 @@ pub fn main() !void {
     var renderer = try render.Renderer.init(allocator, &core, &sc);
     defer renderer.deinit(allocator, &core);
 
-    var sprites =  try std.ArrayList(helper.SpriteDraw).initCapacity(allocator, 0);
-    defer sprites.deinit(allocator);
+    var sprite_draws =  try std.ArrayList(helper.SpriteDraw).initCapacity(allocator, 0);
+    defer sprite_draws.deinit(allocator);
 
     while (!game_window.should_close){
-        try renderer.DrawFrame(&core, &sc, &game_window, allocator, sprites.items);
+        try renderer.DrawFrame(&core, &sc, &game_window, allocator, sprite_draws.items);
         game_window.pollEvents(&renderer);
     }
 

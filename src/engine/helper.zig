@@ -986,6 +986,7 @@ pub const SpriteDraw = extern struct {
     uv_min: [2]f32,
     uv_max: [2]f32,
     tint: [4]f32,
+    atlas_id: u32,
 };
 
 pub fn UploadInstanceData(
@@ -1017,13 +1018,6 @@ pub fn UploadInstanceData(
     try CopyBuffer(core, upload_ctx, staging.buffer, dst.buffer, size);
 }
 
-
-pub const Sprite = struct {
-    image: AllocatedImage = .{},
-    uv_min: math.Vec2 = .{.x = 0.0, .y = 0.0},
-    uv_max: math.Vec2 = .{.x = 1.1, .y = 1.1},
-    size: math.Vec2,
-};
 
     
     
