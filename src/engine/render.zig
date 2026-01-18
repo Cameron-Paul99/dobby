@@ -132,15 +132,15 @@ pub const Renderer = struct {
         try CreateSyncStructures(&renderer, core, swapchain, allocator);
 
         // Create Default texture
-        renderer.default_tex = try text.CreateTextureImage(
-            &renderer, 
-            core,
-            allocator,
-            helper.KtxColorSpace.srgb,
-            "textures/Slot.ktx2",
-        );
+        //renderer.default_tex = try text.CreateTextureImage(
+         //   &renderer, 
+          //  core,
+          //  allocator,
+          //  helper.KtxColorSpace.srgb,
+          //  "textures/Slot.ktx2",
+        //);
 
-        try text.CreateTextureImageView(core, &renderer.default_tex);
+       // try text.CreateTextureImageView(core, &renderer.default_tex);
 
         // Create Samplers
         try CreateSampler(&renderer , core);
@@ -310,7 +310,8 @@ pub const Renderer = struct {
         //TODO: Bind Descriptor sets and also update shaders.
        const frame_set = frame.set_frame;
 
-       try BindAtlas(self, core, frame.material_set, &self.default_tex);
+       // Create a for loop and update
+       try BindAtlas(self, core, frame.material_set, &alias_textures[]);
 
        const sets = [_]c.VkDescriptorSet {frame_set, frame.material_set };
 
