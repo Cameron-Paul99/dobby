@@ -17,6 +17,7 @@ pub const MaterialInstanceId_u32 = u32;
 //const Vec4 = math.Vec4;
 //const Mat4 = math.Mat4;
 
+
 const MaterialTemplate = struct {
     pipeline: c.VkPipeline,
     pipeline_layout: c.VkPipelineLayout,
@@ -82,8 +83,8 @@ pub const Renderer = struct {
     instance_count: u32 = 0,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
     pending_atlas: bool = false,
-    atlas_textures: std.ArrayList(helper.AllocatedImage),
-    batches: [MAX_ATLASES]std.ArrayList(SpriteDraw);
+    atlas_textures: std.ArrayList(helper.AllocatedImage), // All Atlases
+    //batches: [MAX_ATLASES]std.ArrayList(SpriteDraw);
 
 
 
