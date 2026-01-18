@@ -17,27 +17,169 @@ const algo = utils.algo;
 // Alpha = 1
 // UI = 2
 
+// INVARIANTS:
+// 1. atlases.json is sorted by id
+// 2. atlas_list is always sorted by id
+// 3. IDs are stable and never renumbered
+// 4. Editor never invents IDs
+
+
+// *********************************** NOTIFY MANAGER ********************************
+
+const Inotify = struct {
+
+    fd: i32 = 0,
+
+    pub fn init(path: []const u8) !Inotify {
+
+        const fd = std.os.linux.inotify_init1(
+            std.os.linux.IN.NONBLOCK,
+        );
+        if (fd < 0) return error.InotifyInitFailed;
+
+        const wd = std.os.linux.inotify_add_watch(
+            fd,
+            path,
+            std.os.linux.IN.MODIFY |
+            std.os.linux.IN.MOVED_TO |
+            std.os.linux.IN.DELETE |
+            std.os.linux.IN.CREATE,
+        );
+        if (wd < 0) return error.InotifyWatchFailed;
+
+        return .{ .fd = fd };
+
+    }
+
+    pub fn poll(self: *Inotify, atlas_manager: *AtlasManager) void {
+         var buf: [4096]u8 = undefined;
+         const bytes = std.os.read(self.fd, &buf) catch return;
+
+         if (bytes > 0) {
+            // Something changed → wake the system
+            atlas_manager.metadata_dirty = true;
+         }
+
+    }
+};
+
+// ****************************************** ATLAS MANAGER **********************************
 pub const AtlasAliasId_u32 = u32;
-pub const SceneId_u32 = u32;
+
+const AtlasAsset = struct {
+    id: AtlasAliasId_u32,
+    path: []const u8,
+    version_hash: u64,
+};
+
+const AtlasMeta = struct {
+    id: AtlasAliasId_u32,
+    path: []const u8,
+    version_hash: u64,
+};
+
+const AtlasMetadataFile = struct {
+    version: u32,
+    atlases: []AtlasMeta,
+};
+
+fn LoadAtlasMetadata(
+    allocator: std.mem.Allocator,
+) !std.json.Parsed(AtlasMetadataFile) {
+
+    const data = try std.fs.cwd().readFileAlloc(
+        allocator,
+        "assets/cooked/atlases/atlases.json",
+        1 << 20, // 1 MB cap (more than enough)
+    );
+
+    return try std.json.parseFromSlice(
+        AtlasMetadataFile,
+        allocator,
+        data,
+        .{},
+    );
+}
 
 pub const AtlasManager = struct {
 
-    atlas_list: std.ArrayList(Atlas),
+    atlas_list: std.ArrayList(AtlasAsset),
+    metadata_dirty: bool,
 
-    pub fn AddAtlas(self: *AtlasManager, allocator: std.mem.Allocator, atlas: Atlas) !AtlasAliasId_u32 {
+    pub fn ApplyMetadata(
+        self: *AtlasManager,
+        desired: []const AtlasMeta,
+        allocator: std.mem.Allocator,
+    ) !void {
+        var i: usize = 0; // current
+        var j: usize = 0; // desired
 
-        const index = self.atlas_list.items.len;
+        while (i < self.atlas_list.items.len or j < desired.len) {
+
+            // DELETE
+            if (i < self.atlas_list.items.len and (j >= desired.len or self.atlas_list.items[i].id < desired[j].id))
+            {
+                try self.RemoveAtlas(i, allocator);
+                continue; // current shifts
+            }
+
+            // ADD
+            if (j < desired.len and (i >= self.atlas_list.items.len or desired[j].id < self.atlas_list.items[i].id))
+            {
+                try self.AddAtlas(desired[j], allocator);
+                j += 1;
+                continue;
+            }
+
+            // SAME ID → UPDATE / NO-OP
+            if (self.atlas_list.items[i].id == desired[j].id) {
+                if (self.atlas_list.items[i].version_hash != desired[j].version_hash) {
+                    self.atlas_list.items[i].version_hash = desired[j].version_hash;
+                }
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+
+    fn AddAtlas(
+        self: *AtlasManager,
+        meta: AtlasMeta,
+        allocator: std.mem.Allocator) !AtlasAliasId_u32 {
+
+        const owned_path = try allocator.dupe(u8, meta.path);
+
+        const atlas = AtlasAsset{
+            .id = meta.id,
+            .path = owned_path,
+            .version_hash = meta.version_hash,
+        };
 
         try self.atlas_list.append(allocator, atlas);
 
-        return @intCast(index);
+        return @intCast(meta.id);
     }
+
+
+    fn RemoveAtlas(
+        self: *AtlasManager,
+        index: AtlasAlias_u32,
+        allocator: std.mem.Allocator,
+    ){
+        allocator.free(self.atlas_list.items[index].path);
+        _ = self.atlas_list.orderedRemove(index);
+    }
+
 };
+
+// ******************************************** SCENE MANAGER *********************************
 
 pub const IndexRange = struct {
     offset: u32 = 0,
     count: u32 = 0,
 };
+
+pub const SceneId_u32 = u32;
 
 pub const Scene = struct {
     scene_index: u32 = 0,
@@ -87,80 +229,9 @@ pub const Sprite = struct {
     default_size: math.Vec2,
 };
 
-pub const Atlas = struct {
-    width: u32 = 0,
-    height: u32 = 0,
-    pixels: ?[]u8 = undefined,
-    cursor_x: u32 = 0,
-    cursor_y: u32 = 0,
-    row_h: u32 = 0,
-};
 
-pub fn AddImageToAtlas(
-    atlas: *Atlas,
-    allocator: std.mem.Allocator,
-    path: []const u8,
-) !void {
+// ****************************************** MAIN *******************************************
 
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-
-    const file_size = try file.getEndPos();
-
-    const read_buf = try allocator.alloc(u8, file_size);
-    defer allocator.free(read_buf);
-
-    _ = try file.readAll(read_buf);
-
-    // ---- load image ----
-    var img = try zigimg.Image.fromFilePath(
-        allocator,
-        path,
-        read_buf,
-    );
-    defer img.deinit(allocator);
-
-    // Force RGBA8 (4 × u8 = 32 bits)
-    try img.convert(allocator, .rgba32);
-
-    const img_w: u32 = @intCast(img.width);
-    const img_h: u32 = @intCast(img.height);
-
-    // Allocate atlas pixel buffer if needed
-    if (atlas.pixels == null) {
-        atlas.width = 1024;
-        atlas.height = 1024;
-        atlas.pixels = try allocator.alloc(u8, atlas.width * atlas.height * 4);
-        @memset(atlas.pixels.?, 0);
-    }
-
-    // Simple row-based packing
-    if (atlas.cursor_x + img_w > atlas.width) {
-        atlas.cursor_x = 0;
-        atlas.cursor_y += atlas.row_h;
-        atlas.row_h = 0;
-    }
-
-    if (atlas.cursor_y + img_h > atlas.height)
-        return error.AtlasFull;
-
-    const src_pixels = img.pixels.rgba32;
-    const src_bytes = std.mem.sliceAsBytes(src_pixels);
-
-    // Copy rows
-    for (0..img_h) |row| {
-        const dst = ((atlas.cursor_y + row) * atlas.width + atlas.cursor_x) * 4;
-        const src = row * img_w * 4;
-
-        @memcpy(
-            atlas.pixels.?[dst .. dst + img_w * 4],
-            src_bytes[src .. src + img_w * 4],
-        );
-    }
-
-    atlas.row_h = @max(atlas.row_h, img_h);
-    atlas.cursor_x += img_w;
-}
 
 pub fn main() !void {
     
@@ -187,8 +258,11 @@ pub fn main() !void {
 
     // Atlas Manager
     var atlas_manager = AtlasManager {
-        .atlas_list = try std.ArrayList(Atlas).initCapacity(allocator, 0) 
+        .atlas_list = try std.ArrayList(AtlasAsset).initCapacity(allocator, 0) 
     };
+
+    var notify = Inotify{};
+    notify.init("assets/cooked/atlases/");
 
     var test_atlas = Atlas{};
     try AddImageToAtlas(&test_atlas, allocator, "textures/Slot.ktx2");
@@ -212,8 +286,23 @@ pub fn main() !void {
     defer sprite_draws.deinit(allocator);
 
     while (!game_window.should_close){
+
         try renderer.DrawFrame(&core, &sc, &game_window, allocator, sprite_draws.items);
         game_window.pollEvents(&renderer);
+        notify.poll(&atlas_manager);
+
+        if (atlas_manager.metadata_dirty){
+
+            atlas_manager.metadata_dirty = false;
+            var parsed = try LoadAtlasMetadata(allocator);
+            defer parsed.deinit();
+
+            try atlas_manager.ApplyMetadata(
+                parsed.value.atlases,
+                allocator,
+            );
+
+        }
     }
 
 }
