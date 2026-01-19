@@ -12,6 +12,7 @@ const print = std.debug.print;
 const sdl = engine.sdl;
 const math = utils.math;
 const algo = utils.algo;
+const notify = utils.notify;
 
 // Opaque = 0
 // Alpha = 1
@@ -23,45 +24,6 @@ const algo = utils.algo;
 // 3. IDs are stable and never renumbered
 // 4. Editor never invents IDs
 
-
-// *********************************** NOTIFY MANAGER ********************************
-
-const Inotify = struct {
-
-    fd: i32 = 0,
-
-    pub fn init(path: []const u8) !Inotify {
-
-        const fd = std.os.linux.inotify_init1(
-            std.os.linux.IN.NONBLOCK,
-        );
-        if (fd < 0) return error.InotifyInitFailed;
-
-        const wd = std.os.linux.inotify_add_watch(
-            fd,
-            path,
-            std.os.linux.IN.MODIFY |
-            std.os.linux.IN.MOVED_TO |
-            std.os.linux.IN.DELETE |
-            std.os.linux.IN.CREATE,
-        );
-        if (wd < 0) return error.InotifyWatchFailed;
-
-        return .{ .fd = fd };
-
-    }
-
-    pub fn poll(self: *Inotify, atlas_manager: *AtlasManager) void {
-         var buf: [4096]u8 = undefined;
-         const bytes = std.os.read(self.fd, &buf) catch return;
-
-         if (bytes > 0) {
-            // Something changed → wake the system
-            atlas_manager.metadata_dirty = true;
-         }
-
-    }
-};
 
 // ****************************************** ATLAS MANAGER **********************************
 pub const AtlasAliasId_u32 = u32;
@@ -104,7 +66,7 @@ fn LoadAtlasMetadata(
 pub const AtlasManager = struct {
 
     atlas_list: std.ArrayList(AtlasAsset),
-    metadata_dirty: bool,
+    metadata_dirty: bool = false,
 
     pub fn ApplyMetadata(
         self: *AtlasManager,
@@ -119,14 +81,14 @@ pub const AtlasManager = struct {
             // DELETE
             if (i < self.atlas_list.items.len and (j >= desired.len or self.atlas_list.items[i].id < desired[j].id))
             {
-                try self.RemoveAtlas(i, allocator);
+                self.RemoveAtlas(i, allocator);
                 continue; // current shifts
             }
 
             // ADD
             if (j < desired.len and (i >= self.atlas_list.items.len or desired[j].id < self.atlas_list.items[i].id))
             {
-                try self.AddAtlas(desired[j], allocator);
+                _ = try self.AddAtlas(desired[j], allocator);
                 j += 1;
                 continue;
             }
@@ -163,9 +125,9 @@ pub const AtlasManager = struct {
 
     fn RemoveAtlas(
         self: *AtlasManager,
-        index: AtlasAlias_u32,
+        index: usize,
         allocator: std.mem.Allocator,
-    ){
+    ) void{
         allocator.free(self.atlas_list.items[index].path);
         _ = self.atlas_list.orderedRemove(index);
     }
@@ -261,13 +223,12 @@ pub fn main() !void {
         .atlas_list = try std.ArrayList(AtlasAsset).initCapacity(allocator, 0) 
     };
 
-    var notify = Inotify{};
-    notify.init("assets/cooked/atlases/");
+    var atlas_notifier = try notify.Inotify.init("assets/cooked/atlases/");
 
-    var test_atlas = Atlas{};
-    try AddImageToAtlas(&test_atlas, allocator, "textures/Slot.ktx2");
+    //var test_atlas = Atlas{};
+    //try AddImageToAtlas(&test_atlas, allocator, "textures/Slot.ktx2");
 
-    const test_atlas_alias = try atlas_manager.AddAtlas(allocator , test_atlas);
+  //  const test_atlas_alias = try atlas_manager.AddAtlas(allocator , test_atlas);
 
     // Scene Manager
     var scene_manager = SceneManager {
@@ -278,7 +239,7 @@ pub fn main() !void {
 
     try scene_manager.MakeScene(
         allocator,
-        &.{test_atlas_alias},
+        &.{},
         &.{},
     );
 
@@ -289,7 +250,7 @@ pub fn main() !void {
 
         try renderer.DrawFrame(&core, &sc, &game_window, allocator, sprite_draws.items);
         game_window.pollEvents(&renderer);
-        notify.poll(&atlas_manager);
+        atlas_notifier.poll(&atlas_manager.metadata_dirty);
 
         if (atlas_manager.metadata_dirty){
 

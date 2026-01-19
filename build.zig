@@ -63,7 +63,7 @@ pub fn build(b: *std.Build) !void {
    
 
     
-    compile_all_png_active(b, editor_sdl);
+    //compile_all_png_active(b, editor_sdl);
     compile_all_shaders_mod(b, engine_mod);
 
     editor_sdl.addIncludePath(.{ .cwd_relative = "/usr/include/vulkan/vulkan.h" });

@@ -311,7 +311,7 @@ pub const Renderer = struct {
        const frame_set = frame.set_frame;
 
        // Create a for loop and update
-       try BindAtlas(self, core, frame.material_set, &alias_textures[]);
+       //try BindAtlas(self, core, frame.material_set, &alias_textures[]);
 
        const sets = [_]c.VkDescriptorSet {frame_set, frame.material_set };
 

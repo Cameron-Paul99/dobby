@@ -1,6 +1,64 @@
 const std = @import("std");
 const zigimg = @import("zigimg");
+const utils = @import("utils");
+const notify = utils.notify;
 
+//{
+//  "version": 1,
+//  "atlases": [
+//    { "id": 0, "path": "atlases/opaque_0.ktx2", "rev": 12 },
+//    { "id": 1, "path": "atlases/ui_0.ktx2",      "rev": 3 }
+//  ]
+//}
+
+
+
+
+pub const Cooker = struct {
+    time_to_cook_textures: bool = false,
+    time_to_cook_shaders: bool = false,
+
+    pub fn CookShaders(self: *Cooker) void {
+        _ = self;
+
+    }
+
+
+    pub fn CookTextures(self: *Cooker, allocator: std.mem.Allocator) !void {
+
+        _ = self;
+        _ = allocator;
+
+
+        var dir = try std.fs.cwd().openDir("assets/src/textures", .{ .iterate = true });
+        defer dir.close();
+
+        var it = dir.iterate();
+        while (try it.next()) |entry| {
+            if (entry.kind != .file) continue;
+
+            if (std.mem.endsWith(u8, entry.name, ".png")) {
+                //std.log.info("Found PNG: {s}/{s}", .{ dir_path, entry.name });
+            }
+        }
+
+
+
+        //try std.fs.cwd().makePath("zig-out/textures");
+
+       // const dst_path = try std.fmt.allocPrint(
+         //   allocator,
+          //  "zig-out/textures/{s}",
+          //  "",
+       // );
+
+       // defer allocator.free(dst_path);
+    }
+};
+pub fn sleepMs(ms: u64) void {
+    const ns = ms * std.time.ns_per_ms;
+    std.posix.nanosleep(ns, 0);
+}
 pub const Atlas = struct {
     width: u32 = 0,
     height: u32 = 0,
@@ -85,32 +143,71 @@ pub fn AddImageToAtlas(
 //
 // ********************************* SHADERS *****************************************
 
-pub fn main() void {
+pub fn main() !void {
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    _ = allocator;
-
     std.log.info("asset cooker has started", .{});
 
-   // while(true) {
-      //  try cookShaders();
-      //  try cookTextures();
+    var texture_notifier = try notify.Inotify.init("assets/src/textures");
+    var shader_notifier = try notify.Inotify.init("assets/src/shaders");
+    defer texture_notifier.deinit();
+    defer shader_notifier.deinit();
 
-    //    std.time.sleep(300 * std.time.ns_per_ms);
-    //}
+    var cooker = Cooker{};
+    var file: std.fs.File = undefined;
+    
 
-}
+     file = std.fs.cwd().openFile("assets/cooked/atlases/manifest.json", .{}) catch |err| switch (err){
+        error.FileNotFound => blk: {
+            try std.fs.cwd().makePath(
+                std.fs.path.dirname("assets/cooked/atlases/manifest.json").?
+            );
 
-fn cookShaders() void {
+            var new_file = try std.fs.cwd().createFile(
+                "assets/cooked/atlases/manifest.json",
+                .{ .truncate = true },
+            );
 
-}
+            const json_text =
+                \\{
+                \\  "version": 1,
+                \\  "atlases": []
+                \\}
+            ;
 
-fn cookTextures() void {
+            try new_file.writeAll(json_text);
+            break :blk new_file; // 🔑 return fs.File
+        },
+        else => return err,
 
+    };
 
+    defer file.close();
+    
+
+    while(true) {
+
+        try texture_notifier.wait(300);
+        try shader_notifier.wait(0);
+
+        texture_notifier.poll(&cooker.time_to_cook_textures);
+        shader_notifier.poll(&cooker.time_to_cook_shaders);
+
+        if (cooker.time_to_cook_textures) {
+            std.log.info("Cooking textures", .{});
+            cooker.time_to_cook_textures = false;
+            try cooker.CookTextures(allocator);
+        }
+
+        if (cooker.time_to_cook_shaders) {
+            std.log.info("Cooking shaders", .{});
+            cooker.time_to_cook_shaders = false;
+        }
+
+    }
 
 }
 
