@@ -51,7 +51,7 @@ fn LoadAtlasMetadata(
 
     const data = try std.fs.cwd().readFileAlloc(
         allocator,
-        "assets/cooked/atlases/atlases.json",
+        "assets/cooked/atlases/manifest.json",
         1 << 20, // 1 MB cap (more than enough)
     );
 
