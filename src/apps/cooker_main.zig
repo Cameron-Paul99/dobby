@@ -10,7 +10,13 @@ const notify = utils.notify;
 //    { "id": 1, "path": "atlases/ui_0.ktx2",      "rev": 3 }
 //  ]
 //}
-
+const DIR_MASK =
+    std.linux.IN_CREATE |
+    std.linux.IN_DELETE |
+    std.linux.IN_MOVED_FROM |
+    std.linux.IN_MOVED_TO |
+    std.linux.IN_DELETE_SELF |
+    std.linux.IN_CLOSE_WRITE;
 
 
 
@@ -24,23 +30,23 @@ pub const Cooker = struct {
     }
 
 
-    pub fn CookTextures(self: *Cooker, allocator: std.mem.Allocator) !void {
+    pub fn CookTextures(self: *Cooker, path: []const u8 ,allocator: std.mem.Allocator) !void {
 
         _ = self;
         _ = allocator;
+        //_ = path;
 
+       var dir = try std.fs.cwd().openDir(path, .{ .iterate = true });
+       defer dir.close();
 
-        var dir = try std.fs.cwd().openDir("assets/src/textures", .{ .iterate = true });
-        defer dir.close();
-
-        var it = dir.iterate();
-        while (try it.next()) |entry| {
+       var it = dir.iterate();
+       while (try it.next()) |entry| {
             if (entry.kind != .file) continue;
 
             if (std.mem.endsWith(u8, entry.name, ".png")) {
-                //std.log.info("Found PNG: {s}/{s}", .{ dir_path, entry.name });
+               // std.log.info("Found PNG: {s}/{s}", .{ dir_path, entry.name });
             }
-        }
+      }
 
 
 
@@ -151,13 +157,16 @@ pub fn main() !void {
 
     std.log.info("asset cooker has started", .{});
 
-    var texture_notifier = try notify.Inotify.init("assets/src/textures");
-    var shader_notifier = try notify.Inotify.init("assets/src/shaders");
-    defer texture_notifier.deinit();
-    defer shader_notifier.deinit();
+    var texture_notifier = try notify.Inotify.init("assets/src/textures", allocator);
+    var shader_notifier = try notify.Inotify.init("assets/src/shaders", allocator);
+    defer texture_notifier.deinit(allocator);
+    defer shader_notifier.deinit(allocator);
 
-    var cooker = Cooker{};
+    const cooker = Cooker{};
     var file: std.fs.File = undefined;
+
+    _ = cooker;
+    //_ = allocator;
     
 
      file = std.fs.cwd().openFile("assets/cooked/atlases/manifest.json", .{}) catch |err| switch (err){
@@ -185,28 +194,107 @@ pub fn main() !void {
 
     };
 
+   
+
     defer file.close();
     
 
     while(true) {
 
         try texture_notifier.wait(300);
-        try shader_notifier.wait(0);
 
-        texture_notifier.poll(&cooker.time_to_cook_textures);
-        shader_notifier.poll(&cooker.time_to_cook_shaders);
+        const text_alert_bytes = try texture_notifier.poll();
+        if (text_alert_bytes > 0) {
 
-        if (cooker.time_to_cook_textures) {
-            std.log.info("Cooking textures", .{});
-            cooker.time_to_cook_textures = false;
-            try cooker.CookTextures(allocator);
+            var offset: usize = 0;
+            while (offset < text_alert_bytes) {
+
+                const ev: *std.os.linux.inotify_event = @ptrCast(@alignCast(&texture_notifier.buf[offset]));
+
+                const is_dir = (ev.mask & std.os.linux.IN.ISDIR) != 0;
+
+                if (is_dir and (ev.mask & std.os.linux.IN.CREATE) != 0)
+                {
+                    // ---- wd → parent path ----
+                    if (ev.wd < 0) {
+                        offset += @sizeOf(std.os.linux.inotify_event) + ev.len;
+                        continue;
+                    }
+
+                    const parent = texture_notifier.wd_paths.items[@intCast(ev.wd)] orelse {
+                        offset += @sizeOf(std.os.linux.inotify_event) + ev.len;
+                        continue;
+                    };
+
+                    // ---- extract directory name ----
+                    const name_ptr =
+                        @as([*]const u8, @ptrCast(ev)) +
+                        @sizeOf(std.os.linux.inotify_event);
+
+                    const dir_name =
+                        std.mem.sliceTo(name_ptr[0..ev.len], 0);
+
+                    // ---- build full NON-Z path ----
+                    const full_path =
+                        try std.fs.path.join(allocator, &.{ parent, dir_name });
+                        defer allocator.free(full_path);
+
+                    // ---- syscall boundary: create Z-path ----
+                    const full_path_z =
+                        try allocator.dupeZ(u8, full_path);
+                    defer allocator.free(full_path_z);
+
+                    // ---- add watcher (no allocation inside) ----
+                    const wd = try texture_notifier.AddWatcher(full_path_z);
+
+                    // ---- store NON-Z path ----
+                    const old_len = texture_notifier.wd_paths.items.len;
+                    if (wd >= texture_notifier.wd_paths.items.len) {
+                        try texture_notifier.wd_paths.resize(allocator, @as(u32, @intCast(wd)) + 1);
+                    }
+
+                    for (old_len..texture_notifier.wd_paths.items.len) |i| {
+                        texture_notifier.wd_paths.items[i] = null;
+                    }
+
+                    const wd_index = @as(u32, @intCast(wd));
+
+                    if (texture_notifier.wd_paths.items[wd_index]) |old| {
+                        allocator.free(old);
+                    }
+
+                    texture_notifier.wd_paths.items[wd_index] =
+                        try allocator.dupe(u8, full_path);
+
+                    std.log.info("Directory added: {s}", .{full_path});
+
+                }else if (!is_dir and (ev.mask & std.os.linux.IN.CREATE) != 0){
+
+                    //std.log.info("File added", .{});
+                    const wd_index: usize = @intCast(ev.wd);
+
+                    const parent = texture_notifier.wd_paths.items[wd_index] orelse {
+                    // should never happen if your watcher graph is correct
+                        continue;
+                    };
+                    
+                    const name_ptr =
+                        @as([*]const u8, @ptrCast(ev)) +
+                        @sizeOf(std.os.linux.inotify_event);
+
+                    const file_name =
+                        std.mem.sliceTo(name_ptr[0..ev.len], 0);
+                        const full_path =
+                    try std.fs.path.join(allocator, &.{ parent, file_name });
+                    defer allocator.free(full_path);
+
+                    std.log.info("File written: {s}", .{full_path});
+                }
+
+                offset += @sizeOf(std.os.linux.inotify_event) + ev.len;
+            }
+
         }
-
-        if (cooker.time_to_cook_shaders) {
-            std.log.info("Cooking shaders", .{});
-            cooker.time_to_cook_shaders = false;
-        }
-
     }
 
 }
@@ -218,6 +306,16 @@ pub fn MakeAtlas() void{
 
    // const allocated_image = try text.CreateTextureImage(renderer, core, allocator, color_space, path_z);
   //  try text.CreateTextureImageView(core, allocated_image);
+
+}
+
+pub fn RootTextures() void{
+
+
+}
+
+pub fn AddDirWatcher() void {
+
 
 }
 

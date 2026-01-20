@@ -223,7 +223,8 @@ pub fn main() !void {
         .atlas_list = try std.ArrayList(AtlasAsset).initCapacity(allocator, 0) 
     };
 
-    var atlas_notifier = try notify.Inotify.init("assets/cooked/atlases/");
+    var atlas_notifier = try notify.Inotify.init("assets/cooked/atlases/", allocator);
+    defer atlas_notifier.deinit(allocator);
 
     //var test_atlas = Atlas{};
     //try AddImageToAtlas(&test_atlas, allocator, "textures/Slot.ktx2");
@@ -250,7 +251,7 @@ pub fn main() !void {
 
         try renderer.DrawFrame(&core, &sc, &game_window, allocator, sprite_draws.items);
         game_window.pollEvents(&renderer);
-        atlas_notifier.poll(&atlas_manager.metadata_dirty);
+        _ = try atlas_notifier.poll();
 
         if (atlas_manager.metadata_dirty){
 
