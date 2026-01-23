@@ -194,11 +194,36 @@ pub fn main() !void {
 
     };
 
-   
 
     defer file.close();
-    
 
+    var dir = try std.fs.cwd().openDir("assets/src/textures", .{ .iterate = true });
+    defer dir.close();
+
+    var it = dir.iterate();
+
+    while(try it.next()) |entry| {
+
+        if (entry.kind != .directory) continue;
+
+        if (std.mem.eql(u8, entry.name, ".") or
+            std.mem.eql(u8, entry.name, ".."))
+            continue;
+
+        const full_path = try std.fs.path.join(
+            allocator,
+            &.{ "assets/src/textures", entry.name },
+        );
+
+        const full_path_z = try allocator.dupeZ(u8, full_path);
+        defer allocator.free(full_path_z);
+
+        _ = try texture_notifier.AddWatcher(full_path_z);
+
+        try texture_notifier.wd_paths.append(allocator, full_path);
+
+    }
+   
     while(true) {
 
         try texture_notifier.wait(300);
@@ -213,82 +238,72 @@ pub fn main() !void {
 
                 const is_dir = (ev.mask & std.os.linux.IN.ISDIR) != 0;
 
-                if (is_dir and (ev.mask & std.os.linux.IN.CREATE) != 0)
-                {
-                    // ---- wd → parent path ----
-                    if (ev.wd < 0) {
-                        offset += @sizeOf(std.os.linux.inotify_event) + ev.len;
-                        continue;
-                    }
+                switch (ClassifyEvent(ev, is_dir)) {
 
-                    const parent = texture_notifier.wd_paths.items[@intCast(ev.wd)] orelse {
-                        offset += @sizeOf(std.os.linux.inotify_event) + ev.len;
-                        continue;
-                    };
+                    .DirCreated => {
+                        if (ev.wd < 0) break;
 
-                    // ---- extract directory name ----
-                    const name_ptr =
-                        @as([*]const u8, @ptrCast(ev)) +
-                        @sizeOf(std.os.linux.inotify_event);
+                        const parent = texture_notifier.wd_paths.items[@intCast(ev.wd)] orelse break;
 
-                    const dir_name =
-                        std.mem.sliceTo(name_ptr[0..ev.len], 0);
+                        const name_ptr = @as([*]const u8, @ptrCast(ev)) + @sizeOf(std.os.linux.inotify_event);
 
-                    // ---- build full NON-Z path ----
-                    const full_path =
-                        try std.fs.path.join(allocator, &.{ parent, dir_name });
+                        const dir_name = std.mem.sliceTo(name_ptr[0..ev.len], 0);
+
+                        const full_path = try std.fs.path.join(allocator, &.{ parent, dir_name });
                         defer allocator.free(full_path);
 
-                    // ---- syscall boundary: create Z-path ----
-                    const full_path_z =
-                        try allocator.dupeZ(u8, full_path);
-                    defer allocator.free(full_path_z);
+                        const full_path_z = try allocator.dupeZ(u8, full_path);
+                        defer allocator.free(full_path_z);
 
-                    // ---- add watcher (no allocation inside) ----
-                    const wd = try texture_notifier.AddWatcher(full_path_z);
+                        const wd = try texture_notifier.AddWatcher(full_path_z);
 
-                    // ---- store NON-Z path ----
-                    const old_len = texture_notifier.wd_paths.items.len;
-                    if (wd >= texture_notifier.wd_paths.items.len) {
-                        try texture_notifier.wd_paths.resize(allocator, @as(u32, @intCast(wd)) + 1);
-                    }
+                        const old_len = texture_notifier.wd_paths.items.len;
+                        if (wd >= old_len) {
 
-                    for (old_len..texture_notifier.wd_paths.items.len) |i| {
-                        texture_notifier.wd_paths.items[i] = null;
-                    }
+                            try texture_notifier.wd_paths.resize(
+                                allocator,
+                                @as(u32, @intCast(wd)) + 1,
+                            );
 
-                    const wd_index = @as(u32, @intCast(wd));
+                            for (old_len..texture_notifier.wd_paths.items.len) |i|
+                                texture_notifier.wd_paths.items[i] = null;
+                        }
 
-                    if (texture_notifier.wd_paths.items[wd_index]) |old| {
-                        allocator.free(old);
-                    }
+                        const wd_index: u32 = @intCast(wd);
+                        if (texture_notifier.wd_paths.items[wd_index]) |old|
+                            allocator.free(old);
 
-                    texture_notifier.wd_paths.items[wd_index] =
-                        try allocator.dupe(u8, full_path);
+                        texture_notifier.wd_paths.items[wd_index] = try allocator.dupe(u8, full_path);
 
-                    std.log.info("Directory added: {s}", .{full_path});
+                        std.log.info("Directory added: {s}", .{full_path});
+                    },
 
-                }else if (!is_dir and (ev.mask & std.os.linux.IN.CREATE) != 0){
+                    .FileCreated, .FileWritten, .FileMovedIn => {
 
-                    //std.log.info("File added", .{});
-                    const wd_index: usize = @intCast(ev.wd);
+                        const full_path = try FileUpdated( allocator, &texture_notifier, ev, );
+                        defer allocator.free(full_path);
 
-                    const parent = texture_notifier.wd_paths.items[wd_index] orelse {
-                    // should never happen if your watcher graph is correct
-                        continue;
-                    };
-                    
-                    const name_ptr =
-                        @as([*]const u8, @ptrCast(ev)) +
-                        @sizeOf(std.os.linux.inotify_event);
+                        std.log.info("File written: {s}", .{full_path});
+                    },
 
-                    const file_name =
-                        std.mem.sliceTo(name_ptr[0..ev.len], 0);
-                        const full_path =
-                    try std.fs.path.join(allocator, &.{ parent, file_name });
-                    defer allocator.free(full_path);
+                    .FileDeleted => {
 
-                    std.log.info("File written: {s}", .{full_path});
+                        const full_path = try FileUpdated(allocator, &texture_notifier, ev,);
+                        defer allocator.free(full_path);
+
+                        std.log.info("File deleted: {s}", .{full_path});
+                    },
+
+                    .FileMovedOut => {
+
+                        const full_path = try FileUpdated( allocator, &texture_notifier, ev,);
+                        defer allocator.free(full_path);
+
+                        std.log.info("File moved out: {s}", .{full_path});
+                    },
+
+                    .Ignore => {},
+
                 }
 
                 offset += @sizeOf(std.os.linux.inotify_event) + ev.len;
@@ -319,6 +334,63 @@ pub fn AddDirWatcher() void {
 
 }
 
+fn FileUpdated(
+    allocator: std.mem.Allocator,
+    texture_notifier: *notify.Inotify,
+    ev: *const std.os.linux.inotify_event,
+) ![]u8 {
+    const wd_index: usize = @intCast(ev.wd);
+
+    const parent = texture_notifier.wd_paths.items[wd_index] orelse {
+        // Should never happen if watcher graph is correct
+        return error.InvalidWatchDescriptor;
+    };
+
+    const name_ptr =
+        @as([*]const u8, @ptrCast(ev)) +
+        @sizeOf(std.os.linux.inotify_event);
+
+    const file_name =
+        std.mem.sliceTo(name_ptr[0..ev.len], 0);
+
+    const full_path =
+        try std.fs.path.join(allocator, &.{ parent, file_name });
+
+    return full_path; 
+}
+
+
+const FsEvent = enum {
+    DirCreated,
+    FileCreated,
+    FileDeleted,
+    FileWritten,
+    FileMovedIn,
+    FileMovedOut,
+    Ignore,
+};
+
+fn ClassifyEvent(ev: *const std.os.linux.inotify_event, is_dir: bool) FsEvent {
+    if (is_dir and (ev.mask & std.os.linux.IN.CREATE) != 0)
+        return .DirCreated;
+
+    if (!is_dir and (ev.mask & std.os.linux.IN.CREATE) != 0)
+        return .FileCreated;
+
+    if (!is_dir and (ev.mask & std.os.linux.IN.DELETE) != 0)
+        return .FileDeleted;
+
+    if (!is_dir and (ev.mask & std.os.linux.IN.CLOSE_WRITE) != 0)
+        return .FileWritten;
+
+    if (!is_dir and (ev.mask & std.os.linux.IN.MOVED_TO) != 0)
+        return .FileMovedIn;
+
+    if (!is_dir and (ev.mask & std.os.linux.IN.MOVED_FROM) != 0)
+        return .FileMovedOut;
+
+    return .Ignore;
+}
 
 
 
