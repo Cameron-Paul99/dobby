@@ -19,6 +19,34 @@ const DIR_MASK =
     std.linux.IN_CLOSE_WRITE;
 
 
+const CookingPacket = struct {
+    parent_dir : []u8,
+    file_path: []u8,
+};
+
+pub fn sleepMs(ms: u64) void {
+    const ns = ms * std.time.ns_per_ms;
+    std.posix.nanosleep(ns, 0);
+}
+pub const Atlas = struct {
+    width: u32 = 0,
+    height: u32 = 0,
+    pixels: ?[]u8 = null,
+    cursor_x: u32 = 0,
+    cursor_y: u32 = 0,
+    row_h: u32 = 0,
+};
+
+const FsEvent = enum {
+    DirCreated,
+    FileCreated,
+    FileDeleted,
+    FileWritten,
+   // FileMovedIn,
+    FileMovedOut,
+    Ignore,
+};
+
 
 pub const Cooker = struct {
     time_to_cook_textures: bool = false,
@@ -29,14 +57,22 @@ pub const Cooker = struct {
 
     }
 
-
-    pub fn CookTextures(self: *Cooker, path: []const u8 ,allocator: std.mem.Allocator) !void {
+    // TODO: Make an Atlas from PNG files 
+    pub fn CookTextures(self: *Cooker, cooking_packet: CookingPacket ,allocator: std.mem.Allocator) !void {
 
         _ = self;
-        _ = allocator;
-        //_ = path;
+       // _ = allocator;
 
-       var dir = try std.fs.cwd().openDir(path, .{ .iterate = true });
+       var atlas = Atlas{
+           .width = 2048,
+           .height = 2048,
+           .pixels = try allocator.alloc(u8, 2048 * 2048 * 4),
+        };
+       defer allocator.free(atlas.pixels.?);
+
+        @memset(atlas.pixels.?, 0);
+
+       var dir = try std.fs.cwd().openDir(cooking_packet.parent_dir, .{ .iterate = true });
        defer dir.close();
 
        var it = dir.iterate();
@@ -44,11 +80,70 @@ pub const Cooker = struct {
             if (entry.kind != .file) continue;
 
             if (std.mem.endsWith(u8, entry.name, ".png")) {
-               // std.log.info("Found PNG: {s}/{s}", .{ dir_path, entry.name });
+               std.log.info("Found PNG: {s}/{s}", .{ cooking_packet.parent_dir, entry.name });
+
+                const full_png_path = try std.fs.path.join(
+                    allocator,
+                    &.{ cooking_packet.parent_dir, entry.name },
+                );
+                defer allocator.free(full_png_path);
+
+                try AddImageToAtlas(&atlas, allocator, full_png_path);
+
+                std.log.info("{s} added to atlas", .{ entry.name });
             }
-      }
+       }
+
+       // Converting Atlas o PNG first
+
+        const pixels = atlas.pixels orelse
+            return error.NoPixels;
+
+        //_ = pixels;
+
+        var img = try zigimg.Image.create(
+            allocator,
+            atlas.width,
+            atlas.height,
+            .rgba32,
+        );
+        defer img.deinit(allocator);
+
+       const dst = std.mem.sliceAsBytes(img.pixels.rgba32);
+       @memcpy(dst, pixels);
+
+       const write_buffer = try allocator.alloc(u8, 1024 * 1024); // 1 MB scratch (safe)
+       defer allocator.free(write_buffer);
 
 
+        std.log.info("Starting out ktx2 file", .{});
+
+       try img.writeToFilePath(allocator , "zig-out/tmp/atlas.png", write_buffer, .{ .png = .{} });
+
+       try std.fs.cwd().makePath("assets/cooked/atlases");
+       
+
+        var argv = [_][]const u8{
+            "toktx",
+            "--assign_oetf", "srgb",
+            "--bcmp",
+            "--genmipmap",
+            "assets/cooked/atlases/ui.ktx2",
+            "zig-out/tmp/atlas.png",
+        };
+
+        var child = std.process.Child.init(&argv, allocator);
+        child.stdin_behavior = .Inherit;
+        child.stdout_behavior = .Inherit;
+        child.stderr_behavior = .Inherit;
+
+        const term = try child.spawnAndWait();
+
+       switch (term) {
+            .Exited => |code| if (code != 0) return error.ToktxFailed,
+            else => return error.ToktxCrashed,
+        } 
+        std.log.info("Finished adding atlas to atlas file", .{});
 
         //try std.fs.cwd().makePath("zig-out/textures");
 
@@ -61,24 +156,17 @@ pub const Cooker = struct {
        // defer allocator.free(dst_path);
     }
 };
-pub fn sleepMs(ms: u64) void {
-    const ns = ms * std.time.ns_per_ms;
-    std.posix.nanosleep(ns, 0);
-}
-pub const Atlas = struct {
-    width: u32 = 0,
-    height: u32 = 0,
-    pixels: ?[]u8 = undefined,
-    cursor_x: u32 = 0,
-    cursor_y: u32 = 0,
-    row_h: u32 = 0,
-};
+
 
 pub fn AddImageToAtlas(
     atlas: *Atlas,
     allocator: std.mem.Allocator,
     path: []const u8,
 ) !void {
+
+    //_ = atlas;
+   // _ = allocator;
+    //_ = path;
 
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
@@ -90,7 +178,7 @@ pub fn AddImageToAtlas(
 
     _ = try file.readAll(read_buf);
 
-    // ---- load image ----
+    //// ---- load image ----
     var img = try zigimg.Image.fromFilePath(
         allocator,
         path,
@@ -98,34 +186,34 @@ pub fn AddImageToAtlas(
     );
     defer img.deinit(allocator);
 
-    // Force RGBA8 (4 × u8 = 32 bits)
+    //// Force RGBA8 (4 × u8 = 32 bits)
     try img.convert(allocator, .rgba32);
 
     const img_w: u32 = @intCast(img.width);
     const img_h: u32 = @intCast(img.height);
 
-    // Allocate atlas pixel buffer if needed
-    if (atlas.pixels == null) {
-        atlas.width = 1024;
-        atlas.height = 1024;
-        atlas.pixels = try allocator.alloc(u8, atlas.width * atlas.height * 4);
-        @memset(atlas.pixels.?, 0);
-    }
+    //_ = img_w;
+    //_ = img_h;
 
-    // Simple row-based packing
+    std.log.info("atlas cursor + imh_h = {d} and atlas width = {d}", .{atlas.cursor_x + img_w, atlas.width});
+    //// Simple row-based packing
     if (atlas.cursor_x + img_w > atlas.width) {
+        std.log.info("Row packing", .{});
         atlas.cursor_x = 0;
         atlas.cursor_y += atlas.row_h;
         atlas.row_h = 0;
     }
 
-    if (atlas.cursor_y + img_h > atlas.height)
-        return error.AtlasFull;
+    std.log.info("atlas cursor + imh_h = {d} and atlas height = {d}", .{atlas.cursor_y + img_h, atlas.height});
+    if (atlas.cursor_y + img_h > atlas.height){
+    //   std.log.info("atlas cursor + imh_h = {d} and atlas height = {d}", .{atlas.cursor_y + img_h, atlas.height});
+         return error.AtlasFull;
+    }
 
     const src_pixels = img.pixels.rgba32;
     const src_bytes = std.mem.sliceAsBytes(src_pixels);
 
-    // Copy rows
+   // //// Copy rows
     for (0..img_h) |row| {
         const dst = ((atlas.cursor_y + row) * atlas.width + atlas.cursor_x) * 4;
         const src = row * img_w * 4;
@@ -158,14 +246,14 @@ pub fn main() !void {
     std.log.info("asset cooker has started", .{});
 
     var texture_notifier = try notify.Inotify.init("assets/src/textures", allocator);
-    var shader_notifier = try notify.Inotify.init("assets/src/shaders", allocator);
+    ////var shader_notifier = try notify.Inotify.init("assets/src/shaders", allocator);
     defer texture_notifier.deinit(allocator);
-    defer shader_notifier.deinit(allocator);
+    //defer shader_notifier.deinit(allocator);
 
-    const cooker = Cooker{};
+    var cooker = Cooker{};
     var file: std.fs.File = undefined;
 
-    _ = cooker;
+    //_ = cooker;
     //_ = allocator;
     
 
@@ -278,28 +366,29 @@ pub fn main() !void {
                         std.log.info("Directory added: {s}", .{full_path});
                     },
 
-                    .FileCreated, .FileWritten, .FileMovedIn => {
+                    .FileCreated, .FileWritten => {
 
-                        const full_path = try FileUpdated( allocator, &texture_notifier, ev, );
-                        defer allocator.free(full_path);
+                        const cooking_packet = try FileUpdated( allocator, &texture_notifier, ev, );
+                        defer allocator.free(cooking_packet.file_path);
 
-                        std.log.info("File written: {s}", .{full_path});
+                        std.log.info("File written: {s}", .{cooking_packet.file_path});
+                        try cooker.CookTextures(cooking_packet, allocator);
                     },
 
                     .FileDeleted => {
 
-                        const full_path = try FileUpdated(allocator, &texture_notifier, ev,);
-                        defer allocator.free(full_path);
+                        const cooking_packet = try FileUpdated(allocator, &texture_notifier, ev,);
+                        defer allocator.free(cooking_packet.file_path);
 
-                        std.log.info("File deleted: {s}", .{full_path});
+                        std.log.info("File deleted: {s}", .{cooking_packet.file_path});
                     },
 
                     .FileMovedOut => {
 
-                        const full_path = try FileUpdated( allocator, &texture_notifier, ev,);
-                        defer allocator.free(full_path);
+                        const cooking_packet = try FileUpdated( allocator, &texture_notifier, ev,);
+                        defer allocator.free(cooking_packet.file_path);
 
-                        std.log.info("File moved out: {s}", .{full_path});
+                        std.log.info("File moved out: {s}", .{cooking_packet.file_path});
                     },
 
                     .Ignore => {},
@@ -314,31 +403,12 @@ pub fn main() !void {
 
 }
 
-pub fn MakeAtlas() void{
-
-   // const atlas = 
-   
-
-   // const allocated_image = try text.CreateTextureImage(renderer, core, allocator, color_space, path_z);
-  //  try text.CreateTextureImageView(core, allocated_image);
-
-}
-
-pub fn RootTextures() void{
-
-
-}
-
-pub fn AddDirWatcher() void {
-
-
-}
 
 fn FileUpdated(
     allocator: std.mem.Allocator,
     texture_notifier: *notify.Inotify,
     ev: *const std.os.linux.inotify_event,
-) ![]u8 {
+) !CookingPacket {
     const wd_index: usize = @intCast(ev.wd);
 
     const parent = texture_notifier.wd_paths.items[wd_index] orelse {
@@ -353,29 +423,20 @@ fn FileUpdated(
     const file_name =
         std.mem.sliceTo(name_ptr[0..ev.len], 0);
 
-    const full_path =
-        try std.fs.path.join(allocator, &.{ parent, file_name });
+    const file_path = try std.fs.path.join(allocator, &.{ parent, file_name });
 
-    return full_path; 
+    return .{.parent_dir = parent, .file_path = file_path }; 
 }
 
 
-const FsEvent = enum {
-    DirCreated,
-    FileCreated,
-    FileDeleted,
-    FileWritten,
-    FileMovedIn,
-    FileMovedOut,
-    Ignore,
-};
+
 
 fn ClassifyEvent(ev: *const std.os.linux.inotify_event, is_dir: bool) FsEvent {
     if (is_dir and (ev.mask & std.os.linux.IN.CREATE) != 0)
         return .DirCreated;
 
-    if (!is_dir and (ev.mask & std.os.linux.IN.CREATE) != 0)
-        return .FileCreated;
+   // if (!is_dir and (ev.mask & std.os.linux.IN.CREATE) != 0)
+       // return .FileCreated;
 
     if (!is_dir and (ev.mask & std.os.linux.IN.DELETE) != 0)
         return .FileDeleted;
@@ -383,8 +444,8 @@ fn ClassifyEvent(ev: *const std.os.linux.inotify_event, is_dir: bool) FsEvent {
     if (!is_dir and (ev.mask & std.os.linux.IN.CLOSE_WRITE) != 0)
         return .FileWritten;
 
-    if (!is_dir and (ev.mask & std.os.linux.IN.MOVED_TO) != 0)
-        return .FileMovedIn;
+    //if (!is_dir and (ev.mask & std.os.linux.IN.MOVED_TO) != 0)
+       // return .FileMovedIn;
 
     if (!is_dir and (ev.mask & std.os.linux.IN.MOVED_FROM) != 0)
         return .FileMovedOut;

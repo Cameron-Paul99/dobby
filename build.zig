@@ -34,7 +34,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     asset_cooker.root_module.addImport("utils", utils_mod);
-
+    asset_cooker.root_module.addAnonymousImport("zigimg", .{ .root_source_file = b.path("thirdparty/zigimg/zigimg.zig") });
     // Editor SDL 
     const editor_sdl = b.addExecutable(.{
         .name = "Editor SDL",
