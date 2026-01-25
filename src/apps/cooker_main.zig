@@ -2,6 +2,7 @@ const std = @import("std");
 const zigimg = @import("zigimg");
 const utils = @import("utils");
 const notify = utils.notify;
+const atlas_mod = utils.atlas;
 
 //{
 //  "version": 1,
@@ -28,14 +29,6 @@ pub fn sleepMs(ms: u64) void {
     const ns = ms * std.time.ns_per_ms;
     std.posix.nanosleep(ns, 0);
 }
-pub const Atlas = struct {
-    width: u32 = 0,
-    height: u32 = 0,
-    pixels: ?[]u8 = null,
-    cursor_x: u32 = 0,
-    cursor_y: u32 = 0,
-    row_h: u32 = 0,
-};
 
 const FsEvent = enum {
     DirCreated,
@@ -49,28 +42,48 @@ const FsEvent = enum {
 
 
 pub const Cooker = struct {
-    time_to_cook_textures: bool = false,
-    time_to_cook_shaders: bool = false,
 
     pub fn CookShaders(self: *Cooker) void {
         _ = self;
-
     }
 
     // TODO: Make an Atlas from PNG files 
-    pub fn CookTextures(self: *Cooker, cooking_packet: CookingPacket ,allocator: std.mem.Allocator) !void {
-
+    pub fn CookTextures(
+        self: *Cooker, 
+        cooking_packet: CookingPacket,
+        new_atlas: bool,
+        allocator: std.mem.Allocator) !void {
+        
         _ = self;
-       // _ = allocator;
+        var parsed = try atlas_mod.ReadManifest(allocator);
+        defer parsed.deinit();
 
-       var atlas = Atlas{
+        var maybe_id: ?usize = null;
+
+        for (parsed.value.atlases) |atl| {
+            if (std.mem.eql(u8, atl.from_path, cooking_packet.parent_dir)) {
+                maybe_id = atl.id;
+                //break;
+            }
+        }
+
+        var id = if (maybe_id) |found_id|
+            found_id
+        else
+            parsed.value.atlases.len;
+
+        if (new_atlas) {
+            id = parsed.value.atlases.len; 
+        }
+
+       var atlas = atlas_mod.Atlas{
            .width = 2048,
            .height = 2048,
            .pixels = try allocator.alloc(u8, 2048 * 2048 * 4),
         };
        defer allocator.free(atlas.pixels.?);
 
-        @memset(atlas.pixels.?, 0);
+       @memset(atlas.pixels.?, 0);
 
        var dir = try std.fs.cwd().openDir(cooking_packet.parent_dir, .{ .iterate = true });
        defer dir.close();
@@ -99,8 +112,6 @@ pub const Cooker = struct {
         const pixels = atlas.pixels orelse
             return error.NoPixels;
 
-        //_ = pixels;
-
         var img = try zigimg.Image.create(
             allocator,
             atlas.width,
@@ -114,22 +125,33 @@ pub const Cooker = struct {
 
        const write_buffer = try allocator.alloc(u8, 1024 * 1024); // 1 MB scratch (safe)
        defer allocator.free(write_buffer);
+    
+       // KTX2 conversion
+        std.log.info("Starting the creation of ktx2 atlas file", .{});
 
+        const png_path = try std.fmt.allocPrint(
+            allocator,
+            "zig-out/tmp/atlas_{d}.png",
+            .{ id },
+        );
+        defer allocator.free(png_path);
 
-        std.log.info("Starting out ktx2 file", .{});
+       try img.writeToFilePath(allocator , png_path, write_buffer, .{ .png = .{} });
 
-       try img.writeToFilePath(allocator , "zig-out/tmp/atlas.png", write_buffer, .{ .png = .{} });
-
-       try std.fs.cwd().makePath("assets/cooked/atlases");
-       
+       const ktx_path = try std.fmt.allocPrint(
+            allocator,
+            "assets/cooked/atlases/atlas_{d}.ktx2",
+            .{ id },
+        );
+        defer allocator.free(ktx_path);
 
         var argv = [_][]const u8{
             "toktx",
             "--assign_oetf", "srgb",
             "--bcmp",
             "--genmipmap",
-            "assets/cooked/atlases/ui.ktx2",
-            "zig-out/tmp/atlas.png",
+            ktx_path,
+            png_path,
         };
 
         var child = std.process.Child.init(&argv, allocator);
@@ -145,21 +167,26 @@ pub const Cooker = struct {
         } 
         std.log.info("Finished adding atlas to atlas file", .{});
 
-        //try std.fs.cwd().makePath("zig-out/textures");
+        std.log.info("Updating texture manifest", .{});
 
-       // const dst_path = try std.fmt.allocPrint(
-         //   allocator,
-          //  "zig-out/textures/{s}",
-          //  "",
-       // );
+        try atlas_mod.AddAtlasToManifest(
+            allocator,
+            &parsed.value,
+            ktx_path,
+            cooking_packet.parent_dir,
+            id,
+        );
 
-       // defer allocator.free(dst_path);
+         try atlas_mod.WriteManifest(parsed.value, allocator);
+
+         std.log.info("Manifest is updated", .{});
+
     }
 };
 
 
 pub fn AddImageToAtlas(
-    atlas: *Atlas,
+    atlas: *atlas_mod.Atlas,
     allocator: std.mem.Allocator,
     path: []const u8,
 ) !void {
@@ -195,7 +222,7 @@ pub fn AddImageToAtlas(
     //_ = img_w;
     //_ = img_h;
 
-    std.log.info("atlas cursor + imh_h = {d} and atlas width = {d}", .{atlas.cursor_x + img_w, atlas.width});
+    std.log.info("atlas cursor + imh_w = {d} and atlas width = {d}", .{atlas.cursor_x + img_w, atlas.width});
     //// Simple row-based packing
     if (atlas.cursor_x + img_w > atlas.width) {
         std.log.info("Row packing", .{});
@@ -252,10 +279,6 @@ pub fn main() !void {
 
     var cooker = Cooker{};
     var file: std.fs.File = undefined;
-
-    //_ = cooker;
-    //_ = allocator;
-    
 
      file = std.fs.cwd().openFile("assets/cooked/atlases/manifest.json", .{}) catch |err| switch (err){
         error.FileNotFound => blk: {
@@ -372,7 +395,7 @@ pub fn main() !void {
                         defer allocator.free(cooking_packet.file_path);
 
                         std.log.info("File written: {s}", .{cooking_packet.file_path});
-                        try cooker.CookTextures(cooking_packet, allocator);
+                        try cooker.CookTextures(cooking_packet, false ,allocator);
                     },
 
                     .FileDeleted => {
@@ -455,27 +478,4 @@ fn ClassifyEvent(ev: *const std.os.linux.inotify_event, is_dir: bool) FsEvent {
 
 
 
-fn ConvertToKTX2(
-    b: *std.Build, 
-    assets_step: *std.Build.Step, 
-    name: []const u8) void{
 
-    const toktx = b.findProgram(&.{ "toktx" }, &.{}) catch
-        @panic("toktx not found. Install KTX-Software tools.");
-
-    const source = std.fmt.allocPrint(b.allocator, "assets/src/textures/{s}.png", .{name}) catch @panic("OOM");
-    const outpath = std.fmt.allocPrint(b.allocator, "textures/{s}.ktx2", .{name}) catch @panic("OOM");
-
-    const out_ktx2_abs = b.pathJoin(&.{ b.install_prefix, outpath });
-    const tex_step = b.addSystemCommand(&.{
-        toktx,
-        "--assign_oetf", "srgb",
-        "--bcmp",       // BasisU supercompression
-        "--genmipmap",  // generate mipmaps offline
-        out_ktx2_abs,
-        source,
-    });
-
-    assets_step.dependOn(&tex_step.step);
-   
-}
