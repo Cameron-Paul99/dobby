@@ -1,5 +1,7 @@
 const std = @import("std");
 
+pub const AtlasAliasId_u32 = u32;
+
 pub const Atlas = struct {
     width: u32 = 0,
     height: u32 = 0,
@@ -9,16 +11,32 @@ pub const Atlas = struct {
     row_h: u32 = 0,
 };
 
-const AtlasEntry = struct {
+pub const AtlasAsset = struct {
+    id: AtlasAliasId_u32,
+    path: []const u8,
+    version_hash: u64,
+};
+
+pub const AtlasEntry = struct {
     id: u32,
     path: []const u8,
     from_path: []const u8,
     rev: u32,
 };
 
-const Manifest = struct {
+pub const Manifest = struct {
     version: u32,
     atlases: []AtlasEntry,
+};
+
+pub const ParsedManifest = struct {
+    parsed: std.json.Parsed(Manifest),
+    buffer: []u8,
+
+    pub fn deinit(self: *ParsedManifest, allocator: std.mem.Allocator) void {
+        self.parsed.deinit();
+        allocator.free(self.buffer);
+    }
 };
 
 pub fn ReadManifest(allocator: std.mem.Allocator) !std.json.Parsed(Manifest){

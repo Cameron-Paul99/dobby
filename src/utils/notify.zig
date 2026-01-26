@@ -33,7 +33,12 @@ pub const Inotify = struct {
 
         // Ensure index exists
         if (wd >= wd_paths.items.len) {
+            const old_len = wd_paths.items.len;
             try wd_paths.resize(allocator , @as(u32 , @intCast(wd)) + 1);
+            for (old_len..wd_paths.items.len) |i| {
+                wd_paths.items[i] = null;
+            }
+
         }
 
         // Store the root path

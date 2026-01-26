@@ -8,6 +8,7 @@ const utils = @import("utils");
 const sdl = @import("sdl.zig");
 const log = std.log;
 const math = utils.math;
+const atlas_mod = utils.atlas;
 
 pub const MaterialTemplateId_u32 = u32;
 pub const MaterialInstanceId_u32 = u32;
@@ -311,7 +312,7 @@ pub const Renderer = struct {
        const frame_set = frame.set_frame;
 
        // Create a for loop and update
-       //try BindAtlas(self, core, frame.material_set, &alias_textures[]);
+       try BindAtlas(self, core, frame.material_set, &self.atlas_textures.items[0]);
 
        const sets = [_]c.VkDescriptorSet {frame_set, frame.material_set };
 
@@ -491,6 +492,12 @@ pub const Renderer = struct {
         helper.DestroyBuffer(self.vma, &self.vertex_buffer);
         helper.DestroyBuffer(self.vma, &self.index_buffer);
         helper.DestroyBuffer(self.vma, &self.sprite_instance_buffer);
+
+        for (self.atlas_textures.items) |*img| {
+            helper.DestroyImage(core, self.vma, img);
+        }
+        self.atlas_textures.deinit(allocator);
+
         helper.DestroyImage(core, self.vma, &self.default_tex);
 
         if (self.images_in_flight.len != 0) {
@@ -553,6 +560,31 @@ pub const Renderer = struct {
         if (self.vma != null){
             c.vmaDestroyAllocator(self.vma);
         }
+    }
+
+    pub fn AddAtlasGPU(
+        self: *Renderer, 
+        core: *core_mod.Core,
+        atlas: atlas_mod.AtlasAsset, 
+        allocator: std.mem.Allocator) !void{
+
+        const path_z = try allocator.dupeZ(u8, atlas.path);
+        defer allocator.free(path_z);
+        
+        //_ = core;
+        //_ = self;
+         var new_image = try text.CreateTextureImage(
+            self, 
+            core,
+            allocator,
+            helper.KtxColorSpace.srgb,
+            path_z,
+        );
+        //_ = new_image;
+        try text.CreateTextureImageView(core, &new_image);
+
+        try self.atlas_textures.append(allocator, new_image);
+
     }
 };
 
