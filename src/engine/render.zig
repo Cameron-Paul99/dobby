@@ -340,7 +340,6 @@ pub const Renderer = struct {
         }
 
         self.instance_count = @as(u32, @intCast(self.sprite_draws.items.len));
-
         if (self.instance_count > 0) {
             try helper.UploadInstanceData(
                 self.vma,
@@ -352,7 +351,7 @@ pub const Renderer = struct {
         }      
         c.vkCmdBindVertexBuffers(cmd, 0, buffers.len, &buffers, &offsets);
         c.vkCmdBindIndexBuffer(cmd, self.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT16);
-        c.vkCmdDrawIndexed(cmd, self.index_count, 1 , 0, 0, 0);
+        c.vkCmdDrawIndexed(cmd, self.index_count, self.instance_count, 0, 0, 0);
 
         c.vkCmdEndRenderPass(cmd);
         try helper.check_vk(c.vkEndCommandBuffer(cmd));
@@ -879,7 +878,7 @@ pub fn CreatePipelines(
         .{
             .binding = 1,
             .stride = @sizeOf(helper.SpriteDraw),
-            .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX,
+            .inputRate = c.VK_VERTEX_INPUT_RATE_INSTANCE,
 
         },
     };

@@ -56,11 +56,11 @@ pub const Cooker = struct {
         
         _ = self;
         var parsed = try atlas_mod.ReadManifest(allocator);
-        defer parsed.deinit();
+        defer parsed.deinit(allocator);
 
         var maybe_id: ?usize = null;
 
-        for (parsed.value.atlases) |atl| {
+        for (parsed.parsed.value.atlases) |atl| {
             if (std.mem.eql(u8, atl.from_path, cooking_packet.parent_dir)) {
                 maybe_id = atl.id;
                 //break;
@@ -70,10 +70,10 @@ pub const Cooker = struct {
         var id = if (maybe_id) |found_id|
             found_id
         else
-            parsed.value.atlases.len;
+            parsed.parsed.value.atlases.len;
 
         if (new_atlas) {
-            id = parsed.value.atlases.len; 
+            id = parsed.parsed.value.atlases.len; 
         }
 
        var atlas = atlas_mod.Atlas{
@@ -171,13 +171,13 @@ pub const Cooker = struct {
 
         try atlas_mod.AddAtlasToManifest(
             allocator,
-            &parsed.value,
+            &parsed.parsed.value,
             ktx_path,
             cooking_packet.parent_dir,
             id,
         );
 
-         try atlas_mod.WriteManifest(parsed.value, allocator);
+         try atlas_mod.WriteManifest(parsed.parsed.value, allocator);
 
          std.log.info("Manifest is updated", .{});
 

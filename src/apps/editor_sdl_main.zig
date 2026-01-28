@@ -34,7 +34,7 @@ pub const AtlasManager = struct {
 
     atlas_list: std.ArrayList(atlas_mod.AtlasAsset),
     metadata_dirty: bool = true,
-    manifest: ?std.json.Parsed(atlas_mod.Manifest) = null, 
+    manifest: ?atlas_mod.ParsedManifest = null, 
 
     pub fn ApplyMetadata(
         self: *AtlasManager,
@@ -107,9 +107,9 @@ pub const AtlasManager = struct {
     }
 
     pub fn deinit(self: *AtlasManager, allocator: std.mem.Allocator) void{
-
-        if (self.manifest) |*m| m.deinit();
-        defer self.atlas_list.deinit(allocator);
+        self.manifest.?.deinit(allocator);
+        self.manifest = null;
+        self.atlas_list.deinit(allocator);
 
     }
 
@@ -232,6 +232,18 @@ pub fn main() !void {
     var sprite_draws =  try std.ArrayList(helper.SpriteDraw).initCapacity(allocator, 0);
     defer sprite_draws.deinit(allocator);
 
+    const sprite = helper.SpriteDraw{
+       // .atlas_id = 0,
+        .uv_min = .{ 0.0, 0.0},
+        .uv_max = .{0.25, 0.25},
+        .sprite_pos   = .{ 0, 0},        // world position (your choice)
+        .sprite_scale = .{ 512.0, 512.0 },// world size (or whatever units you use)
+        .sprite_rotation = .{1.0, 0.0}, // cos=1, sin=0 (no rotation)
+        .tint = .{ 1, 1, 1, 1 },   // no tint
+    };
+
+    try sprite_draws.append(allocator, sprite);
+
     while (!game_window.should_close){
 
         game_window.pollEvents(&renderer);
@@ -240,17 +252,14 @@ pub fn main() !void {
         if (atlas_manager.metadata_dirty){
             std.log.info("meta data is dirty", .{});
 
-            if (atlas_manager.manifest) |*old| {
-                old.deinit();
-            }
-
             atlas_manager.metadata_dirty = false;
+
             atlas_manager.manifest = try atlas_mod.ReadManifest(allocator);
 
             try atlas_manager.ApplyMetadata(
                 &renderer,
                 &core,
-                atlas_manager.manifest.?.value.atlases,
+                atlas_manager.manifest.?.parsed.value.atlases,
                 allocator,
             );
 

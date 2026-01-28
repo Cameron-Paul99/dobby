@@ -26,5 +26,5 @@ void main() {
 
     gl_Position = vec4(in_pos, 0.0, 1.0);
     frag_color = in_color;
-    frag_tex_coord = in_tex_coord;
+    frag_tex_coord = mix(uv_min, uv_max, in_tex_coord);
 }

@@ -39,7 +39,7 @@ pub const ParsedManifest = struct {
     }
 };
 
-pub fn ReadManifest(allocator: std.mem.Allocator) !std.json.Parsed(Manifest){
+pub fn ReadManifest(allocator: std.mem.Allocator) !ParsedManifest{
 
     const file = try std.fs.cwd().openFile("assets/cooked/atlases/manifest.json", .{});
     defer file.close();
@@ -49,12 +49,17 @@ pub fn ReadManifest(allocator: std.mem.Allocator) !std.json.Parsed(Manifest){
 
     _ = try file.readAll(bytes);
 
-    return std.json.parseFromSlice(
+    const parsed = try std.json.parseFromSlice(
         Manifest,
         allocator,
         bytes,
         .{ .ignore_unknown_fields = true },
     );
+
+    return .{
+        .parsed = parsed,
+        .buffer = bytes,
+    };
 
 }
 

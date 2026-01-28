@@ -982,11 +982,11 @@ pub fn CreateVMAAllocator(core: *gpu_context.Core) !c.VmaAllocator {
 pub const SpriteDraw = extern struct {
     sprite_pos: [2]f32,
     sprite_scale: [2]f32,
-    sprite_rotation: f32,
+    sprite_rotation: [2]f32,
     uv_min: [2]f32,
     uv_max: [2]f32,
     tint: [4]f32,
-    atlas_id: u32,
+   // atlas_id: u32,
 };
 
 pub fn UploadInstanceData(
