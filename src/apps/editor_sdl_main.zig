@@ -240,6 +240,7 @@ pub fn main() !void {
         .sprite_scale = .{ 512.0, 512.0 },// world size (or whatever units you use)
         .sprite_rotation = .{1.0, 0.0}, // cos=1, sin=0 (no rotation)
         .tint = .{ 1, 1, 1, 1 },   // no tint
+        .atlas_id = 0,
     };
 
     try sprite_draws.append(allocator, sprite);

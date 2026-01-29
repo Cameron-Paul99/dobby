@@ -34,7 +34,7 @@ const FRAME_OVERLAP = 4;
 
 const MAX_SPRITES = 1;
 
-const MAX_ATLASES = 3;
+const MAX_ATLASES = 64;
 
 const FrameData = struct {
     present_semaphore: c.VkSemaphore = helper.VK_NULL_HANDLE,
@@ -133,15 +133,15 @@ pub const Renderer = struct {
         try CreateSyncStructures(&renderer, core, swapchain, allocator);
 
         // Create Default texture
-        //renderer.default_tex = try text.CreateTextureImage(
-         //   &renderer, 
-          //  core,
-          //  allocator,
-          //  helper.KtxColorSpace.srgb,
-          //  "textures/Slot.ktx2",
-        //);
+        renderer.default_tex = try text.CreateTextureImage(
+            &renderer, 
+            core,
+            allocator,
+            helper.KtxColorSpace.srgb,
+            "zig-out/Slot.ktx2",
+        );
 
-       // try text.CreateTextureImageView(core, &renderer.default_tex);
+        try text.CreateTextureImageView(core, &renderer.default_tex);
 
         // Create Samplers
         try CreateSampler(&renderer , core);
@@ -311,8 +311,11 @@ pub const Renderer = struct {
         //TODO: Bind Descriptor sets and also update shaders.
        const frame_set = frame.set_frame;
 
-       // Create a for loop and update
-       try BindAtlas(self, core, frame.material_set, &self.atlas_textures.items[0]);
+       // Binding atlas Sampler
+       try BindAtlasSampler(self, core, frame.material_set);
+
+       // Binding atlas images
+       try BindAtlasImages(self, core, frame.material_set);
 
        const sets = [_]c.VkDescriptorSet {frame_set, frame.material_set };
 
@@ -939,6 +942,13 @@ pub fn CreatePipelines(
             .format = c.VK_FORMAT_R32G32B32A32_SFLOAT,
             .offset = @offsetOf(helper.SpriteDraw, "tint"),
         },
+        .{
+            .location = 9,
+            .binding = 1,
+            .format = c.VK_FORMAT_R32_UINT,
+            .offset = @offsetOf(helper.SpriteDraw, "atlas_id"),
+
+        }
 
     };
 
@@ -1041,6 +1051,8 @@ pub fn CreateDescriptorLayouts(renderer: *Renderer, core: *core_mod.Core) !void 
         .{ .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1024 },
         .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         .descriptorCount = 128  },
         .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          .descriptorCount = 64 },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          .descriptorCount = 64 },
+        .{ .type =  c.VK_DESCRIPTOR_TYPE_SAMPLER,               .descriptorCount = 64 },
     };
 
     const pool_ci = std.mem.zeroInit(c.VkDescriptorPoolCreateInfo, .{
@@ -1087,37 +1099,22 @@ pub fn CreateDescriptorLayouts(renderer: *Renderer, core: *core_mod.Core) !void 
     // 3) Set 1 (Material) layout:
     //    binding 0..N: combined image samplers (textures)
     // =========================================================================
-    const MAX_TEXTURES_PER_MATERIAL: u32 = 4;
+    const MAX_TEXTURES_PER_MATERIAL: u32 = 2;
 
 
     const material_bindings = [_]c.VkDescriptorSetLayoutBinding{
         std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
             .binding = 0,
-            .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_SAMPLER,
             .descriptorCount = 1,
             .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = null,
         }),
+        // Atlas array
         std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
             .binding = 1,
-            .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+            .descriptorCount = MAX_ATLASES, // e.g. 64
             .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = null,
-        }),
-        std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
-            .binding = 2,
-            .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = null,
-        }),
-        std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
-            .binding = 3,
-            .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = null,
         }),
     };
 
@@ -1297,34 +1294,67 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
 
 }
 
-fn BindAtlas(
+fn BindAtlasSampler(
     renderer: *Renderer, 
     core: *core_mod.Core,
     material_set: c.VkDescriptorSet,
-    atlas: *helper.AllocatedImage,
 ) !void{
 
-    const image_info = std.mem.zeroInit(c.VkDescriptorImageInfo, .{
+    const sampler_info = c.VkDescriptorImageInfo{
         .sampler = renderer.sampler_linear_repeat,
-        .imageView = atlas.view,
-        .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-    });
+        .imageView = null,
+        .imageLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+    };
 
-    const img_write = std.mem.zeroInit(c.VkWriteDescriptorSet, .{
+    const write = c.VkWriteDescriptorSet{
         .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         .dstSet = material_set,
-        .dstBinding = 0, // binding 0 in set 1
-        .dstArrayElement = 0        ,
+        .dstBinding = 0,
+        .dstArrayElement = 0,
         .descriptorCount = 1,
-        .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .pImageInfo = &image_info,
-        .pBufferInfo = null,
-        .pTexelBufferView = null,
-    });
+        .descriptorType = c.VK_DESCRIPTOR_TYPE_SAMPLER,
+        .pImageInfo = &sampler_info,
+    };
 
-    c.vkUpdateDescriptorSets(core.device.handle, 1, &img_write, 0, null);
+    c.vkUpdateDescriptorSets(core.device.handle, 1, &write, 0, null);
 
-    // log.info("Binded Atlas", .{});
+}
+
+fn BindAtlasImages(    
+    renderer: *Renderer,
+    core: *core_mod.Core,
+    material_set: c.VkDescriptorSet,
+) !void {
+
+    var image_infos: [MAX_ATLASES]c.VkDescriptorImageInfo = undefined;
+
+    for (renderer.atlas_textures.items, 0..) |atlas, i| {
+        image_infos[i] = c.VkDescriptorImageInfo{
+            .sampler = null,
+            .imageView = atlas.view,
+            .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        };
+    }
+
+    for (renderer.atlas_textures.items.len..MAX_ATLASES) |i| {
+       image_infos[i] = .{
+            .sampler = null,
+            .imageView = renderer.default_tex.view, // white 1×1
+            .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        };
+    }
+
+    const write = c.VkWriteDescriptorSet{
+        .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = material_set,
+        .dstBinding = 1,
+        .dstArrayElement = 0,
+        .descriptorCount = MAX_ATLASES,
+        .descriptorType = c.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+        .pImageInfo = &image_infos[0],
+    };
+
+    c.vkUpdateDescriptorSets(core.device.handle, 1, &write, 0, null);
 
 }
 

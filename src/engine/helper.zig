@@ -986,7 +986,7 @@ pub const SpriteDraw = extern struct {
     uv_min: [2]f32,
     uv_max: [2]f32,
     tint: [4]f32,
-   // atlas_id: u32,
+    atlas_id: u32,
 };
 
 pub fn UploadInstanceData(

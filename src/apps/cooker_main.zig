@@ -32,6 +32,7 @@ pub fn sleepMs(ms: u64) void {
 
 const FsEvent = enum {
     DirCreated,
+    DirRemoved,
     FileCreated,
     FileDeleted,
     FileWritten,
@@ -183,6 +184,72 @@ pub const Cooker = struct {
 
     }
 };
+
+pub fn RemoveAtlas(
+    allocator: std.mem.Allocator,
+    cooking_packet: CookingPacket,
+) !void {
+
+    var parsed = try atlas_mod.ReadManifest(allocator);
+    defer parsed.deinit(allocator);
+
+    var remove_index: ?usize = null;
+    var remove_id: ?usize = null;
+
+    for (parsed.parsed.value.atlases, 0..) |atl, i| {
+        std.log.info("Comparing Atlas {s} to {s}", .{
+            cooking_packet.file_path, atl.from_path
+        });
+        if (std.mem.eql(u8, atl.from_path, cooking_packet.file_path)) {
+            remove_index = i;
+            remove_id = atl.id;
+            break;
+        }
+    }
+
+    if (remove_index == null) {
+        std.log.warn("RemoveAtlas: atlas not found for {s}", .{
+            cooking_packet.parent_dir,
+        });
+        return;
+    }
+
+    const idx = remove_index.?;
+    const id = remove_id.?;
+
+    const atlas_path = parsed.parsed.value.atlases[idx].path;
+
+    std.log.info("Removing atlas file: {s}", .{atlas_path});
+    std.fs.cwd().deleteFile(atlas_path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+
+    const atlases = &parsed.parsed.value.atlases;
+    const last = atlases.*.len - 1;
+
+    const removed = atlases.*[idx];
+
+    std.log.info("Removing atlas file: {s}", .{ removed.path });
+
+    std.fs.cwd().deleteFile(removed.path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+
+    // move last → idx BEFORE freeing
+    if (idx != last) {
+        atlases.*[idx] = atlases.*[last];
+    }
+
+    // shrink slice
+    atlases.* = atlases.*[0..last];
+
+    try atlas_mod.WriteManifest(parsed.parsed.value, allocator);
+
+    std.log.info("Atlas id {d} removed", .{id});
+}
+
 
 
 pub fn AddImageToAtlas(
@@ -388,6 +455,15 @@ pub fn main() !void {
 
                         std.log.info("Directory added: {s}", .{full_path});
                     },
+                    .DirRemoved => {
+
+                        const cooking_packet = try FileUpdated( allocator, &texture_notifier, ev, );
+                        defer allocator.free(cooking_packet.file_path);
+
+                        try RemoveAtlas(allocator, cooking_packet);
+
+
+                    },
 
                     .FileCreated, .FileWritten => {
 
@@ -472,6 +548,12 @@ fn ClassifyEvent(ev: *const std.os.linux.inotify_event, is_dir: bool) FsEvent {
 
     if (!is_dir and (ev.mask & std.os.linux.IN.MOVED_FROM) != 0)
         return .FileMovedOut;
+
+    if(is_dir and (ev.mask & std.os.linux.IN.DELETE) != 0)
+        return .DirRemoved;
+
+   // if (is_dir and (ev.mask & std.os.linux.IN.MOVED_FROM != 0))
+     //   return .DirRemoved;
 
     return .Ignore;
 }

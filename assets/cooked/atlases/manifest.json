@@ -1,11 +1,4 @@
 {
   "version": 1,
-  "atlases": [
-    {
-      "id": 0,
-      "path": "assets/cooked/atlases/atlas_0.ktx2",
-      "from_path": "assets/src/textures/ui",
-      "rev": 5
-    }
-  ]
+  "atlases": []
 }
