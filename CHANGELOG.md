@@ -1,3 +1,24 @@
+## [0.0.3] - Asset Pipeline - Cameron Paul - 01/30/26
+- End to end texture packing
+- Atlas creation
+- PNG to KTX2 transfer
+- Notification system for atlases utilizing INotifier
+- Sprite draw system
+- Basic Scene Manager
+- New folder and file structure
+- Editor main
+- Atlas cooker main
+- New Shaders and textures
+- Manifest to keep track of atlases
+- Texture array for renderer
+- Change sampler 2D to sampler
+- Replaced Combined Image Sampler
+- Instance Vertex buffer added to rendering process (64 size)
+- Pre fix sum algorithm for atlas manager and scene manager
+- Cooker readme
+- Utils folder updated with algo, atlas, and notify
+
+
 ## [0.0.2] - Depth attachment and uncapped frame rate - Cameron Paul - 01/11/26
 - Depth attachment is added
 - Upcapped frame rate test is complete
