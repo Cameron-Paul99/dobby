@@ -3,10 +3,12 @@ const std = @import("std");
 const helper = @import("helper.zig");
 const sc = @import("swapchain.zig");
 const core_mod = @import("core.zig");
-const math = @import("math.zig");
 const text = @import("textures.zig");
+const utils = @import("utils");
 const sdl = @import("sdl.zig");
 const log = std.log;
+const math = utils.math;
+const atlas_mod = utils.atlas;
 
 pub const MaterialTemplateId_u32 = u32;
 pub const MaterialInstanceId_u32 = u32;
@@ -15,6 +17,7 @@ pub const MaterialInstanceId_u32 = u32;
 //const Vec3 = math.Vec3;
 //const Vec4 = math.Vec4;
 //const Mat4 = math.Mat4;
+
 
 const MaterialTemplate = struct {
     pipeline: c.VkPipeline,
@@ -29,6 +32,10 @@ const MaterialInstance = struct {
 
 const FRAME_OVERLAP = 4;
 
+const MAX_SPRITES = 1;
+
+const MAX_ATLASES = 64;
+
 const FrameData = struct {
     present_semaphore: c.VkSemaphore = helper.VK_NULL_HANDLE,
     render_semaphore: c.VkSemaphore = helper.VK_NULL_HANDLE,
@@ -37,7 +44,7 @@ const FrameData = struct {
     main_command_buffer: c.VkCommandBuffer = helper.VK_NULL_HANDLE,
     set_frame: c.VkDescriptorSet = helper.VK_NULL_HANDLE,
     camera_ubo: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
-
+    material_set: c.VkDescriptorSet = helper.VK_NULL_HANDLE,
   //  object_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
   //  object_descriptor_set: c.VkDescriptorSet = helper.VK_NULL_HANDLE,
 };
@@ -56,7 +63,7 @@ pub const Renderer = struct {
     frames: [FRAME_OVERLAP]FrameData,
     render_pass: c.VkRenderPass,
     material_system: MaterialSystem,
-    texture_manager: text.TextureManager,
+    default_tex: helper.AllocatedImage = .{},
     upload_context: UploadContext,
     vma: c.VmaAllocator,
  //   camera_pos: Vec3
@@ -65,6 +72,7 @@ pub const Renderer = struct {
     vertex_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     index_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     dummy_ssbo: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+    sprite_instance_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     descriptor_pool: c.VkDescriptorPool = helper.VK_NULL_HANDLE,
     set_layout_frame: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
     set_layout_material: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
@@ -73,6 +81,13 @@ pub const Renderer = struct {
     request_swapchain_recreate: bool = false,
     renderer_init: bool = false,
     index_count: u32 = 0,
+    instance_count: u32 = 0,
+    sprite_draws: std.ArrayList(helper.SpriteDraw),
+    pending_atlas: bool = false,
+    atlas_textures: std.ArrayList(helper.AllocatedImage), // All Atlases
+    //batches: [MAX_ATLASES]std.ArrayList(SpriteDraw);
+
+
 
     // pipelines / layouts
     // maybe upload context too
@@ -97,8 +112,11 @@ pub const Renderer = struct {
             .material_system = material_system,
             .upload_context = .{},
             .vma = vma,
-            .texture_manager =  try text.TextureManager.init(allocator),
+            .sprite_draws = try std.ArrayList(helper.SpriteDraw).initCapacity(allocator, 0),
+            .atlas_textures = try std.ArrayList(helper.AllocatedImage).initCapacity(allocator, 0), 
         };
+
+        try renderer.sprite_draws.ensureTotalCapacity(allocator , MAX_SPRITES);
 
         errdefer renderer.deinit(allocator, core);
 
@@ -114,11 +132,16 @@ pub const Renderer = struct {
         // Create Sync Structures
         try CreateSyncStructures(&renderer, core, swapchain, allocator);
 
-        // Create Textures
-        try text.CreateTextureImage("Slot", &renderer, core, allocator, helper.KtxColorSpace.srgb, "textures/Slot.ktx2");
+        // Create Default texture
+        renderer.default_tex = try text.CreateTextureImage(
+            &renderer, 
+            core,
+            allocator,
+            helper.KtxColorSpace.srgb,
+            "zig-out/Slot.ktx2",
+        );
 
-        // Create Texture View
-        try text.CreateTextureImageView(core, &renderer, "Slot");
+        try text.CreateTextureImageView(core, &renderer.default_tex);
 
         // Create Samplers
         try CreateSampler(&renderer , core);
@@ -135,22 +158,46 @@ pub const Renderer = struct {
         const inds = [_]helper.Index_u16{ 0, 1, 2 , 2 , 3 , 0 };
         
         // Set Buffers
-        renderer.vertex_buffer = try helper.CreateVertexBuffer(renderer.vma, verts[0..], &renderer.upload_context, core);
-        renderer.index_buffer = try helper.CreateIndexBuffer(renderer.vma, inds[0..], &renderer.upload_context, core);
+        renderer.vertex_buffer = try helper.CreateVertexBuffer(
+            renderer.vma, 
+            verts[0..], 
+            &renderer.upload_context, 
+            core
+        );
+
+        renderer.index_buffer = try helper.CreateIndexBuffer(
+            renderer.vma, 
+            inds[0..], 
+            &renderer.upload_context,
+            core
+        );
+
+        renderer.sprite_instance_buffer = try helper.CreateBuffer(
+            renderer.vma,
+            MAX_SPRITES * @sizeOf(helper.SpriteDraw),
+            c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            c.VMA_MEMORY_USAGE_GPU_ONLY,
+            0,
+        );
+        
         renderer.index_count = @intCast(inds.len);
+        //renderer.instance_count = @intCast()
         
         // Create Descriptors
         try CreateDescriptors(&renderer, core);
 
+
         return renderer;
         
     }
+    
     pub fn DrawFrame(
         self: *Renderer, 
         core: *core_mod.Core, 
         swapchain: *sc.Swapchain,
         win: *sdl.Window,
-        allocator: std.mem.Allocator) !void {
+        allocator: std.mem.Allocator,
+        sprites: []helper.SpriteDraw, ) !void {
 
         if (self.request_swapchain_recreate and self.renderer_init) {
           
@@ -203,7 +250,6 @@ pub const Renderer = struct {
         else => return error.VulkanError,
         }
 
-        // TODO: Revisit images in flight to remove high frame overlap. Fix by per frame render-finished semaphores
         const in_flight = self.images_in_flight[swapchain_image_index];
         if (in_flight != helper.VK_NULL_HANDLE and in_flight != frame.render_fence) {
             try helper.check_vk(c.vkWaitForFences(
@@ -265,12 +311,13 @@ pub const Renderer = struct {
         //TODO: Bind Descriptor sets and also update shaders.
        const frame_set = frame.set_frame;
 
-       const inst_id = self.material_system.instances_by_name.get("Triangle_Instance") orelse
-            return error.MaterialInstanceNotFound;
+       // Binding atlas Sampler
+       try BindAtlasSampler(self, core, frame.material_set);
 
-       const mat_set = self.material_system.instances.items[@intCast(inst_id)].texture_set;
+       // Binding atlas images
+       try BindAtlasImages(self, core, frame.material_set);
 
-       const sets = [_]c.VkDescriptorSet {frame_set, mat_set };
+       const sets = [_]c.VkDescriptorSet {frame_set, frame.material_set };
 
        c.vkCmdBindDescriptorSets(
             cmd,
@@ -283,10 +330,31 @@ pub const Renderer = struct {
             null,
        );
 
-        const offsets = [_]c.VkDeviceSize{0};
-        c.vkCmdBindVertexBuffers(cmd, 0, 1, &self.vertex_buffer.buffer, &offsets[0]);
+        const offsets = [_]c.VkDeviceSize{0, 0};
+        const buffers = [_]c.VkBuffer{ 
+            self.vertex_buffer.buffer, 
+            self.sprite_instance_buffer.buffer, 
+        };
+
+        self.sprite_draws.clearRetainingCapacity();
+
+        for (sprites) |sprite| {
+            try self.sprite_draws.append(allocator, sprite);
+        }
+
+        self.instance_count = @as(u32, @intCast(self.sprite_draws.items.len));
+        if (self.instance_count > 0) {
+            try helper.UploadInstanceData(
+                self.vma,
+                &self.upload_context,
+                core,
+                &self.sprite_instance_buffer,
+                self.sprite_draws.items,
+            );
+        }      
+        c.vkCmdBindVertexBuffers(cmd, 0, buffers.len, &buffers, &offsets);
         c.vkCmdBindIndexBuffer(cmd, self.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT16);
-        c.vkCmdDrawIndexed(cmd, self.index_count, 1, 0, 0, 0);
+        c.vkCmdDrawIndexed(cmd, self.index_count, self.instance_count, 0, 0, 0);
 
         c.vkCmdEndRenderPass(cmd);
         try helper.check_vk(c.vkEndCommandBuffer(cmd));
@@ -420,12 +488,19 @@ pub const Renderer = struct {
             c.vkDestroyDescriptorSetLayout(core.device.handle, self.set_layout_compute, core.alloc_cb);
             self.set_layout_compute = null;
         }
-        
-        self.texture_manager.deinitGpu(core, self.vma);
-        self.texture_manager.deinit(allocator);
 
+        self.sprite_draws.deinit(allocator);
+        
         helper.DestroyBuffer(self.vma, &self.vertex_buffer);
         helper.DestroyBuffer(self.vma, &self.index_buffer);
+        helper.DestroyBuffer(self.vma, &self.sprite_instance_buffer);
+
+        for (self.atlas_textures.items) |*img| {
+            helper.DestroyImage(core, self.vma, img);
+        }
+        self.atlas_textures.deinit(allocator);
+
+        helper.DestroyImage(core, self.vma, &self.default_tex);
 
         if (self.images_in_flight.len != 0) {
             allocator.free(self.images_in_flight);
@@ -487,6 +562,31 @@ pub const Renderer = struct {
         if (self.vma != null){
             c.vmaDestroyAllocator(self.vma);
         }
+    }
+
+    pub fn AddAtlasGPU(
+        self: *Renderer, 
+        core: *core_mod.Core,
+        atlas: atlas_mod.AtlasAsset, 
+        allocator: std.mem.Allocator) !void{
+
+        const path_z = try allocator.dupeZ(u8, atlas.path);
+        defer allocator.free(path_z);
+        
+        //_ = core;
+        //_ = self;
+         var new_image = try text.CreateTextureImage(
+            self, 
+            core,
+            allocator,
+            helper.KtxColorSpace.srgb,
+            path_z,
+        );
+        //_ = new_image;
+        try text.CreateTextureImageView(core, &new_image);
+
+        try self.atlas_textures.append(allocator, new_image);
+
     }
 };
 
@@ -735,7 +835,9 @@ pub fn CreatePipelines(
     ) !void {
     
     // AI says this function is wrong. Keep this in mind going forward.
-    const triangle_mods = try helper.MakeShaderModules(core.device.handle, core.alloc_cb, "triangle.vert", "triangle.frag");
+    const triangle_mods = try helper.MakeShaderModules(core.device.handle, core.alloc_cb, 
+        "shaders/triangle.vert.spv", 
+        "shaders/triangle.frag.spv");
     defer c.vkDestroyShaderModule(core.device.handle, triangle_mods.vert_mod, core.alloc_cb);
     defer c.vkDestroyShaderModule(core.device.handle, triangle_mods.frag_mod, core.alloc_cb);
 
@@ -775,7 +877,13 @@ pub fn CreatePipelines(
             .binding = 0,
             .stride = @sizeOf(helper.Vertex),
             .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX,
-        }
+        },
+        .{
+            .binding = 1,
+            .stride = @sizeOf(helper.SpriteDraw),
+            .inputRate = c.VK_VERTEX_INPUT_RATE_INSTANCE,
+
+        },
     };
 
     const attrs = [_]c.VkVertexInputAttributeDescription{
@@ -798,6 +906,50 @@ pub fn CreatePipelines(
             .format = c.VK_FORMAT_R32G32_SFLOAT,
             .offset = @offsetOf(helper.Vertex, "texcoord"),
         },
+        .{
+            .location = 3,
+            .binding = 1,
+            .format = c.VK_FORMAT_R32G32_SFLOAT,
+            .offset = @offsetOf(helper.SpriteDraw, "sprite_pos"),
+        },
+        .{
+            .location = 4,
+            .binding = 1,
+            .format = c.VK_FORMAT_R32G32_SFLOAT,
+            .offset = @offsetOf(helper.SpriteDraw, "sprite_scale"),
+        },
+        .{
+            .location = 5,
+            .binding = 1,
+            .format = c.VK_FORMAT_R32G32_SFLOAT,
+            .offset = @offsetOf(helper.SpriteDraw, "sprite_rotation"),
+        },
+        .{
+            .location = 6,
+            .binding = 1,
+            .format = c.VK_FORMAT_R32G32_SFLOAT,
+            .offset = @offsetOf(helper.SpriteDraw, "uv_min"),
+        },
+        .{
+            .location = 7,
+            .binding = 1,
+            .format = c.VK_FORMAT_R32G32_SFLOAT,
+            .offset = @offsetOf(helper.SpriteDraw, "uv_max"),
+        },
+        .{
+            .location = 8,
+            .binding = 1,
+            .format = c.VK_FORMAT_R32G32B32A32_SFLOAT,
+            .offset = @offsetOf(helper.SpriteDraw, "tint"),
+        },
+        .{
+            .location = 9,
+            .binding = 1,
+            .format = c.VK_FORMAT_R32_UINT,
+            .offset = @offsetOf(helper.SpriteDraw, "atlas_id"),
+
+        }
+
     };
 
     const vertex_input_state_ci = std.mem.zeroInit(c.VkPipelineVertexInputStateCreateInfo, .{
@@ -899,6 +1051,8 @@ pub fn CreateDescriptorLayouts(renderer: *Renderer, core: *core_mod.Core) !void 
         .{ .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1024 },
         .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         .descriptorCount = 128  },
         .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          .descriptorCount = 64 },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          .descriptorCount = 64 },
+        .{ .type =  c.VK_DESCRIPTOR_TYPE_SAMPLER,               .descriptorCount = 64 },
     };
 
     const pool_ci = std.mem.zeroInit(c.VkDescriptorPoolCreateInfo, .{
@@ -945,37 +1099,22 @@ pub fn CreateDescriptorLayouts(renderer: *Renderer, core: *core_mod.Core) !void 
     // 3) Set 1 (Material) layout:
     //    binding 0..N: combined image samplers (textures)
     // =========================================================================
-    const MAX_TEXTURES_PER_MATERIAL: u32 = 4;
+    const MAX_TEXTURES_PER_MATERIAL: u32 = 2;
 
 
     const material_bindings = [_]c.VkDescriptorSetLayoutBinding{
         std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
             .binding = 0,
-            .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_SAMPLER,
             .descriptorCount = 1,
             .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = null,
         }),
+        // Atlas array
         std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
             .binding = 1,
-            .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+            .descriptorCount = MAX_ATLASES, // e.g. 64
             .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = null,
-        }),
-        std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
-            .binding = 2,
-            .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = null,
-        }),
-        std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
-            .binding = 3,
-            .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = null,
         }),
     };
 
@@ -1114,47 +1253,32 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
         };
 
         c.vkUpdateDescriptorSets(core.device.handle, @as(u32, @intCast(writes.len)), &writes[0], 0, null);
+
+        if (renderer.frames[i].material_set == helper.VK_NULL_HANDLE){
+
+           // var material_set: c.VkDescriptorSet = null;
+
+            const material_alloc = std.mem.zeroInit(c.VkDescriptorSetAllocateInfo, .{
+                .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                .descriptorPool = renderer.descriptor_pool,
+                .descriptorSetCount = 1,
+                .pSetLayouts = &renderer.set_layout_material,
+            });
+
+            try helper.check_vk(c.vkAllocateDescriptorSets(
+                    core.device.handle, 
+                    &material_alloc, 
+                    &renderer.frames[i].material_set
+                    )
+                );
+        }
+
     }
 
-    var material_set: c.VkDescriptorSet = null;
+    
 
-    const material_alloc = std.mem.zeroInit(c.VkDescriptorSetAllocateInfo, .{
-        .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = renderer.descriptor_pool,
-        .descriptorSetCount = 1,
-        .pSetLayouts = &renderer.set_layout_material,
-    });
-
-    try helper.check_vk(c.vkAllocateDescriptorSets(core.device.handle, &material_alloc, &material_set));
-
-    const slot_id = renderer.texture_manager.textures_by_name.get("Slot") orelse
-        return error.TextureNotFound;
-    const slot_tex = &renderer.texture_manager.textures.items[@intCast(slot_id)];
-
-    const image_info = std.mem.zeroInit(c.VkDescriptorImageInfo, .{
-        .sampler = renderer.sampler_linear_repeat,
-        .imageView = slot_tex.view,
-        .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-    });
-
-    const img_write = std.mem.zeroInit(c.VkWriteDescriptorSet, .{
-        .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = material_set,
-        .dstBinding = 0, // binding 0 in set 1
-        .dstArrayElement = 0,
-        .descriptorCount = 1,
-        .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .pImageInfo = &image_info,
-        .pBufferInfo = null,
-        .pTexelBufferView = null,
-    });
-
-    c.vkUpdateDescriptorSets(core.device.handle, 1, &img_write, 0, null);
-
-    const inst_id = renderer.material_system.instances_by_name.get("Triangle_Instance") orelse
-        return error.MaterialInstanceNotFound;
-    renderer.material_system.instances.items[@intCast(inst_id)].texture_set = material_set;
-
+    //try helper.PushTexture("Slot", core, renderer, allocator);
+    
     // DUMMY SSBO buffer
 
     // if (renderer.dummy_ssbo.buffer == helper.VK_NULL_HANDLE) {
@@ -1170,7 +1294,71 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
 
 }
 
-pub fn CreateSampler(renderer: *Renderer , core: *core_mod.Core) !void{
+fn BindAtlasSampler(
+    renderer: *Renderer, 
+    core: *core_mod.Core,
+    material_set: c.VkDescriptorSet,
+) !void{
+
+    const sampler_info = c.VkDescriptorImageInfo{
+        .sampler = renderer.sampler_linear_repeat,
+        .imageView = null,
+        .imageLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+
+    const write = c.VkWriteDescriptorSet{
+        .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = material_set,
+        .dstBinding = 0,
+        .dstArrayElement = 0,
+        .descriptorCount = 1,
+        .descriptorType = c.VK_DESCRIPTOR_TYPE_SAMPLER,
+        .pImageInfo = &sampler_info,
+    };
+
+    c.vkUpdateDescriptorSets(core.device.handle, 1, &write, 0, null);
+
+}
+
+fn BindAtlasImages(    
+    renderer: *Renderer,
+    core: *core_mod.Core,
+    material_set: c.VkDescriptorSet,
+) !void {
+
+    var image_infos: [MAX_ATLASES]c.VkDescriptorImageInfo = undefined;
+
+    for (renderer.atlas_textures.items, 0..) |atlas, i| {
+        image_infos[i] = c.VkDescriptorImageInfo{
+            .sampler = null,
+            .imageView = atlas.view,
+            .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        };
+    }
+
+    for (renderer.atlas_textures.items.len..MAX_ATLASES) |i| {
+       image_infos[i] = .{
+            .sampler = null,
+            .imageView = renderer.default_tex.view, // white 1×1
+            .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        };
+    }
+
+    const write = c.VkWriteDescriptorSet{
+        .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = material_set,
+        .dstBinding = 1,
+        .dstArrayElement = 0,
+        .descriptorCount = MAX_ATLASES,
+        .descriptorType = c.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+        .pImageInfo = &image_infos[0],
+    };
+
+    c.vkUpdateDescriptorSets(core.device.handle, 1, &write, 0, null);
+
+}
+
+fn CreateSampler(renderer: *Renderer , core: *core_mod.Core) !void{
 
     const sampler_ci = c.VkSamplerCreateInfo {
         .sType = c.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,

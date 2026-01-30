@@ -1,9 +1,10 @@
 const std = @import("std");
 const c = @import("clibs.zig").c;
-const sdl = @import("sdl.zig");
 const helper = @import("helper.zig");
 const target = @import("builtin").target;
 const swapchain = @import("swapchain.zig");
+const engine = @import("engine.zig");
+const sdl = engine.sdl;
 
 pub const validation_enabled = true;
 const is_macos = target.os.tag == .macos;
