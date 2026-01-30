@@ -89,6 +89,9 @@ pub const Cooker = struct {
        var dir = try std.fs.cwd().openDir(cooking_packet.parent_dir, .{ .iterate = true });
        defer dir.close();
 
+       var atlas_imgs: std.ArrayList(atlas_mod.AtlasImage) = try std.ArrayList(atlas_mod.AtlasImage).initCapacity(allocator, 0);
+       defer atlas_imgs.deinit(allocator);
+
        var it = dir.iterate();
        while (try it.next()) |entry| {
             if (entry.kind != .file) continue;
@@ -102,7 +105,9 @@ pub const Cooker = struct {
                 );
                 defer allocator.free(full_png_path);
 
-                try AddImageToAtlas(&atlas, allocator, full_png_path);
+                const atlas_img = try AddImageToAtlas(&atlas, allocator, full_png_path);
+
+                try atlas_imgs.append(allocator , atlas_img);
 
                 std.log.info("{s} added to atlas", .{ entry.name });
             }
@@ -173,6 +178,7 @@ pub const Cooker = struct {
         try atlas_mod.AddAtlasToManifest(
             allocator,
             &parsed.parsed.value,
+            atlas_imgs.items,
             ktx_path,
             cooking_packet.parent_dir,
             id,
@@ -256,11 +262,8 @@ pub fn AddImageToAtlas(
     atlas: *atlas_mod.Atlas,
     allocator: std.mem.Allocator,
     path: []const u8,
-) !void {
+) !atlas_mod.AtlasImage {
 
-    //_ = atlas;
-   // _ = allocator;
-    //_ = path;
 
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
@@ -271,6 +274,10 @@ pub fn AddImageToAtlas(
     defer allocator.free(read_buf);
 
     _ = try file.readAll(read_buf);
+
+    const filename = std.fs.path.basename(path); 
+    const stem = std.fs.path.stem(filename);
+    const name = try allocator.dupe(u8, stem);
 
     //// ---- load image ----
     var img = try zigimg.Image.fromFilePath(
@@ -286,8 +293,6 @@ pub fn AddImageToAtlas(
     const img_w: u32 = @intCast(img.width);
     const img_h: u32 = @intCast(img.height);
 
-    //_ = img_w;
-    //_ = img_h;
 
     std.log.info("atlas cursor + imh_w = {d} and atlas width = {d}", .{atlas.cursor_x + img_w, atlas.width});
     //// Simple row-based packing
@@ -304,8 +309,13 @@ pub fn AddImageToAtlas(
          return error.AtlasFull;
     }
 
+    const x = atlas.cursor_x;
+    const y = atlas.cursor_y;
+
     const src_pixels = img.pixels.rgba32;
     const src_bytes = std.mem.sliceAsBytes(src_pixels);
+
+    const img_loc = atlas_mod.ComputeUVs(atlas, img_h, img_w, x, y, name); 
 
    // //// Copy rows
     for (0..img_h) |row| {
@@ -320,7 +330,11 @@ pub fn AddImageToAtlas(
 
     atlas.row_h = @max(atlas.row_h, img_h);
     atlas.cursor_x += img_w;
+
+    return img_loc; 
 }
+
+
 
 // ********************************* TEXTURES ****************************************
 // GOAL #1: Traverse PNG files in textures (Update if a newly added PNG file is there)

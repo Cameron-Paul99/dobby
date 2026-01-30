@@ -172,11 +172,7 @@ pub const SceneManager = struct {
     }
 };
 
-pub const Sprite = struct {
-    atlas_id: u32,
-    //uv_rect: Rect,
-    default_size: math.Vec2,
-};
+
 
 
 // ****************************************** MAIN *******************************************
@@ -232,18 +228,24 @@ pub fn main() !void {
     var sprite_draws =  try std.ArrayList(helper.SpriteDraw).initCapacity(allocator, 0);
     defer sprite_draws.deinit(allocator);
 
-    const sprite = helper.SpriteDraw{
-       // .atlas_id = 0,
-        .uv_min = .{ 0.0, 0.0},
-        .uv_max = .{0.25, 0.25},
+    const slot_uv = try atlas_mod.GetImageFromAtlas(0, "new_slot", allocator);
+
+    if (slot_uv != null) {
+        std.log.info("Found the slot", .{});
+        allocator.free(slot_uv.?.name);
+    }
+
+    const slot_sprite_draw = helper.SpriteDraw{
+        .uv_min = slot_uv.?.uv_min,
+        .uv_max = slot_uv.?.uv_max,
         .sprite_pos   = .{ 0, 0},        // world position (your choice)
-        .sprite_scale = .{ 512.0, 512.0 },// world size (or whatever units you use)
+        .sprite_scale = .{ 0, 0 },// world size (or whatever units you use)
         .sprite_rotation = .{1.0, 0.0}, // cos=1, sin=0 (no rotation)
         .tint = .{ 1, 1, 1, 1 },   // no tint
         .atlas_id = 0,
     };
 
-    try sprite_draws.append(allocator, sprite);
+    try sprite_draws.append(allocator, slot_sprite_draw);
 
     while (!game_window.should_close){
 
@@ -278,6 +280,4 @@ pub fn main() !void {
 }
 
 
-pub fn PushSprite(sprites: *std.ArrayList(helper.SpriteDraw), sprite: helper.SpriteDraw) !void{
-    try sprites.append(sprite);
-}
+
