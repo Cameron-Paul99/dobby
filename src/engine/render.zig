@@ -85,6 +85,7 @@ pub const Renderer = struct {
     sprite_draws: std.ArrayList(helper.SpriteDraw),
     pending_atlas: bool = false,
     atlas_textures: std.ArrayList(helper.AllocatedImage), // All Atlases
+    cam: GPUCameraData,
     //batches: [MAX_ATLASES]std.ArrayList(SpriteDraw);
 
 
@@ -92,7 +93,7 @@ pub const Renderer = struct {
     // pipelines / layouts
     // maybe upload context too
 
-    pub fn init(allocator: std.mem.Allocator, core: *core_mod.Core, swapchain: *sc.Swapchain) !Renderer {
+    pub fn init(allocator: std.mem.Allocator, core: *core_mod.Core, swapchain: *sc.Swapchain, window: *sdl.Window) !Renderer {
 
         // Render pass creation
         const render_pass = try sc.CreateRenderPass(swapchain, core.device.handle, core.alloc_cb);
@@ -113,8 +114,16 @@ pub const Renderer = struct {
             .upload_context = .{},
             .vma = vma,
             .sprite_draws = try std.ArrayList(helper.SpriteDraw).initCapacity(allocator, 0),
-            .atlas_textures = try std.ArrayList(helper.AllocatedImage).initCapacity(allocator, 0), 
+            .atlas_textures = try std.ArrayList(helper.AllocatedImage).initCapacity(allocator, 0),
+            .cam = GPUCameraData{
+                .view_proj = math.Ortho(
+                    0.0, @floatFromInt(window.screen_width),
+                    0.0, @floatFromInt(window.screen_height),
+                ),          
+            },
         };
+
+        //renderer.cam.view_proj = renderer.cam.view_proj.TranslateWorld(math.Vec3.Make(0.0, 10.0, 0.0));
 
         try renderer.sprite_draws.ensureTotalCapacity(allocator , MAX_SPRITES);
 
@@ -148,10 +157,10 @@ pub const Renderer = struct {
 
         // Create Vertex Buffer
         const verts = [_]helper.Vertex{
-            .{ .pos = .{ -0.5, -0.5 }, .color = .{ 1.0, 0.0, 0.0 }, .texcoord = .{0.0, 1.0 }},
-            .{ .pos = .{  0.5, -0.5 }, .color = .{ 0.0, 1.0, 0.0 }, .texcoord = .{1.0, 1.0}},
-            .{ .pos = .{  0.5,  0.5 }, .color = .{ 0.0, 0.0, 1.0 }, .texcoord = .{1.0, 0.0 }},
-            .{ .pos = .{ -0.5,  0.5 }, .color = .{ 1.0, 1.0, 0.0 }, .texcoord = .{0.0, 0.0}},
+            .{ .pos = .{  0.0, 0.0 }, .color = .{ 1.0, 0.0, 0.0 }, .texcoord = .{0.0, 1.0 }},
+            .{ .pos = .{  1.0, 0.0 }, .color = .{ 0.0, 1.0, 0.0 }, .texcoord = .{1.0, 1.0}},
+            .{ .pos = .{  1.0,  1.0 }, .color = .{ 0.0, 0.0, 1.0 }, .texcoord = .{1.0, 0.0 }},
+            .{ .pos = .{  0.0,  1.0 }, .color = .{ 1.0, 1.0, 0.0 }, .texcoord = .{0.0, 0.0}},
         };
 
         // Create Index Buffer
@@ -228,6 +237,15 @@ pub const Renderer = struct {
         }
 
         try helper.check_vk(c.vkResetFences(core.device.handle, 1, &frame.render_fence));
+
+        // Camera 
+        try helper.UploadToBuffer(
+            self.vma,
+            frame.camera_ubo,
+            self.cam,
+        );
+
+        // Swapcahin
 
         
         var swapchain_image_index: u32 = undefined;
@@ -573,8 +591,6 @@ pub const Renderer = struct {
         const path_z = try allocator.dupeZ(u8, atlas.path);
         defer allocator.free(path_z);
         
-        //_ = core;
-        //_ = self;
          var new_image = try text.CreateTextureImage(
             self, 
             core,
@@ -582,7 +598,6 @@ pub const Renderer = struct {
             helper.KtxColorSpace.srgb,
             path_z,
         );
-        //_ = new_image;
         try text.CreateTextureImageView(core, &new_image);
 
         try self.atlas_textures.append(allocator, new_image);
@@ -1382,6 +1397,8 @@ fn CreateSampler(renderer: *Renderer , core: *core_mod.Core) !void{
 
     try helper.check_vk(c.vkCreateSampler(core.device.handle, &sampler_ci, core.alloc_cb, &renderer.sampler_linear_repeat));
 }
+
+
 
 
 

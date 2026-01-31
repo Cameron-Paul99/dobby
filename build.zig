@@ -60,7 +60,8 @@ pub fn build(b: *std.Build) !void {
     editor_sdl.addIncludePath(b.path("thirdparty/vma/"));
    // exe.linkLibC();
     editor_sdl.linkLibCpp();
-   
+    
+    //compile_all_png_active(b, editor_sdl);
 
     
     //compile_all_png_active(b, editor_sdl);

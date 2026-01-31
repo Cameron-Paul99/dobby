@@ -198,7 +198,7 @@ pub fn main() !void {
     defer sc.deinit(&core, allocator, core.alloc_cb);
     
     // Renderer creation
-    var renderer = try render.Renderer.init(allocator, &core, &sc);
+    var renderer = try render.Renderer.init(allocator, &core, &sc, &game_window);
     defer renderer.deinit(allocator, &core);
 
     // Atlas Manager
@@ -235,11 +235,20 @@ pub fn main() !void {
         allocator.free(slot_uv.?.name);
     }
 
+    const sprite_w: f32 = 400.0;
+    const sprite_h: f32 = 200.0;
+
+    const screen_w = @as(f32, @floatFromInt(game_window.screen_width));
+    const screen_h = @as(f32, @floatFromInt(game_window.screen_height));
+
+    const center_x: f32 = (screen_w - sprite_w) * 0.5;
+    const center_y: f32 = (screen_h - sprite_h) * 0.5;
+
     const slot_sprite_draw = helper.SpriteDraw{
         .uv_min = slot_uv.?.uv_min,
         .uv_max = slot_uv.?.uv_max,
-        .sprite_pos   = .{ 0, 0},        // world position (your choice)
-        .sprite_scale = .{ 0, 0 },// world size (or whatever units you use)
+        .sprite_pos   = .{ center_x, center_y},        // world position (your choice)
+        .sprite_scale = .{ 400.0 , 200.0 },// world size (or whatever units you use)
         .sprite_rotation = .{1.0, 0.0}, // cos=1, sin=0 (no rotation)
         .tint = .{ 1, 1, 1, 1 },   // no tint
         .atlas_id = 0,
