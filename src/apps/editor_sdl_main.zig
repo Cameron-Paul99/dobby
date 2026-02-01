@@ -7,6 +7,7 @@ const swapchain_mod = engine.swapchain;
 const render = engine.renderer;
 const helper = engine.helper;
 const text = engine.textures;
+const input = engine.input;
 const c = engine.c;
 const print = std.debug.print;
 const sdl = engine.sdl;
@@ -183,6 +184,10 @@ pub fn main() !void {
     // Window Creation
     var game_window = try sdl.Window.init(800, 600);
     defer game_window.deinit();
+
+    // Editor Input
+    var editor_input = input.EditorIntent{};
+   // _ = editor_input;
     
     // Allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -257,8 +262,9 @@ pub fn main() !void {
     try sprite_draws.append(allocator, slot_sprite_draw);
 
     while (!game_window.should_close){
-
+        
         game_window.pollEvents(&renderer);
+        input.BuildEditorIntent(&editor_input, game_window.raw_input);
         _ = try atlas_notifier.poll();
 
         if (atlas_manager.metadata_dirty){
