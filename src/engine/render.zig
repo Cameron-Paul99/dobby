@@ -32,7 +32,7 @@ const MaterialInstance = struct {
 
 const FRAME_OVERLAP = 4;
 
-const MAX_SPRITES = 1;
+const MAX_SPRITES = 4;
 
 const MAX_ATLASES = 64;
 
@@ -206,7 +206,10 @@ pub const Renderer = struct {
         swapchain: *sc.Swapchain,
         win: *sdl.Window,
         allocator: std.mem.Allocator,
-        sprites: []helper.SpriteDraw, ) !void {
+        sprites: []helper.SpriteDraw,
+        view_proj: math.Mat4, ) !void {
+
+        self.cam.view_proj = view_proj;
 
         if (self.request_swapchain_recreate and self.renderer_init) {
           
@@ -247,7 +250,6 @@ pub const Renderer = struct {
 
         // Swapcahin
 
-        
         var swapchain_image_index: u32 = undefined;
         const acquire = c.vkAcquireNextImageKHR(
             core.device.handle,
@@ -280,7 +282,6 @@ pub const Renderer = struct {
         }
 
         self.images_in_flight[swapchain_image_index] = frame.render_fence;
-
 
         const cmd = frame.main_command_buffer;
 

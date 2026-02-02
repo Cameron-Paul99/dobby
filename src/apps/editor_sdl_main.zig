@@ -15,6 +15,10 @@ const math = utils.math;
 const algo = utils.algo;
 const notify = utils.notify;
 const atlas_mod = utils.atlas;
+const lua_mod = engine.lua;
+//const lua = lua_mod.lua;
+const zlua = @import("zlua");
+const Lua = zlua.Lua;
 
 // Opaque = 0
 // Alpha = 1
@@ -25,7 +29,33 @@ const atlas_mod = utils.atlas;
 // 2. atlas_list is always sorted by id
 // 3. IDs are stable and never renumbered
 // 4. Editor never invents IDs
+fn MoveSprite(lua: *Lua) i32 {
+    const a = lua.toNumber(1) catch 0;
+    const b = lua.toNumber(2) catch 0;
+    lua.pushNumber(a + b);
+    return 1;
+}
 
+// ****************************************** CAMERA ************************************
+pub const Camera = struct {
+    pos: math.Vec2 = math.Vec2.ZERO,
+    view_proj: math.Mat4 = math.Mat4.IDENTITY,
+
+    pub fn Update(self: *Camera, screen_w: f32, screen_h: f32) void {
+
+        const proj = math.Ortho(0.0, screen_w, 0.0, screen_h);
+
+        const view = math.Mat4.TranslateWorld(proj , .{
+            .x = -self.pos.x,
+            .y = -self.pos.y,
+            .z = 0,
+        });
+
+        self.view_proj = view;
+
+    }
+
+};
 
 
 // ****************************************** ATLAS MANAGER **********************************
@@ -186,14 +216,30 @@ pub fn main() !void {
     defer game_window.deinit();
 
     // Editor Input
-    var editor_input = input.EditorIntent{};
-   // _ = editor_input;
+    var editor_input = input.EditorIntent{
+        .drag_speed = 0.05,
+    };
     
+    // Camera 
+    var camera = Camera{};
+   
     // Allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
     
+    // Lua
+    var lua = try Lua.init(allocator);
+    defer lua.deinit();
+
+    lua.openLibs();
+
+    lua.pushInteger(42);
+    std.debug.print("{}\n", .{try lua.toInteger(1)});
+    try lua.doString("print('Lua is alive')");
+
+    lua.pushFunction(zlua.wrap(MoveSprite));
+    lua.setGlobal("move_sprite");
     // Core Creation
     var core = try core_mod.Core.init(true, allocator, &game_window);
     defer core.deinit(allocator);
@@ -249,22 +295,40 @@ pub fn main() !void {
     const center_x: f32 = (screen_w - sprite_w) * 0.5;
     const center_y: f32 = (screen_h - sprite_h) * 0.5;
 
-    const slot_sprite_draw = helper.SpriteDraw{
+    var slot_sprite_draw = helper.SpriteDraw{
         .uv_min = slot_uv.?.uv_min,
         .uv_max = slot_uv.?.uv_max,
         .sprite_pos   = .{ center_x, center_y},        // world position (your choice)
-        .sprite_scale = .{ 400.0 , 200.0 },// world size (or whatever units you use)
+        .sprite_scale = .{ 300.0 , 200.0 },// world size (or whatever units you use)
         .sprite_rotation = .{1.0, 0.0}, // cos=1, sin=0 (no rotation)
         .tint = .{ 1, 1, 1, 1 },   // no tint
         .atlas_id = 0,
     };
 
+    lua.pushLightUserdata(&slot_sprite_draw);
+    lua.setGlobal("test");
+
+    const slot_sprite_draw_s = helper.SpriteDraw{
+        .uv_min = slot_uv.?.uv_min,
+        .uv_max = slot_uv.?.uv_max,
+        .sprite_pos   = .{ center_x + 300, center_y},        // world position (your choice)
+        .sprite_scale = .{ 300.0 , 200.0 },// world size (or whatever units you use)
+        .sprite_rotation = .{1.0, 0.0}, // cos=1, sin=0 (no rotation)
+        .tint = .{ 1, 1, 1, 1 },   // no tint
+        .atlas_id = 0,
+    };
     try sprite_draws.append(allocator, slot_sprite_draw);
+    try sprite_draws.append(allocator, slot_sprite_draw_s);
 
     while (!game_window.should_close){
         
         game_window.pollEvents(&renderer);
         input.BuildEditorIntent(&editor_input, game_window.raw_input);
+        camera.pos = math.Vec2.Add(camera.pos , editor_input.drag_delta);
+        camera.Update(
+            @floatFromInt(game_window.screen_width), 
+            @floatFromInt(game_window.screen_height)
+        );
         _ = try atlas_notifier.poll();
 
         if (atlas_manager.metadata_dirty){
@@ -288,7 +352,9 @@ pub fn main() !void {
             &sc, 
             &game_window, 
             allocator, 
-            sprite_draws.items);
+            sprite_draws.items,
+            camera.view_proj,
+        );
 
     }
 

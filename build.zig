@@ -17,11 +17,17 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    const lua_dep = b.dependency("zlua", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     engine_mod.addImport("utils", utils_mod);
     engine_mod.addIncludePath(b.path("thirdparty/vma"));
     engine_mod.addIncludePath(b.path("thirdparty/sdl3/include"));
 
-    // Asset Cooker EXE
+   // engine_mod.addIncludePath( b.path("thirdparty/lua/src"));
+       // Asset Cooker EXE
     const asset_cooker = b.addExecutable(.{
         .name = "Asset Cooker",
         .root_module = b.addModule(
@@ -48,11 +54,13 @@ pub fn build(b: *std.Build) !void {
     });
 
     editor_sdl.root_module.addImport("engine", engine_mod);
+    editor_sdl.root_module.addImport("zlua", lua_dep.module("zlua"));
     editor_sdl.root_module.addImport("utils", utils_mod);
     editor_sdl.root_module.addAnonymousImport("zigimg", .{ .root_source_file = b.path("thirdparty/zigimg/zigimg.zig") }); 
     editor_sdl.linkSystemLibrary("SDL3");
     editor_sdl.linkSystemLibrary("ktx");
     editor_sdl.linkSystemLibrary("z");
+  //  editor_sdl.linkSystemLibrary("lua");
 
     editor_sdl.linkSystemLibrary(vk_lib_name);
     editor_sdl.addIncludePath(.{ .cwd_relative = "thirdparty/sdl3/include" });

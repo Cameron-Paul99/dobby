@@ -17,6 +17,7 @@ pub const EditorIntent = struct {
     camera_move: math.Vec3 = math.Vec3.ZERO,
     camera_rotate: math.Vec2 = math.Vec2.ZERO,
     drag_delta: math.Vec2 = math.Vec2.ZERO,
+    drag_speed: f32 = 0,
     selection_mask: u64 = 0,
 };
 
@@ -160,11 +161,15 @@ pub fn MapSDLMouseButton(button: u8) ?InputKey {
 }
 
 pub fn BuildEditorIntent(intent: *EditorIntent, input: RawInput) void {
-    intent.* = EditorIntent{}; // reset intent each frame
+    const drag_s = intent.drag_speed;
+    intent.* = EditorIntent{
+        .drag_speed = drag_s,
+    }; // reset intent each frame
 
     if (input.buttons_down & Bit(.mouse_right) != 0) {
-        std.debug.print("Draging\n", .{});
+
         intent.drag_delta = input.mouse_delta;
+        intent.drag_delta = intent.drag_delta.Mul(intent.drag_speed);
     }
 }
 
