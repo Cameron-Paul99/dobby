@@ -1,3 +1,9 @@
+## [0.0.4] - Editor Camera and Input - Cameron Paul - 02/03/26
+- Editor intent input
+- Editor camera
+- Editor camera movement
+- Input key layer
+
 ## [0.0.3] - Asset Pipeline - Cameron Paul - 01/30/26
 - End to end texture packing
 - Atlas creation

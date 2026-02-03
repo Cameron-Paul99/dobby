@@ -1,0 +1,12 @@
+.{
+    .name = .dobby,
+    .version = "0.15.2",
+    .dependencies = .{
+        .zlua = .{
+            .url = "git+https://github.com/natecraddock/ziglua#cf0e794d429093f0f15694898636a658ebceb703",
+            .hash = "zlua-0.1.0-hGRpC-xTBQARfQcp_35Rcs-Z6KDqtEf3N-IRWi9NFogn",
+        },
+    },
+    .paths = .{""},
+    .fingerprint = 0xfc941e36bbb7eaeb,
+}

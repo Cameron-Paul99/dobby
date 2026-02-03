@@ -339,7 +339,7 @@ pub const Mat4 = struct {
         return .{.i = i, .j = j, .k = k, .t = t};
     }
 
-    pub inline fn transposed(self: Self) Self{
+    pub inline fn Transposed(self: Self) Self{
         return Make(
             Vec4.Make(self.i.x, self.j.x, self.k.x, self.t.x),
             Vec4.Make(self.i.y, self.j.y, self.k.y, self.t.y),
@@ -497,3 +497,22 @@ pub const Mat4 = struct {
     }
 
 };
+
+pub fn Ortho(
+    left: f32,
+    right: f32,
+    bottom: f32,
+    top: f32,
+) Mat4 {
+    return Mat4.Make(
+        Vec4.Make( 2.0 / (right - left), 0.0, 0.0, 0.0),
+        Vec4.Make( 0.0, 2.0 / (top - bottom), 0.0, 0.0),
+        Vec4.Make( 0.0, 0.0, 1.0, 0.0), // Vulkan Z ∈ [0,1]
+        Vec4.Make(
+            -(right + left) / (right - left),
+            -(top + bottom) / (top - bottom),
+            0.0,
+            1.0,
+        ),
+    );
+}

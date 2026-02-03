@@ -23,10 +23,10 @@ layout(set = 0, binding = 0) uniform CameraUBO {
 
 void main() {
 
-    //vec2 world = in_pos * sprite_scale + sprite_pos;
-    //gl_Position = camera.view_proj * vec4(world, 0.0, 1.0);
+    vec2 world = in_pos * sprite_scale + sprite_pos;
+    gl_Position = camera.view_proj * vec4(world, 0.0, 1.0);
 
-    gl_Position = vec4(in_pos, 0.0, 1.0);
+    //gl_Position = vec4(in_pos, 0.0, 1.0);
     frag_color = in_color;
     frag_tex_coord = mix(uv_min, uv_max, in_tex_coord);
     frag_atlas_id = atlas_id;

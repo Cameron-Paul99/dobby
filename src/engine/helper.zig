@@ -1018,10 +1018,19 @@ pub fn UploadInstanceData(
     try CopyBuffer(core, upload_ctx, staging.buffer, dst.buffer, size);
 }
 
+pub fn UploadToBuffer(
+    vma: c.VmaAllocator,
+    buffer: AllocatedBuffer,
+    data: anytype,
+) !void {
+    var mapped: ?*anyopaque = null;
 
-    
-    
+    try check_vk(c.vmaMapMemory(vma, buffer.allocation, &mapped));
+    defer c.vmaUnmapMemory(vma, buffer.allocation);
 
+    const src = std.mem.asBytes(&data);
+    const dst = @as([*]u8, @ptrCast(mapped.?));
 
-
+    @memcpy(dst[0..src.len], src);
+}
 
