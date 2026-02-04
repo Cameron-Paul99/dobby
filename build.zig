@@ -26,10 +26,22 @@ pub fn build(b: *std.Build) !void {
     engine_mod.addIncludePath(b.path("thirdparty/vma"));
     engine_mod.addIncludePath(b.path("thirdparty/sdl3/include"));
 
+    const setup_exe = b.addExecutable(.{
+        .name = "Setup",
+        .root_module = b.addModule(
+            "Setup",
+            .{
+                .root_source_file = b.path("setup.zig"),
+                .target = target,
+                .optimize = optimize,
+        }),
+    });
+
+    setup_exe.root_module.addImport("utils", utils_mod);
    // engine_mod.addIncludePath( b.path("thirdparty/lua/src"));
        // Asset Cooker EXE
     const asset_cooker = b.addExecutable(.{
-        .name = "Asset Cooker",
+        .name = "Asset_Cooker",
         .root_module = b.addModule(
             "Asset Cooker",
             .{
@@ -43,7 +55,7 @@ pub fn build(b: *std.Build) !void {
     asset_cooker.root_module.addAnonymousImport("zigimg", .{ .root_source_file = b.path("thirdparty/zigimg/zigimg.zig") });
     // Editor SDL 
     const editor_sdl = b.addExecutable(.{
-        .name = "Editor SDL",
+        .name = "Editor_SDL",
         .root_module = b.addModule(
             "Editor SDL", 
             .{
@@ -91,6 +103,20 @@ pub fn build(b: *std.Build) !void {
     run_cooker_cmd.step.dependOn(b.getInstallStep());
     const run_cooker_step = b.step("run_cooker", "Run the asset cooker");
     run_cooker_step.dependOn(&run_cooker_cmd.step);
+
+    const setup_cmd = b.addRunArtifact(setup_exe);
+    setup_cmd.step.dependOn(b.getInstallStep());
+    const setup_step = b.step("setup", "Setup engine");
+    setup_step.dependOn(&setup_cmd.step);
+    // Run All
+    const run_all_bg = b.addSystemCommand(&.{
+        "sh", "-c",
+        "zig build run_cooker & zig build run_editor & wait; kill 0",
+    });
+
+
+    const run_dev = b.step("run_dev", "Run cooker + editor concurrently");
+    run_dev.dependOn(&run_all_bg.step);
 
 }
 

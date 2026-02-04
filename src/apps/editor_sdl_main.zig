@@ -329,7 +329,10 @@ pub fn main() !void {
             @floatFromInt(game_window.screen_width), 
             @floatFromInt(game_window.screen_height)
         );
-        _ = try atlas_notifier.poll();
+        const atlas_bytes = try atlas_notifier.poll();
+        if (atlas_bytes > 0) {
+            atlas_manager.metadata_dirty = true;
+        }
 
         if (atlas_manager.metadata_dirty){
             std.log.info("meta data is dirty", .{});
