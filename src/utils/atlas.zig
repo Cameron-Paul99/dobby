@@ -1,4 +1,5 @@
 const std = @import("std");
+const utils = @import("utils.zig");
 
 pub const AtlasAliasId_u32 = u32;
 
@@ -46,9 +47,16 @@ pub const ParsedManifest = struct {
     }
 };
 
-pub fn ReadManifest(allocator: std.mem.Allocator) !ParsedManifest{
+pub fn ReadManifest(proj: utils.Project, allocator: std.mem.Allocator) !ParsedManifest{
 
-    const file = try std.fs.cwd().openFile("assets/cooked/atlases/manifest.json", .{});
+    const manifest_path = try std.fmt.allocPrint(
+        allocator,
+        "projects/{s}/assets/cooked/atlases/manifest.json",
+        .{ proj.name },
+    );
+    defer allocator.free(manifest_path); 
+
+    const file = try std.fs.cwd().openFile(manifest_path, .{});
     defer file.close();
 
     const file_size = try file.getEndPos();
@@ -70,10 +78,16 @@ pub fn ReadManifest(allocator: std.mem.Allocator) !ParsedManifest{
 
 }
 
-pub fn WriteManifest(manifest: Manifest, allocator: std.mem.Allocator) !void {
-    
+pub fn WriteManifest(proj: utils.Project , manifest: Manifest, allocator: std.mem.Allocator) !void {
+
+    const manifest_path = try std.fmt.allocPrint(
+        allocator,
+        "projects/{s}/assets/cooked/atlases/manifest.json",
+        .{ proj.name },
+    );
+    defer allocator.free(manifest_path); 
     //_ = allocator;
-    var file = try std.fs.cwd().createFile("assets/cooked/atlases/manifest.json", .{ .truncate = true });
+    var file = try std.fs.cwd().createFile( manifest_path, .{ .truncate = true });
     defer file.close();
 
     const json_text = try std.fmt.allocPrint(
@@ -161,10 +175,11 @@ pub fn ComputeUVs(
 pub fn GetImageFromAtlas(
     atlas_id: usize,
     name: []const u8,
+    proj: utils.Project,
     allocator: std.mem.Allocator,
 ) !?AtlasImage {
 
-    var manifest = try ReadManifest(allocator);
+    var manifest = try ReadManifest(proj, allocator);
     defer manifest.deinit(allocator);
 
     const atlas = &manifest.parsed.value.atlases[atlas_id];

@@ -36,6 +36,53 @@ fn MoveSprite(lua: *Lua) i32 {
     return 1;
 }
 
+pub const ProjectContext = struct {
+    proj_name: []const u8,
+    allocator: std.mem.Allocator,
+    scene_manager: SceneManager,
+    atlas_manager: AtlasManager,
+    sprite_draws: std.ArrayList(helper.SpriteDraw),
+    lua: *Lua,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        name: []const u8,
+    ) !ProjectContext{
+
+        var lua = try Lua.init(allocator);
+        lua.openLibs();
+
+        return .{
+            .proj_name = name,
+            .allocator = allocator,
+            .atlas_manager = .{
+                .atlas_list = try std.ArrayList(atlas_mod.AtlasAsset)
+                    .initCapacity(allocator, 0),
+            },
+            .scene_manager = .{
+                .scenes = try std.ArrayList(Scene).initCapacity(allocator, 0),
+                .atlas_alias_table = try std.ArrayList(atlas_mod.AtlasAliasId_u32)
+                    .initCapacity(allocator, 0),
+                .scene_connection_table = try std.ArrayList(SceneId_u32)
+                    .initCapacity(allocator, 0),
+            },
+            .sprite_draws = try std.ArrayList(helper.SpriteDraw)
+                .initCapacity(allocator, 0),
+            .lua = lua,
+        };
+
+    }
+
+    pub fn deinit(self: *ProjectContext) void {
+        self.atlas_manager.deinit(self.allocator);
+        self.scene_manager.deinit(self.allocator);
+        self.sprite_draws.deinit(self.allocator);
+        self.lua.deinit();
+    }
+};
+
+
+
 // ****************************************** CAMERA ************************************
 pub const Camera = struct {
     pos: math.Vec2 = math.Vec2.ZERO,
@@ -227,19 +274,13 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    
-    // Lua
-    var lua = try Lua.init(allocator);
-    defer lua.deinit();
+   
+    // Project
+    var proj = try utils.LoadProject(allocator);
+    defer proj.deinit(allocator);
 
-    lua.openLibs();
+    std.log.info("Opening project {s}", .{proj.parsed.value.name});
 
-    lua.pushInteger(42);
-    std.debug.print("{}\n", .{try lua.toInteger(1)});
-    try lua.doString("print('Lua is alive')");
-
-    lua.pushFunction(zlua.wrap(MoveSprite));
-    lua.setGlobal("move_sprite");
     // Core Creation
     var core = try core_mod.Core.init(true, allocator, &game_window);
     defer core.deinit(allocator);
@@ -252,99 +293,52 @@ pub fn main() !void {
     var renderer = try render.Renderer.init(allocator, &core, &sc, &game_window);
     defer renderer.deinit(allocator, &core);
 
-    // Atlas Manager
-    var atlas_manager = AtlasManager {
-        .atlas_list = try std.ArrayList(atlas_mod.AtlasAsset).initCapacity(allocator, 0) 
-    };
-    defer atlas_manager.deinit(allocator);
-    
+    // Atlas Path Creation
+    const atlas_path = try std.fmt.allocPrint(
+        allocator,
+        "projects/{s}/assets/cooked/atlases/",
+        .{ proj.parsed.value.name},
+    );
+    defer allocator.free(atlas_path); 
 
-    var atlas_notifier = try notify.Inotify.init("assets/cooked/atlases/", allocator);
+    const proj_atlas_path = try allocator.dupeZ(u8 , atlas_path);
+    defer allocator.free(proj_atlas_path);
+
+    // Atlas Notifier
+    var atlas_notifier = try notify.Inotify.init(proj_atlas_path, allocator);
     defer atlas_notifier.deinit(allocator);
 
-    // Scene Manager
-    var scene_manager = SceneManager {
-        .scenes = try std.ArrayList(Scene).initCapacity(allocator, 0),
-        .atlas_alias_table = try std.ArrayList(atlas_mod.AtlasAliasId_u32).initCapacity(allocator, 0),
-        .scene_connection_table = try std.ArrayList(SceneId_u32).initCapacity(allocator, 0),
-    };
-    defer scene_manager.deinit(allocator);
-
-    try scene_manager.MakeScene(
-        allocator,
-        &.{},
-        &.{},
-    );
-
-    var sprite_draws =  try std.ArrayList(helper.SpriteDraw).initCapacity(allocator, 0);
-    defer sprite_draws.deinit(allocator);
-
-    const slot_uv = try atlas_mod.GetImageFromAtlas(0, "new_slot", allocator);
-
-    if (slot_uv != null) {
-        std.log.info("Found the slot", .{});
-        allocator.free(slot_uv.?.name);
-    }
-
-    const sprite_w: f32 = 400.0;
-    const sprite_h: f32 = 200.0;
-
-    const screen_w = @as(f32, @floatFromInt(game_window.screen_width));
-    const screen_h = @as(f32, @floatFromInt(game_window.screen_height));
-
-    const center_x: f32 = (screen_w - sprite_w) * 0.5;
-    const center_y: f32 = (screen_h - sprite_h) * 0.5;
-
-    var slot_sprite_draw = helper.SpriteDraw{
-        .uv_min = slot_uv.?.uv_min,
-        .uv_max = slot_uv.?.uv_max,
-        .sprite_pos   = .{ center_x, center_y},        // world position (your choice)
-        .sprite_scale = .{ 300.0 , 200.0 },// world size (or whatever units you use)
-        .sprite_rotation = .{1.0, 0.0}, // cos=1, sin=0 (no rotation)
-        .tint = .{ 1, 1, 1, 1 },   // no tint
-        .atlas_id = 0,
-    };
-
-    lua.pushLightUserdata(&slot_sprite_draw);
-    lua.setGlobal("test");
-
-    const slot_sprite_draw_s = helper.SpriteDraw{
-        .uv_min = slot_uv.?.uv_min,
-        .uv_max = slot_uv.?.uv_max,
-        .sprite_pos   = .{ center_x + 300, center_y},        // world position (your choice)
-        .sprite_scale = .{ 300.0 , 200.0 },// world size (or whatever units you use)
-        .sprite_rotation = .{1.0, 0.0}, // cos=1, sin=0 (no rotation)
-        .tint = .{ 1, 1, 1, 1 },   // no tint
-        .atlas_id = 0,
-    };
-    try sprite_draws.append(allocator, slot_sprite_draw);
-    try sprite_draws.append(allocator, slot_sprite_draw_s);
+    var project_context = try ProjectContext.init(allocator, proj.parsed.value.name);
+    defer project_context.deinit();
 
     while (!game_window.should_close){
         
         game_window.pollEvents(&renderer);
+
         input.BuildEditorIntent(&editor_input, game_window.raw_input);
+
         camera.pos = math.Vec2.Add(camera.pos , editor_input.drag_delta);
+
         camera.Update(
             @floatFromInt(game_window.screen_width), 
             @floatFromInt(game_window.screen_height)
         );
         const atlas_bytes = try atlas_notifier.poll();
         if (atlas_bytes > 0) {
-            atlas_manager.metadata_dirty = true;
+            project_context.atlas_manager.metadata_dirty = true;
         }
 
-        if (atlas_manager.metadata_dirty){
+        if (project_context.atlas_manager.metadata_dirty){
             std.log.info("meta data is dirty", .{});
 
-            atlas_manager.metadata_dirty = false;
+            project_context.atlas_manager.metadata_dirty = false;
 
-            atlas_manager.manifest = try atlas_mod.ReadManifest(allocator);
+            project_context.atlas_manager.manifest = try atlas_mod.ReadManifest(proj.parsed.value, allocator);
 
-            try atlas_manager.ApplyMetadata(
+            try project_context.atlas_manager.ApplyMetadata(
                 &renderer,
                 &core,
-                atlas_manager.manifest.?.parsed.value.atlases,
+                project_context.atlas_manager.manifest.?.parsed.value.atlases,
                 allocator,
             );
 
@@ -355,7 +349,7 @@ pub fn main() !void {
             &sc, 
             &game_window, 
             allocator, 
-            sprite_draws.items,
+            project_context.sprite_draws.items,
             camera.view_proj,
         );
 

@@ -57,7 +57,7 @@ pub const Cooker = struct {
         allocator: std.mem.Allocator) !void {
         
         _ = self;
-        var parsed = try atlas_mod.ReadManifest(allocator);
+        var parsed = try atlas_mod.ReadManifest(proj, allocator);
         defer parsed.deinit(allocator);
 
         var maybe_id: ?usize = null;
@@ -194,7 +194,7 @@ pub const Cooker = struct {
             id,
         );
 
-         try atlas_mod.WriteManifest(parsed.parsed.value, allocator);
+         try atlas_mod.WriteManifest(proj, parsed.parsed.value, allocator);
 
          std.log.info("Manifest is updated", .{});
 
@@ -202,11 +202,12 @@ pub const Cooker = struct {
 };
 
 pub fn RemoveAtlas(
+    proj: utils.Project,
     allocator: std.mem.Allocator,
     cooking_packet: CookingPacket,
 ) !void {
 
-    var parsed = try atlas_mod.ReadManifest(allocator);
+    var parsed = try atlas_mod.ReadManifest(proj , allocator);
     defer parsed.deinit(allocator);
 
     var remove_index: ?usize = null;
@@ -261,7 +262,7 @@ pub fn RemoveAtlas(
     // shrink slice
     atlases.* = atlases.*[0..last];
 
-    try atlas_mod.WriteManifest(parsed.parsed.value, allocator);
+    try atlas_mod.WriteManifest(proj, parsed.parsed.value, allocator);
 
     std.log.info("Atlas id {d} removed", .{id});
 }
@@ -507,7 +508,7 @@ pub fn main() !void {
                         const cooking_packet = try FileUpdated( allocator, &texture_notifier, ev, );
                         defer allocator.free(cooking_packet.file_path);
 
-                        try RemoveAtlas(allocator, cooking_packet);
+                        try RemoveAtlas(proj.parsed.value , allocator, cooking_packet);
 
 
                     },
