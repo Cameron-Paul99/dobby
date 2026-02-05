@@ -26,10 +26,22 @@ pub fn build(b: *std.Build) !void {
     engine_mod.addIncludePath(b.path("thirdparty/vma"));
     engine_mod.addIncludePath(b.path("thirdparty/sdl3/include"));
 
+    const setup_exe = b.addExecutable(.{
+        .name = "Setup",
+        .root_module = b.addModule(
+            "Setup",
+            .{
+                .root_source_file = b.path("setup.zig"),
+                .target = target,
+                .optimize = optimize,
+        }),
+    });
+
+    setup_exe.root_module.addImport("utils", utils_mod);
    // engine_mod.addIncludePath( b.path("thirdparty/lua/src"));
        // Asset Cooker EXE
     const asset_cooker = b.addExecutable(.{
-        .name = "Asset Cooker",
+        .name = "Asset_Cooker",
         .root_module = b.addModule(
             "Asset Cooker",
             .{
@@ -43,7 +55,7 @@ pub fn build(b: *std.Build) !void {
     asset_cooker.root_module.addAnonymousImport("zigimg", .{ .root_source_file = b.path("thirdparty/zigimg/zigimg.zig") });
     // Editor SDL 
     const editor_sdl = b.addExecutable(.{
-        .name = "Editor SDL",
+        .name = "Editor_SDL",
         .root_module = b.addModule(
             "Editor SDL", 
             .{
@@ -69,10 +81,7 @@ pub fn build(b: *std.Build) !void {
    // exe.linkLibC();
     editor_sdl.linkLibCpp();
     
-    //compile_all_png_active(b, editor_sdl);
 
-    
-    //compile_all_png_active(b, editor_sdl);
     compile_all_shaders_mod(b, engine_mod);
 
     editor_sdl.addIncludePath(.{ .cwd_relative = "/usr/include/vulkan/vulkan.h" });
@@ -92,103 +101,24 @@ pub fn build(b: *std.Build) !void {
     const run_cooker_step = b.step("run_cooker", "Run the asset cooker");
     run_cooker_step.dependOn(&run_cooker_cmd.step);
 
-}
-
-fn compile_all_png_active(b: *std.Build, exe: *std.Build.Step.Compile) void {
-
-    var png_dir = if (@hasDecl(@TypeOf(b.build_root.handle), "openIterableDir"))
-        b.build_root.handle.openIterableDir("assets/src/textures", .{}) catch @panic("Failed to open textures_src directory")
-    else
-        b.build_root.handle.openDir("assets/src/textures", .{ .iterate = true }) catch @panic("Failed to open textures_src directory");
-
-    defer png_dir.close();
-
-    const assets_step = b.step("textures", "Convert textures to runtime format");
-
-    var file_it = png_dir.iterate();
-    while (file_it.next() catch @panic("Failed to iterate png directory")) |entry| {
-        if (entry.kind == .file) {
-            const ext = std.fs.path.extension(entry.name);
-            if (std.mem.eql(u8, ext, ".png")) {
-                const basename = std.fs.path.basename(entry.name);
-                const name = basename[0..basename.len - ext.len];
-
-                std.debug.print("Found png file to compile: {s}. Compiling with name: {s}\n", .{ entry.name, name });
-
-                convert_to_ktx2(b, assets_step, name);
-                //add_shader(b, exe, name);
-            }
-        }
-    }
-
-    exe.step.dependOn(assets_step);
-}
-fn convert_to_ktx2(
-    b: *std.Build, 
-    assets_step: *std.Build.Step, 
-    name: []const u8) void{
-
-    const toktx = b.findProgram(&.{ "toktx" }, &.{}) catch
-        @panic("toktx not found. Install KTX-Software tools.");
-
-    const source = std.fmt.allocPrint(b.allocator, "assets/src/textures/{s}.png", .{name}) catch @panic("OOM");
-    const outpath = std.fmt.allocPrint(b.allocator, "textures/{s}.ktx2", .{name}) catch @panic("OOM");
-
-    const out_ktx2_abs = b.pathJoin(&.{ b.install_prefix, outpath });
-    const tex_step = b.addSystemCommand(&.{
-        toktx,
-        "--assign_oetf", "srgb",
-        "--bcmp",       // BasisU supercompression
-        "--genmipmap",  // generate mipmaps offline
-        out_ktx2_abs,
-        source,
+    const setup_cmd = b.addRunArtifact(setup_exe);
+    setup_cmd.step.dependOn(b.getInstallStep());
+    const setup_step = b.step("setup", "Setup engine");
+    setup_step.dependOn(&setup_cmd.step);
+    // Run All
+    const run_all_bg = b.addSystemCommand(&.{
+        "sh", "-c",
+        "zig build run_cooker & zig build run_editor & wait; kill 0",
     });
 
-    assets_step.dependOn(&tex_step.step);
-   
-}
 
-fn compile_all_shaders(b: *std.Build, exe: *std.Build.Step.Compile) void {
-    // This is a fix for a change between zig 0.11 and 0.12
+    const run_dev = b.step("run_dev", "Run cooker + editor concurrently");
+    run_dev.dependOn(&run_all_bg.step);
 
-    const shaders_dir = if (@hasDecl(@TypeOf(b.build_root.handle), "openIterableDir"))
-        b.build_root.handle.openIterableDir("assets/src/shaders", .{}) catch @panic("Failed to open shaders directory")
-    else
-        b.build_root.handle.openDir("assets/src/shaders", .{ .iterate = true }) catch @panic("Failed to open shaders directory");
-
-    var file_it = shaders_dir.iterate();
-    while (file_it.next() catch @panic("Failed to iterate shader directory")) |entry| {
-        if (entry.kind == .file) {
-            const ext = std.fs.path.extension(entry.name);
-            if (std.mem.eql(u8, ext, ".glsl")) {
-                const basename = std.fs.path.basename(entry.name);
-                const name = basename[0..basename.len - ext.len];
-
-                std.debug.print("Found shader file to compile: {s}. Compiling with name: {s}\n", .{ entry.name, name });
-                add_shader(b, exe, name);
-            }
-        }
-    }
-}
-
-fn add_shader(b: *std.Build, exe: *std.Build.Step.Compile, name: []const u8) void {
-    const source = std.fmt.allocPrint(b.allocator, "assets/src/shaders/{s}.glsl", .{name}) catch @panic("OOM");
-    const outpath = std.fmt.allocPrint(b.allocator, "shaders/{s}.spv", .{name}) catch @panic("OOM");
-
-    const shader_compilation = b.addSystemCommand(&.{ "glslangValidator" });
-    shader_compilation.addArg("-V");
-    shader_compilation.addArg("-o");
-    //shader_compilation.addArg(outpath);
-    const output = shader_compilation.addOutputFileArg(outpath);
-    shader_compilation.addFileArg(b.path(source));
-    
-    exe.root_module.addAnonymousImport( outpath , .{ .root_source_file = output });
-
-    exe.step.dependOn(&shader_compilation.step);
 }
 
 fn compile_all_shaders_mod(b: *std.Build, mod: *std.Build.Module) void {
-    const shaders_dir = b.build_root.handle.openDir("assets/src/shaders", .{ .iterate = true })
+    const shaders_dir = b.build_root.handle.openDir("base_shaders", .{ .iterate = true })
         catch @panic("Failed to open shaders directory");
 
     var it = shaders_dir.iterate();
@@ -202,7 +132,7 @@ fn compile_all_shaders_mod(b: *std.Build, mod: *std.Build.Module) void {
 }
 
 fn add_shader_mod(b: *std.Build, mod: *std.Build.Module, name: []const u8) void {
-    const source = b.fmt("assets/src/shaders/{s}.glsl", .{name});
+    const source = b.fmt("base_shaders/{s}.glsl", .{name});
 
     const cmd = b.addSystemCommand(&.{ "glslangValidator", "-V" });
     cmd.addArg("-o");
@@ -216,3 +146,4 @@ fn add_shader_mod(b: *std.Build, mod: *std.Build.Module, name: []const u8) void 
         .root_source_file = out,
     });
 }
+

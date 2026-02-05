@@ -1,3 +1,9 @@
+## [0.0.5] - Separation of Editor and Projects - Cameron Paul - 02/04/26
+- Creation of setup main to set up projects
+- Removed project data from editor main into a project struct
+- Added project paths for all exes
+- Created a basic shader folder that every project uses
+
 ## [0.0.4] - Editor Camera and Input - Cameron Paul - 02/03/26
 - Editor intent input
 - Editor camera

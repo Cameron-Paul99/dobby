@@ -50,13 +50,14 @@ pub const Cooker = struct {
 
     // TODO: Make an Atlas from PNG files 
     pub fn CookTextures(
-        self: *Cooker, 
+        self: *Cooker,
+        proj: utils.Project,
         cooking_packet: CookingPacket,
         new_atlas: bool,
         allocator: std.mem.Allocator) !void {
         
         _ = self;
-        var parsed = try atlas_mod.ReadManifest(allocator);
+        var parsed = try atlas_mod.ReadManifest(proj, allocator);
         defer parsed.deinit(allocator);
 
         var maybe_id: ?usize = null;
@@ -144,19 +145,26 @@ pub const Cooker = struct {
 
        try img.writeToFilePath(allocator , png_path, write_buffer, .{ .png = .{} });
 
-       const ktx_path = try std.fmt.allocPrint(
+       const ktx_tmp_path = try std.fmt.allocPrint(
             allocator,
-            "assets/cooked/atlases/atlas_{d}.ktx2",
-            .{ id },
+            "projects/{s}/assets/cooked/atlases/.atlas_{d}.ktx2.tmp",
+            .{ proj.name, id },
         );
-        defer allocator.free(ktx_path);
+        defer allocator.free(ktx_tmp_path);
+
+        const ktx_final_path = try std.fmt.allocPrint(
+            allocator,
+            "projects/{s}/assets/cooked/atlases/atlas_{d}.ktx2",
+            .{proj.name , id },
+        );
+        defer allocator.free(ktx_final_path);
 
         var argv = [_][]const u8{
             "toktx",
             "--assign_oetf", "srgb",
             "--bcmp",
             "--genmipmap",
-            ktx_path,
+            ktx_tmp_path,
             png_path,
         };
 
@@ -166,6 +174,8 @@ pub const Cooker = struct {
         child.stderr_behavior = .Inherit;
 
         const term = try child.spawnAndWait();
+
+        try std.fs.cwd().rename(ktx_tmp_path, ktx_final_path);
 
        switch (term) {
             .Exited => |code| if (code != 0) return error.ToktxFailed,
@@ -179,12 +189,12 @@ pub const Cooker = struct {
             allocator,
             &parsed.parsed.value,
             atlas_imgs.items,
-            ktx_path,
+            ktx_final_path,
             cooking_packet.parent_dir,
             id,
         );
 
-         try atlas_mod.WriteManifest(parsed.parsed.value, allocator);
+         try atlas_mod.WriteManifest(proj, parsed.parsed.value, allocator);
 
          std.log.info("Manifest is updated", .{});
 
@@ -192,11 +202,12 @@ pub const Cooker = struct {
 };
 
 pub fn RemoveAtlas(
+    proj: utils.Project,
     allocator: std.mem.Allocator,
     cooking_packet: CookingPacket,
 ) !void {
 
-    var parsed = try atlas_mod.ReadManifest(allocator);
+    var parsed = try atlas_mod.ReadManifest(proj , allocator);
     defer parsed.deinit(allocator);
 
     var remove_index: ?usize = null;
@@ -251,7 +262,7 @@ pub fn RemoveAtlas(
     // shrink slice
     atlases.* = atlases.*[0..last];
 
-    try atlas_mod.WriteManifest(parsed.parsed.value, allocator);
+    try atlas_mod.WriteManifest(proj, parsed.parsed.value, allocator);
 
     std.log.info("Atlas id {d} removed", .{id});
 }
@@ -353,7 +364,22 @@ pub fn main() !void {
 
     std.log.info("asset cooker has started", .{});
 
-    var texture_notifier = try notify.Inotify.init("assets/src/textures", allocator);
+    var proj = try utils.LoadProject(allocator);
+    defer proj.deinit(allocator);
+
+    std.log.info("Cooker in project: {s}", .{proj.parsed.value.name});
+
+    const texture_path = try std.fmt.allocPrint(
+        allocator,
+        "projects/{s}/assets/src/textures",
+        .{ proj.parsed.value.name},
+    );
+    defer allocator.free(texture_path);
+
+    const text_path = try allocator.dupeZ(u8 , texture_path);
+    defer allocator.free(text_path);
+
+    var texture_notifier = try notify.Inotify.init(text_path, allocator);
     ////var shader_notifier = try notify.Inotify.init("assets/src/shaders", allocator);
     defer texture_notifier.deinit(allocator);
     //defer shader_notifier.deinit(allocator);
@@ -361,14 +387,22 @@ pub fn main() !void {
     var cooker = Cooker{};
     var file: std.fs.File = undefined;
 
-     file = std.fs.cwd().openFile("assets/cooked/atlases/manifest.json", .{}) catch |err| switch (err){
+    const atlas_manifest_path = try std.fmt.allocPrint(
+        allocator,
+        "projects/{s}/assets/cooked/atlases/manifest.json",
+        .{ proj.parsed.value.name},
+    );
+    defer allocator.free(atlas_manifest_path);
+    
+    //const proj_name = proj.parsed.value.name;
+     file = std.fs.cwd().openFile(atlas_manifest_path, .{}) catch |err| switch (err){
         error.FileNotFound => blk: {
             try std.fs.cwd().makePath(
-                std.fs.path.dirname("assets/cooked/atlases/manifest.json").?
+                std.fs.path.dirname(atlas_manifest_path).?
             );
 
             var new_file = try std.fs.cwd().createFile(
-                "assets/cooked/atlases/manifest.json",
+                atlas_manifest_path,
                 .{ .truncate = true },
             );
 
@@ -380,7 +414,7 @@ pub fn main() !void {
             ;
 
             try new_file.writeAll(json_text);
-            break :blk new_file; // 🔑 return fs.File
+            break :blk new_file;
         },
         else => return err,
 
@@ -389,7 +423,7 @@ pub fn main() !void {
 
     defer file.close();
 
-    var dir = try std.fs.cwd().openDir("assets/src/textures", .{ .iterate = true });
+    var dir = try std.fs.cwd().openDir(texture_path, .{ .iterate = true });
     defer dir.close();
 
     var it = dir.iterate();
@@ -404,7 +438,7 @@ pub fn main() !void {
 
         const full_path = try std.fs.path.join(
             allocator,
-            &.{ "assets/src/textures", entry.name },
+            &.{ texture_path, entry.name },
         );
 
         const full_path_z = try allocator.dupeZ(u8, full_path);
@@ -474,7 +508,7 @@ pub fn main() !void {
                         const cooking_packet = try FileUpdated( allocator, &texture_notifier, ev, );
                         defer allocator.free(cooking_packet.file_path);
 
-                        try RemoveAtlas(allocator, cooking_packet);
+                        try RemoveAtlas(proj.parsed.value , allocator, cooking_packet);
 
 
                     },
@@ -485,7 +519,7 @@ pub fn main() !void {
                         defer allocator.free(cooking_packet.file_path);
 
                         std.log.info("File written: {s}", .{cooking_packet.file_path});
-                        try cooker.CookTextures(cooking_packet, false ,allocator);
+                        try cooker.CookTextures(proj.parsed.value, cooking_packet, false ,allocator);
                     },
 
                     .FileDeleted => {

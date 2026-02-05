@@ -31,3 +31,9 @@ zls-cache/
 
 # Third Party Zigimg
 thirdparty/zigimg
+
+# Project folder
+projects/
+*.project
+*.proj
+.active_project.json
