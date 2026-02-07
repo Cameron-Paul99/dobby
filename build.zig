@@ -72,13 +72,11 @@ pub fn build(b: *std.Build) !void {
     editor_sdl.linkSystemLibrary("SDL3");
     editor_sdl.linkSystemLibrary("ktx");
     editor_sdl.linkSystemLibrary("z");
-  //  editor_sdl.linkSystemLibrary("lua");
 
     editor_sdl.linkSystemLibrary(vk_lib_name);
     editor_sdl.addIncludePath(.{ .cwd_relative = "thirdparty/sdl3/include" });
     editor_sdl.addCSourceFile(.{ .file = b.path("src/engine/vk_mem_alloc.cpp"), .flags = &.{ "" } });
     editor_sdl.addIncludePath(b.path("thirdparty/vma/"));
-   // exe.linkLibC();
     editor_sdl.linkLibCpp();
     
 
@@ -86,9 +84,31 @@ pub fn build(b: *std.Build) !void {
 
     editor_sdl.addIncludePath(.{ .cwd_relative = "/usr/include/vulkan/vulkan.h" });
 
+    const game_exe = b.addExecutable(.{
+        .name = "Game_Exe",
+        .root_module = b.addModule(
+            "Game_Exe",
+            .{
+                .root_source_file = b.path("src/apps/game_main.zig"),
+                .target = target,
+                .optimize = optimize,
+        }),
+    });
+
+    game_exe.root_module.addImport("engine", engine_mod);
+    game_exe.linkSystemLibrary(vk_lib_name);
+    game_exe.addIncludePath(.{ .cwd_relative = "thirdparty/sdl3/include" });
+    game_exe.addCSourceFile(.{ .file = b.path("src/engine/vk_mem_alloc.cpp"), .flags = &.{ "" } });
+    game_exe.addIncludePath(b.path("thirdparty/vma/"));
+    game_exe.addIncludePath(.{ .cwd_relative = "/usr/include/vulkan/vulkan.h" });
+    game_exe.linkLibCpp();
+    game_exe.linkSystemLibrary("SDL3");
+    game_exe.linkSystemLibrary("ktx");
+
     // ---- Install both ----
     b.installArtifact(editor_sdl);
     b.installArtifact(asset_cooker);
+    b.installArtifact(game_exe);
 
     // ---- Run steps (stand-alone) ----
     const run_editor_cmd = b.addRunArtifact(editor_sdl);
@@ -105,15 +125,21 @@ pub fn build(b: *std.Build) !void {
     setup_cmd.step.dependOn(b.getInstallStep());
     const setup_step = b.step("setup", "Setup engine");
     setup_step.dependOn(&setup_cmd.step);
+
     // Run All
     const run_all_bg = b.addSystemCommand(&.{
         "sh", "-c",
         "zig build run_cooker & zig build run_editor & wait; kill 0",
     });
 
-
     const run_dev = b.step("run_dev", "Run cooker + editor concurrently");
-    run_dev.dependOn(&run_all_bg.step);
+    run_dev.dependOn(&run_all_bg.step); 
+
+    // Run the game
+    const game_cmd = b.addRunArtifact(game_exe);
+    game_cmd.step.dependOn(b.getInstallStep());
+    const game_step = b.step("game", "build game");
+    game_step.dependOn(&game_cmd.step);
 
 }
 

@@ -1,3 +1,7 @@
+## [0.0.6] - Two bit active entity and game exe - Cameron Paul - 02/07/26
+- Two bit ecs start
+- game exe implementation
+
 ## [0.0.5] - Separation of Editor and Projects - Cameron Paul - 02/04/26
 - Creation of setup main to set up projects
 - Removed project data from editor main into a project struct
