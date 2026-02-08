@@ -2,6 +2,7 @@ const std = @import("std");
 const utils = @import("utils");
 const engine = @import("engine");
 const zigimg = @import("zigimg");
+const g_api = @import("game_api");
 const core_mod = engine.core;
 const swapchain_mod = engine.swapchain;
 const render = engine.renderer;
@@ -15,10 +16,7 @@ const math = utils.math;
 const algo = utils.algo;
 const notify = utils.notify;
 const atlas_mod = utils.atlas;
-const lua_mod = engine.lua;
-//const lua = lua_mod.lua;
-const zlua = @import("zlua");
-const Lua = zlua.Lua;
+
 
 // Opaque = 0
 // Alpha = 1
@@ -29,11 +27,19 @@ const Lua = zlua.Lua;
 // 2. atlas_list is always sorted by id
 // 3. IDs are stable and never renumbered
 // 4. Editor never invents IDs
-fn MoveSprite(lua: *Lua) i32 {
-    const a = lua.toNumber(1) catch 0;
-    const b = lua.toNumber(2) catch 0;
-    lua.pushNumber(a + b);
-    return 1;
+//
+const GameInitFn = *const fn (*g_api.GameAPI) void;
+const GameUpdateFn = *const fn (f64) void;
+
+pub export fn SpawnSprite( sprite: *const g_api.SpriteDesc) callconv(.c) u32 {
+    _ = sprite;
+    return 25;
+}
+
+pub export fn SetSpritePos(entity: u32, x: f32, y: f32) callconv(.c) void {
+    _ = entity;
+    _ = x;
+    _ = y;
 }
 
 pub const ProjectContext = struct {
@@ -41,16 +47,24 @@ pub const ProjectContext = struct {
     allocator: std.mem.Allocator,
     scene_manager: SceneManager,
     atlas_manager: AtlasManager,
+    game_api: g_api.GameAPI = undefined,
+    lib: std.DynLib,
+    game_init: ?*const fn (*g_api.GameAPI) void,
+    game_update: ?*const fn (f64) void,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
-    lua: *Lua,
 
     pub fn init(
         allocator: std.mem.Allocator,
         name: []const u8,
     ) !ProjectContext{
 
-        var lua = try Lua.init(allocator);
-        lua.openLibs();
+        const path = try std.fmt.allocPrint(
+            allocator,
+            "projects/{s}/assets/src/scripts/zig-out/lib/lib{s}_game.so",
+            .{name, name},
+        );
+        defer allocator.free(path);
+        var lib = try std.DynLib.open(path);
 
         return .{
             .proj_name = name,
@@ -59,6 +73,13 @@ pub const ProjectContext = struct {
                 .atlas_list = try std.ArrayList(atlas_mod.AtlasAsset)
                     .initCapacity(allocator, 0),
             },
+            .lib = lib,
+            .game_api = g_api.GameAPI {
+                .spawn_sprite = SpawnSprite,
+                .set_sprite_pos = SetSpritePos,
+            },
+            .game_init = lib.lookup(GameInitFn, "game_init"),
+            .game_update = lib.lookup(GameUpdateFn, "game_update"),
             .scene_manager = .{
                 .scenes = try std.ArrayList(Scene).initCapacity(allocator, 0),
                 .atlas_alias_table = try std.ArrayList(atlas_mod.AtlasAliasId_u32)
@@ -68,7 +89,6 @@ pub const ProjectContext = struct {
             },
             .sprite_draws = try std.ArrayList(helper.SpriteDraw)
                 .initCapacity(allocator, 0),
-            .lua = lua,
         };
 
     }
@@ -77,7 +97,7 @@ pub const ProjectContext = struct {
         self.atlas_manager.deinit(self.allocator);
         self.scene_manager.deinit(self.allocator);
         self.sprite_draws.deinit(self.allocator);
-        self.lua.deinit();
+        self.lib.close();
     }
 };
 
@@ -111,7 +131,7 @@ pub const Camera = struct {
 pub const AtlasManager = struct {
 
     atlas_list: std.ArrayList(atlas_mod.AtlasAsset),
-    metadata_dirty: bool = true,
+    metadata_dirty: bool = false,
     manifest: ?atlas_mod.ParsedManifest = null, 
 
     pub fn ApplyMetadata(
@@ -185,7 +205,10 @@ pub const AtlasManager = struct {
     }
 
     pub fn deinit(self: *AtlasManager, allocator: std.mem.Allocator) void{
-        self.manifest.?.deinit(allocator);
+
+        if (self.manifest) |*manifest| {
+            manifest.deinit(allocator);
+        }
         self.manifest = null;
         self.atlas_list.deinit(allocator);
 
@@ -257,7 +280,7 @@ pub const SceneManager = struct {
 
 
 pub fn main() !void {
-    
+    const start_time = std.time.nanoTimestamp(); 
     // Window Creation
     var game_window = try sdl.Window.init(800, 600);
     defer game_window.deinit();
@@ -311,13 +334,24 @@ pub fn main() !void {
     var project_context = try ProjectContext.init(allocator, proj.parsed.value.name);
     defer project_context.deinit();
 
+    if (project_context.game_init) |game_init|{
+        game_init(&project_context.game_api);
+    }
+
     while (!game_window.should_close){
+
+        const now = std.time.nanoTimestamp();
+        const time_sec = @as(f64, @floatFromInt(now - start_time)) / 1_000_000_000.0;
         
         game_window.pollEvents(&renderer);
 
         input.BuildEditorIntent(&editor_input, game_window.raw_input);
 
         camera.pos = math.Vec2.Add(camera.pos , editor_input.drag_delta);
+
+        if (project_context.game_update) |game_update| {
+            game_update(time_sec);
+        }
 
         camera.Update(
             @floatFromInt(game_window.screen_width), 

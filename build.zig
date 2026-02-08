@@ -22,6 +22,12 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    const game_api_mod = b.createModule(.{
+        .root_source_file = b.path("src/game_api/game_api.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     engine_mod.addImport("utils", utils_mod);
     engine_mod.addIncludePath(b.path("thirdparty/vma"));
     engine_mod.addIncludePath(b.path("thirdparty/sdl3/include"));
@@ -65,6 +71,7 @@ pub fn build(b: *std.Build) !void {
         }),
     });
 
+    editor_sdl.root_module.addImport("game_api", game_api_mod);
     editor_sdl.root_module.addImport("engine", engine_mod);
     editor_sdl.root_module.addImport("zlua", lua_dep.module("zlua"));
     editor_sdl.root_module.addImport("utils", utils_mod);
@@ -75,7 +82,11 @@ pub fn build(b: *std.Build) !void {
 
     editor_sdl.linkSystemLibrary(vk_lib_name);
     editor_sdl.addIncludePath(.{ .cwd_relative = "thirdparty/sdl3/include" });
-    editor_sdl.addCSourceFile(.{ .file = b.path("src/engine/vk_mem_alloc.cpp"), .flags = &.{ "" } });
+    editor_sdl.addCSourceFile(.{ 
+            .file = b.path("src/engine/vk_mem_alloc.cpp"), 
+            .flags = &[_][]const u8{},
+        }
+    );
     editor_sdl.addIncludePath(b.path("thirdparty/vma/"));
     editor_sdl.linkLibCpp();
     
