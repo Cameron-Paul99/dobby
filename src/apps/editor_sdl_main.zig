@@ -273,6 +273,29 @@ pub const SceneManager = struct {
     }
 };
 
+fn RebuildScripts(allocator: std.mem.Allocator, cwd: []const u8) !void {
+
+    var argv = [_][]const u8{
+        "zig",
+        "build",
+    };
+
+    var child = std.process.Child.init(&argv, allocator);
+    child.cwd = cwd;
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Inherit;
+    child.stderr_behavior = .Inherit;
+
+    const term = try child.spawnAndWait();
+
+    if (term != .Exited or term.Exited != 0) {
+        return error.BuildFailed;
+    }
+
+    std.log.info("Scripts rebuilt", .{});
+
+}
+
 
 
 
@@ -331,6 +354,22 @@ pub fn main() !void {
     var atlas_notifier = try notify.Inotify.init(proj_atlas_path, allocator);
     defer atlas_notifier.deinit(allocator);
 
+    // Scripts path
+    const scripts_path = try std.fmt.allocPrint(
+        allocator,
+        "projects/{s}/assets/src/scripts/",
+        .{ proj.parsed.value.name },
+    );
+    defer allocator.free(scripts_path);
+
+    const proj_scripts_path = try allocator.dupeZ(u8, scripts_path);
+    defer allocator.free(proj_scripts_path);
+
+    // Scripts Notifier
+    var scripts_notifier = try notify.Inotify.init(proj_scripts_path, allocator);
+    defer scripts_notifier.deinit(allocator);
+
+    // Project context
     var project_context = try ProjectContext.init(allocator, proj.parsed.value.name);
     defer project_context.deinit();
 
@@ -357,6 +396,15 @@ pub fn main() !void {
             @floatFromInt(game_window.screen_width), 
             @floatFromInt(game_window.screen_height)
         );
+        
+        const scripts_bytes = try scripts_notifier.poll();
+        if (scripts_bytes > 0){
+            std.log.info("Rebuilding scripts", .{});
+            RebuildScripts(allocator, proj_scripts_path) catch |err| {
+                std.log.err("Script rebuild failed: {}", .{err});
+            };
+        }
+
         const atlas_bytes = try atlas_notifier.poll();
         if (atlas_bytes > 0) {
             project_context.atlas_manager.metadata_dirty = true;
@@ -390,6 +438,7 @@ pub fn main() !void {
     }
 
 }
+
 
 
 
