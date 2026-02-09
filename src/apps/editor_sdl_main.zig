@@ -48,7 +48,7 @@ pub const ProjectContext = struct {
     scene_manager: SceneManager,
     atlas_manager: AtlasManager,
     game_api: g_api.GameAPI = undefined,
-    lib: std.DynLib,
+    lib: ?std.DynLib,
     game_init: ?*const fn (*g_api.GameAPI) void,
     game_update: ?*const fn (f64) void,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
@@ -93,11 +93,37 @@ pub const ProjectContext = struct {
 
     }
 
+    pub fn ReloadProjectScripts(self: *ProjectContext) !void {
+
+        const path = try std.fmt.allocPrint(
+            self.allocator,
+            "projects/{s}/assets/src/scripts/zig-out/lib/lib{s}_game.so",
+            .{self.proj_name, self.proj_name},
+        );
+        defer self.allocator.free(path);
+    
+        if (self.lib) |*old| old.close();
+        self.lib = null;
+        self.game_init = null;
+        self.game_update = null;
+
+        self.lib = try std.DynLib.open(path);
+
+        self.game_init = self.lib.?.lookup(GameInitFn, "game_init");
+        self.game_update = self.lib.?.lookup(GameUpdateFn, "game_update");
+
+        if (self.game_init == null) return error.MissingGameInit;
+        if (self.game_update == null) return error.MissingGameUpdate;
+
+        self.game_init.?(&self.game_api);
+
+    }
+
     pub fn deinit(self: *ProjectContext) void {
         self.atlas_manager.deinit(self.allocator);
         self.scene_manager.deinit(self.allocator);
         self.sprite_draws.deinit(self.allocator);
-        self.lib.close();
+        self.lib.?.close();
     }
 };
 
@@ -273,7 +299,10 @@ pub const SceneManager = struct {
     }
 };
 
-fn RebuildScripts(allocator: std.mem.Allocator, cwd: []const u8) !void {
+fn RebuildScripts(
+    allocator: std.mem.Allocator, 
+    cwd: []const u8,
+    proj_ctx: *ProjectContext) !void {
 
     var argv = [_][]const u8{
         "zig",
@@ -294,6 +323,10 @@ fn RebuildScripts(allocator: std.mem.Allocator, cwd: []const u8) !void {
 
     std.log.info("Scripts rebuilt", .{});
 
+    try proj_ctx.ReloadProjectScripts();
+   // if (proj_ctx.game_init) |game_init|{
+   //     game_init(&proj_ctx.game_api);
+   // }
 }
 
 
@@ -373,10 +406,14 @@ pub fn main() !void {
     var project_context = try ProjectContext.init(allocator, proj.parsed.value.name);
     defer project_context.deinit();
 
+    RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
+        std.log.err("Script rebuild failed: {}", .{err});
+    };
+   
     if (project_context.game_init) |game_init|{
         game_init(&project_context.game_api);
     }
-
+    
     while (!game_window.should_close){
 
         const now = std.time.nanoTimestamp();
@@ -400,7 +437,7 @@ pub fn main() !void {
         const scripts_bytes = try scripts_notifier.poll();
         if (scripts_bytes > 0){
             std.log.info("Rebuilding scripts", .{});
-            RebuildScripts(allocator, proj_scripts_path) catch |err| {
+            RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
                 std.log.err("Script rebuild failed: {}", .{err});
             };
         }
