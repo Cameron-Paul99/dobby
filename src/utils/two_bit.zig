@@ -10,11 +10,11 @@ pub const L2_BLOCK_u64 = u64;
 pub const L1_BLOCK_u64 = u64;
 
 inline fn popcount(x: u64) u32 {
-    return @intCast(u32, @popCount(x));
+    return @intCast(@popCount(x));
 }
 
 inline fn tzcnt(x: u64) u32 {
-    return @intCast(u32, @ctz(x));
+    return @intCast(@ctz(x));
 }
 
 l1: []L1_BLOCK_u64,
@@ -32,40 +32,38 @@ pub fn init(max_entries: u32, allocator: std.mem.Allocator) !Self {
 }
 
 pub fn deinit(self: *Self) !void{
-    try self.allocator.free(self.l1);
-    try self.allocator.free(self.l2);
+     self.allocator.free(self.l1);
+     self.allocator.free(self.l2);
 }
 
 pub fn Set(self: *Self, entity: Entity) void {
-    
-    const l2_index = entity / L2_BITS_u32;
-    const bit = entity % L2_BITS_u32;
+    const l2_index: u32 = entity / L2_BITS_u32;
 
-    // |= is or
-    // << shift to the right
+    const bit: u6 = @intCast(entity % L2_BITS_u32);
+
     self.l2[l2_index] |= (@as(u64, 1) << bit);
 
-    const l1_index = l2_index / L1_BITS_u32;
-    const l1_bit = l2_index % L1_BITS_u32;
+    const l1_index: u32 = l2_index / L1_BITS_u32;
+    const l1_bit: u6 = @intCast(l2_index % L1_BITS_u32);
 
     self.l1[l1_index] |= (@as(u64, 1) << l1_bit);
-
 }
+
 
 pub fn Clear(self: *Self, entity: Entity) void{
     const l2_index = entity / L2_BITS_u32;
     const bit = entity % L2_BITS_u32;
 
-    l2[l2_index] &= ~(@as(u64, 1) << bit);
+    self.l2[l2_index] &= ~(@as(u64, 1) << bit);
     
     const l1_index = l2_index / L1_BITS_u32;
     const l1_bit = l2_index % L1_BITS_u32;
 
-    l1[l1_index] &= ~(@as(u64, 1) << bit);`
+    self.l1[l1_index] &= ~(@as(u64, 1) << l1_bit);
 }
 
-pub fn test(self: *const TwoLevelBitmap, entity: Entity) bool { 
-    const l2_idx = entity / L2_BITS; 
-    const bit = entity % L2_BITS; 
+pub fn testBit(self: *Self, entity: Entity) bool { 
+    const l2_idx = entity / L2_BITS_u32; 
+    const bit = entity % L2_BITS_u32; 
     return (self.l2[l2_idx] & (@as(u64, 1) << bit)) != 0; 
 }

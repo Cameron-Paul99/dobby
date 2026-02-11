@@ -16,6 +16,7 @@ const math = utils.math;
 const algo = utils.algo;
 const notify = utils.notify;
 const atlas_mod = utils.atlas;
+const two_bit = utils.two_bit;
 
 
 // Opaque = 0
@@ -28,12 +29,36 @@ const atlas_mod = utils.atlas;
 // 3. IDs are stable and never renumbered
 // 4. Editor never invents IDs
 //
-const GameInitFn = *const fn (*g_api.GameAPI) void;
-const GameUpdateFn = *const fn (f64) void;
+const MAX_ENTITIES: u32 = 100_000;
 
-pub export fn SpawnSprite( sprite: *const g_api.SpriteDesc) callconv(.c) u32 {
-    _ = sprite;
-    return 25;
+var g_active_ctx: *ProjectContext = undefined;
+const GameInitFn   = *const fn (*g_api.GameAPI) callconv(.c) void;
+const GameUpdateFn = *const fn (f64) callconv(.c) void;
+
+pub export fn SpawnSprite(desc: *const g_api.SpriteDesc) callconv(.c) u32 {
+    
+    const ctx = g_active_ctx;
+
+    const id: u32 = @intCast(ctx.sprite_draws.items.len);
+
+    ctx.alive.Set(id);
+
+    const draw = helper.SpriteDraw{
+        .sprite_pos = desc.sprite_pos,
+        .sprite_scale = desc.sprite_scale,
+        .sprite_rotation = desc.sprite_rotation,
+        .uv_min = desc.uv_min,
+        .uv_max = desc.uv_max,
+        .tint = desc.tint,
+        .atlas_id = desc.atlas_id,
+    };
+
+    ctx.sprite_draws.append(ctx.allocator , draw) catch unreachable;
+
+    return id; 
+}
+pub export fn GetAllocator() callconv(.c) *anyopaque {
+    return &g_active_ctx.allocator;
 }
 
 pub export fn SetSpritePos(entity: u32, x: f32, y: f32) callconv(.c) void {
@@ -49,9 +74,10 @@ pub const ProjectContext = struct {
     atlas_manager: AtlasManager,
     game_api: g_api.GameAPI = undefined,
     lib: ?std.DynLib,
-    game_init: ?*const fn (*g_api.GameAPI) void,
-    game_update: ?*const fn (f64) void,
+    game_init: ?*const fn (*g_api.GameAPI) callconv(.c) void,
+    game_update: ?*const fn (f64) callconv(.c) void,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
+    alive: two_bit,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -75,8 +101,10 @@ pub const ProjectContext = struct {
             },
             .lib = lib,
             .game_api = g_api.GameAPI {
+                .user_data = null,
                 .spawn_sprite = SpawnSprite,
                 .set_sprite_pos = SetSpritePos,
+                .get_allocator = GetAllocator,
             },
             .game_init = lib.lookup(GameInitFn, "game_init"),
             .game_update = lib.lookup(GameUpdateFn, "game_update"),
@@ -89,6 +117,7 @@ pub const ProjectContext = struct {
             },
             .sprite_draws = try std.ArrayList(helper.SpriteDraw)
                 .initCapacity(allocator, 0),
+            .alive = try two_bit.init(MAX_ENTITIES, allocator), 
         };
 
     }
@@ -123,6 +152,7 @@ pub const ProjectContext = struct {
         self.atlas_manager.deinit(self.allocator);
         self.scene_manager.deinit(self.allocator);
         self.sprite_draws.deinit(self.allocator);
+        try self.alive.deinit();
         self.lib.?.close();
     }
 };
@@ -324,9 +354,7 @@ fn RebuildScripts(
     std.log.info("Scripts rebuilt", .{});
 
     try proj_ctx.ReloadProjectScripts();
-   // if (proj_ctx.game_init) |game_init|{
-   //     game_init(&proj_ctx.game_api);
-   // }
+
 }
 
 
@@ -406,6 +434,9 @@ pub fn main() !void {
     var project_context = try ProjectContext.init(allocator, proj.parsed.value.name);
     defer project_context.deinit();
 
+    g_active_ctx = &project_context;
+    project_context.game_api.user_data = g_active_ctx;
+
     RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
         std.log.err("Script rebuild failed: {}", .{err});
     };
@@ -437,6 +468,7 @@ pub fn main() !void {
         const scripts_bytes = try scripts_notifier.poll();
         if (scripts_bytes > 0){
             std.log.info("Rebuilding scripts", .{});
+            project_context.sprite_draws.clearRetainingCapacity();
             RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
                 std.log.err("Script rebuild failed: {}", .{err});
             };

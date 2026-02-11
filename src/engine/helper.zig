@@ -996,7 +996,7 @@ pub fn UploadInstanceData(
     dst: *AllocatedBuffer,
     instances: []const SpriteDraw,
 ) !void {
-    const size = instances.len * @sizeOf(SpriteDraw);
+    const size = render.MAX_SPRITES * @sizeOf(SpriteDraw);
 
     var staging = try CreateBuffer(
         vma,

@@ -32,7 +32,7 @@ const MaterialInstance = struct {
 
 const FRAME_OVERLAP = 4;
 
-const MAX_SPRITES = 4;
+pub const MAX_SPRITES = 8192;
 
 const MAX_ATLASES = 64;
 
@@ -356,7 +356,9 @@ pub const Renderer = struct {
         };
 
         self.sprite_draws.clearRetainingCapacity();
-
+     //   if (self.sprite_draws.items.len > MAX_SPRITES) {
+      //      self.sprite_draws.items.len = MAX_SPRITES;
+      //  }
         for (sprites) |sprite| {
             try self.sprite_draws.append(allocator, sprite);
         }
