@@ -52,18 +52,39 @@ pub fn Set(self: *Self, entity: Entity) void {
 
 pub fn Clear(self: *Self, entity: Entity) void{
     const l2_index = entity / L2_BITS_u32;
-    const bit = entity % L2_BITS_u32;
+    const bit : u6 = @intCast(entity % L2_BITS_u32);
 
     self.l2[l2_index] &= ~(@as(u64, 1) << bit);
     
     const l1_index = l2_index / L1_BITS_u32;
-    const l1_bit = l2_index % L1_BITS_u32;
+    const l1_bit: u6 = @intCast(l2_index % L1_BITS_u32);
 
     self.l1[l1_index] &= ~(@as(u64, 1) << l1_bit);
+}
+
+pub fn Create(self: *Self) ?Entity {
+    for (self.l2, 0..) |l2_block, l2_index| {
+        if (l2_block == 0xFFFFFFFFFFFFFFFF) continue;
+
+        const free_bit: u6 = @intCast(@ctz(~l2_block));
+
+        const entity: Entity = 
+            @as(Entity, @intCast(l2_index)) * L2_BITS_u32 + 
+            @as(Entity, free_bit);
+
+            self.Set(entity);
+        return entity;
+    }
+    return null;
 }
 
 pub fn testBit(self: *Self, entity: Entity) bool { 
     const l2_idx = entity / L2_BITS_u32; 
     const bit = entity % L2_BITS_u32; 
     return (self.l2[l2_idx] & (@as(u64, 1) << bit)) != 0; 
+}
+
+pub fn clearAll(self: *Self) void {
+    @memset(self.l1, 0);
+    @memset(self.l2, 0);
 }

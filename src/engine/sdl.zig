@@ -65,6 +65,12 @@ pub const Window = struct {
                 c.SDL_EVENT_WINDOW_CLOSE_REQUESTED => self.should_close = true,
                 c.SDL_EVENT_KEY_DOWN => _ = input.MapSDLScancode(evt.key.scancode),
                 c.SDL_EVENT_KEY_UP =>_ = input.MapSDLScancode(evt.key.scancode) ,
+                c.SDL_EVENT_MOUSE_WHEEL=> {
+                  
+                    self.raw_input.scroll = evt.wheel.y; // zoom in
+                    std.debug.print("Scrolling\n", .{});
+                    
+                },
                 c.SDL_EVENT_MOUSE_BUTTON_DOWN => {
 
                     if (input.MapSDLMouseButton(evt.button.button)) |key| {

@@ -35,13 +35,20 @@ var g_active_ctx: *ProjectContext = undefined;
 const GameInitFn   = *const fn (*g_api.GameAPI) callconv(.c) void;
 const GameUpdateFn = *const fn (f64) callconv(.c) void;
 
+pub export fn RemoveEntity(id: u32) callconv(.c) void {
+    const ctx = g_active_ctx;
+    ctx.alive.Clear(id);
+}
+
+pub export fn AddEntity() callconv(.c) u32 {
+    const ctx = g_active_ctx;
+    return ctx.alive.Create() orelse unreachable;
+}
+
 pub export fn SpawnSprite(desc: *const g_api.SpriteDesc) callconv(.c) u32 {
     
     const ctx = g_active_ctx;
-
-    const id: u32 = @intCast(ctx.sprite_draws.items.len);
-
-    ctx.alive.Set(id);
+    const id = ctx.alive.Create() orelse unreachable;
 
     const draw = helper.SpriteDraw{
         .sprite_pos = desc.sprite_pos,
@@ -102,6 +109,8 @@ pub const ProjectContext = struct {
             .lib = lib,
             .game_api = g_api.GameAPI {
                 .user_data = null,
+                .add_entity = AddEntity,
+                .remove_enity = RemoveEntity,
                 .spawn_sprite = SpawnSprite,
                 .set_sprite_pos = SetSpritePos,
                 .get_allocator = GetAllocator,
@@ -123,7 +132,7 @@ pub const ProjectContext = struct {
     }
 
     pub fn ReloadProjectScripts(self: *ProjectContext) !void {
-
+        self.alive.clearAll();
         const path = try std.fmt.allocPrint(
             self.allocator,
             "projects/{s}/assets/src/scripts/zig-out/lib/lib{s}_game.so",
@@ -162,11 +171,16 @@ pub const ProjectContext = struct {
 // ****************************************** CAMERA ************************************
 pub const Camera = struct {
     pos: math.Vec2 = math.Vec2.ZERO,
+    zoom: f32 = 1.0,
     view_proj: math.Mat4 = math.Mat4.IDENTITY,
 
     pub fn Update(self: *Camera, screen_w: f32, screen_h: f32) void {
+        
+        const w = screen_w * self.zoom * 0.5;
+        const h = screen_h * self.zoom * 0.5;
+        const proj = math.Ortho(-w, w, -h, h);
 
-        const proj = math.Ortho(0.0, screen_w, 0.0, screen_h);
+       // std.log.info("width = {d} and height = {d} \n", .{w, h});
 
         const view = math.Mat4.TranslateWorld(proj , .{
             .x = -self.pos.x,
@@ -371,7 +385,7 @@ pub fn main() !void {
 
     // Editor Input
     var editor_input = input.EditorIntent{
-        .drag_speed = 0.05,
+        .drag_speed = 0.02,
     };
     
     // Camera 
@@ -436,11 +450,11 @@ pub fn main() !void {
 
     g_active_ctx = &project_context;
     project_context.game_api.user_data = g_active_ctx;
-
+    project_context.alive.clearAll();
     RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
         std.log.err("Script rebuild failed: {}", .{err});
     };
-   
+
     if (project_context.game_init) |game_init|{
         game_init(&project_context.game_api);
     }
@@ -455,6 +469,7 @@ pub fn main() !void {
         input.BuildEditorIntent(&editor_input, game_window.raw_input);
 
         camera.pos = math.Vec2.Add(camera.pos , editor_input.drag_delta);
+        camera.zoom = editor_input.zoom;
 
         if (project_context.game_update) |game_update| {
             game_update(time_sec);

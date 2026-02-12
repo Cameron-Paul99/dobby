@@ -13,6 +13,8 @@ pub const SpriteDesc = struct {
 
 pub const GameAPI = extern struct {
     user_data: ?*anyopaque,
+    add_entity: *const fn () callconv(.c) u32,
+    remove_enity: *const fn (u32) callconv(.c) void, 
     spawn_sprite: *const fn (*const SpriteDesc) callconv(.c) u32,
     set_sprite_pos: *const fn (u32, f32, f32) callconv(.c) void,
     get_allocator: *const fn () callconv(.c) *anyopaque,

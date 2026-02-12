@@ -10,13 +10,14 @@ pub const RawInput = struct {
     buttons_pressed: InputBitSet = 0,
     mouse_pos: math.Vec2 = math.Vec2.ZERO,
     mouse_delta: math.Vec2 = math.Vec2.ZERO,
-    scroll: f32 = 0,
+    scroll: f32 = 1.0,
 };
 
 pub const EditorIntent = struct {
     camera_move: math.Vec3 = math.Vec3.ZERO,
     camera_rotate: math.Vec2 = math.Vec2.ZERO,
     drag_delta: math.Vec2 = math.Vec2.ZERO,
+    zoom: f32 = 1.0,
     drag_speed: f32 = 0,
     selection_mask: u64 = 0,
 };
@@ -147,6 +148,7 @@ pub fn MapSDLScancode(sc: c.SDL_Scancode) ?InputKey {
     return res;
 }
 
+
 pub fn MapSDLMouseButton(button: u8) ?InputKey {
     const res: ?InputKey =  switch (button) {
         c.SDL_BUTTON_LEFT   => .mouse_left,
@@ -162,15 +164,25 @@ pub fn MapSDLMouseButton(button: u8) ?InputKey {
 
 pub fn BuildEditorIntent(intent: *EditorIntent, input: RawInput) void {
     const drag_s = intent.drag_speed;
+    const zoom = intent.zoom;
     intent.* = EditorIntent{
         .drag_speed = drag_s,
+        .zoom = zoom,
     }; // reset intent each frame
 
     if (input.buttons_down & Bit(.mouse_right) != 0) {
-
         intent.drag_delta = input.mouse_delta;
         intent.drag_delta = intent.drag_delta.Mul(intent.drag_speed);
     }
+   
+
+    if (input.scroll > 0){
+        intent.zoom *= 0.9;
+    }else if (input.scroll < 0){
+        intent.zoom *= 1.1;
+    }
+    intent.zoom = std.math.clamp(intent.zoom, 0.1, 10.0);
+
 }
 
 pub inline fn Bit(key: InputKey) InputBitSet {
