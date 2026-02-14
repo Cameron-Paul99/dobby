@@ -108,7 +108,11 @@ pub const Window = struct {
 
                 },
                 c.SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED => {
-
+                     var drawable_w: c_int = 0;
+                     var drawable_h: c_int = 0;
+                    _ = c.SDL_GetWindowSizeInPixels(self.window, &drawable_w, &drawable_h);
+                    self.screen_width = drawable_w;
+                    self.screen_height = drawable_h; 
                     if (renderer.renderer_init){
                         renderer.request_swapchain_recreate = true;
                     }else{

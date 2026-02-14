@@ -1,6 +1,7 @@
 const std = @import("std");
 const utils = @import("utils");
 const c = @import("clibs.zig").c;
+const helper = @import("helper.zig");
 const math = utils.math;
 
 pub const InputBitSet = u64;
@@ -17,9 +18,11 @@ pub const EditorIntent = struct {
     camera_move: math.Vec3 = math.Vec3.ZERO,
     camera_rotate: math.Vec2 = math.Vec2.ZERO,
     drag_delta: math.Vec2 = math.Vec2.ZERO,
-    zoom: f32 = 1.0,
+    zoom_changed: bool = false,
+    zoom: f32 = 10.0,
     drag_speed: f32 = 0,
     selection_mask: u64 = 0,
+    mouse_pos: math.Vec2 = math.Vec2.ZERO,
 };
 
 pub const InputKey = enum(u8) {
@@ -162,27 +165,41 @@ pub fn MapSDLMouseButton(button: u8) ?InputKey {
     return res;
 }
 
-pub fn BuildEditorIntent(intent: *EditorIntent, input: RawInput) void {
+pub fn BuildEditorIntent(
+    sprites: *std.ArrayList(helper.SpriteDraw), 
+    intent: *EditorIntent, 
+    input: RawInput,
+    mouse_pos: math.Vec2,
+) void {
+
+    const prev_zoom = intent.zoom;
     const drag_s = intent.drag_speed;
-    const zoom = intent.zoom;
+
     intent.* = EditorIntent{
         .drag_speed = drag_s,
-        .zoom = zoom,
-    }; // reset intent each frame
+        .zoom = prev_zoom,
+        .mouse_pos = input.mouse_pos,
+    };
 
+    // Drag
     if (input.buttons_down & Bit(.mouse_right) != 0) {
-        intent.drag_delta = input.mouse_delta;
-        intent.drag_delta = intent.drag_delta.Mul(intent.drag_speed);
+        intent.drag_delta = math.Vec2.Make(
+            -input.mouse_delta.x,
+            -input.mouse_delta.y,
+        ).Mul(intent.drag_speed);
     }
-   
 
-    if (input.scroll > 0){
-        intent.zoom *= 0.9;
-    }else if (input.scroll < 0){
-        intent.zoom *= 1.1;
+    // Zoom
+    if (input.scroll != 0) {
+        const zoom_speed: f32 = 1.1;
+        intent.zoom *= std.math.pow(f32, zoom_speed, input.scroll);
+        intent.zoom = std.math.clamp(intent.zoom, 0.13, 5.0);
     }
-    intent.zoom = std.math.clamp(intent.zoom, 0.1, 10.0);
 
+    intent.zoom_changed = intent.zoom != prev_zoom;
+
+    _ = sprites;
+    _ = mouse_pos;
 }
 
 pub inline fn Bit(key: InputKey) InputBitSet {
@@ -190,3 +207,59 @@ pub inline fn Bit(key: InputKey) InputBitSet {
     std.debug.assert(idx < 64);
     return (@as(InputBitSet, 1) << @intCast(idx));
 }
+
+pub fn Select(
+    sprites: *std.ArrayList(helper.SpriteDraw),
+    mouse: math.Vec2,
+) ?u32 {
+    var i: usize = sprites.items.len;
+    while (i > 0) {
+        i -= 1;
+
+        const sprite = sprites.items[i];
+
+        const min_x = sprite.sprite_pos[0];
+        const max_x = sprite.sprite_pos[0] + sprite.sprite_scale[0];
+        const min_y = sprite.sprite_pos[1];
+        const max_y = sprite.sprite_pos[1] + sprite.sprite_scale[1];
+
+        if (mouse.x >= min_x and mouse.x <= max_x and
+            mouse.y >= min_y and mouse.y <= max_y)
+        {
+            std.log.info("Selected entity: {d} \n in location: {d}, {d}",
+                .{ sprite.entity, sprite.sprite_pos[0], sprite.sprite_pos[1] });
+
+            _ = sprites.swapRemove(i);
+            return sprite.entity;
+        }
+    }
+    return null;
+}
+
+pub fn WorldToSlot(
+    mouse_world: math.Vec2,
+) ?struct { x: u32, y: u32 } {
+
+    const TILE_W: f32 = 100.0;
+    const TILE_H: f32 = 50.0;
+
+    const BOARD_W: f32 = 64.0 * TILE_W;
+    const BOARD_H: f32 = 128.0 * TILE_H;
+
+    const half_w = BOARD_W * 0.5;
+    const half_h = BOARD_H * 0.5;
+
+    // Convert from centered world space → board-local space
+    const local_x = mouse_world.x + half_w;
+    const local_y = mouse_world.y + half_h;
+
+    if (local_x < 0 or local_x >= BOARD_W) return null;
+    if (local_y < 0 or local_y >= BOARD_H) return null;
+
+    const x = @as(u32, @intFromFloat(local_x / TILE_W));
+    const y = @as(u32, @intFromFloat(local_y / TILE_H));
+
+    return .{ .x = x, .y = y };
+
+}
+

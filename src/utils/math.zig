@@ -382,12 +382,13 @@ pub const Mat4 = struct {
     }
 
     // Create a pure translation matrix
-    pub inline fn Translation(v: Vec3) Self {
+    // TODO: Change back to Vec3
+    pub inline fn Translation(v: Vec2) Self {
         return Make(
             Vec4.Make(1.0, 0.0, 0.0, 0.0),
             Vec4.Make(0.0, 1.0, 0.0, 0.0),
             Vec4.Make(0.0, 0.0, 1.0, 0.0),
-            Vec4.Make(v.x, v.y, v.z, 1.0),
+            Vec4.Make(v.x, v.y, 0.0, 1.0),
         );
 
     }
@@ -494,6 +495,49 @@ pub const Mat4 = struct {
             Vec4.Make(0.0, 0.0, far / (near - far), -1.0),
             Vec4.Make(0.0, 0.0, (far * near) / (near - far), 0.0),
         );
+    }
+    pub inline fn InverseAffine(m: Self) Self {
+        // Inverts an affine 4x4 matrix with last row [0 0 0 1]
+        // Column-major: m.i, m.j, m.k are basis columns, m.t is translation.
+
+        const a00 = m.i.x; const a01 = m.j.x; const a02 = m.k.x;
+        const a10 = m.i.y; const a11 = m.j.y; const a12 = m.k.y;
+        const a20 = m.i.z; const a21 = m.j.z; const a22 = m.k.z;
+
+        const b00 = a11 * a22 - a12 * a21;
+        const b01 = a02 * a21 - a01 * a22;
+        const b02 = a01 * a12 - a02 * a11;
+
+        const b10 = a12 * a20 - a10 * a22;
+        const b11 = a00 * a22 - a02 * a20;
+        const b12 = a02 * a10 - a00 * a12;
+
+        const b20 = a10 * a21 - a11 * a20;
+        const b21 = a01 * a20 - a00 * a21;
+        const b22 = a00 * a11 - a01 * a10;
+
+        const det = a00 * b00 + a01 * b10 + a02 * b20;
+        std.debug.assert(@abs(det) > 0.0000001);
+
+        const inv_det = 1.0 / det;
+
+        // inv3x3 (still column-major)
+        const inv_i = Vec4.Make(b00 * inv_det, b10 * inv_det, b20 * inv_det, 0.0);
+        const inv_j = Vec4.Make(b01 * inv_det, b11 * inv_det, b21 * inv_det, 0.0);
+        const inv_k = Vec4.Make(b02 * inv_det, b12 * inv_det, b22 * inv_det, 0.0);
+
+        // inv_t = -(inv3x3 * t.xyz)
+        const tx = m.t.x;
+        const ty = m.t.y;
+        const tz = m.t.z;
+
+        const inv_tx = -(inv_i.x * tx + inv_j.x * ty + inv_k.x * tz);
+        const inv_ty = -(inv_i.y * tx + inv_j.y * ty + inv_k.y * tz);
+        const inv_tz = -(inv_i.z * tx + inv_j.z * ty + inv_k.z * tz);
+
+        const inv_t = Vec4.Make(inv_tx, inv_ty, inv_tz, 1.0);
+
+        return Make(inv_i, inv_j, inv_k, inv_t);
     }
 
 };

@@ -51,6 +51,7 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc) callconv(.c) u32 {
     const id = ctx.alive.Create() orelse unreachable;
 
     const draw = helper.SpriteDraw{
+        .entity = id,
         .sprite_pos = desc.sprite_pos,
         .sprite_scale = desc.sprite_scale,
         .sprite_rotation = desc.sprite_rotation,
@@ -174,26 +175,46 @@ pub const Camera = struct {
     zoom: f32 = 1.0,
     view_proj: math.Mat4 = math.Mat4.IDENTITY,
 
-    pub fn Update(self: *Camera, screen_w: f32, screen_h: f32) void {
-        
-        const w = screen_w * self.zoom * 0.5;
-        const h = screen_h * self.zoom * 0.5;
-        const proj = math.Ortho(-w, w, -h, h);
+pub fn Update(self: *Camera, screen_w: f32, screen_h: f32) void { 
 
-       // std.log.info("width = {d} and height = {d} \n", .{w, h});
+    const half_w = ( screen_w * 0.5 ) / self.zoom; 
+    const half_h = ( screen_h * 0.5 ) / self.zoom; 
 
-        const view = math.Mat4.TranslateWorld(proj , .{
-            .x = -self.pos.x,
-            .y = -self.pos.y,
-            .z = 0,
-        });
+    const left = self.pos.x - half_w; 
+    const right = self.pos.x + half_w; 
 
-        self.view_proj = view;
-
-    }
+    const bottom = self.pos.y - half_h; 
+    const top = self.pos.y + half_h; 
+    self.view_proj = math.Ortho(left, right, bottom, top); 
+}
 
 };
 
+// ****************************************** MOUSE ************************************
+pub const Mouse = struct {
+    world_pos: math.Vec2 = math.Vec2.ZERO,
+    sdl_pos: math.Vec2 = math.Vec2.ZERO,
+
+pub fn Update(
+    self: *Mouse,
+    cam: *const Camera,
+    screen_w: f32,
+    screen_h: f32,
+) void {
+
+    const half_w = (screen_w * 0.5) / cam.zoom;
+    const half_h = (screen_h * 0.5) / cam.zoom;
+
+    const left   = cam.pos.x - half_w;
+    const bottom = cam.pos.y - half_h;
+
+    self.world_pos = .{
+        .x = left + (self.sdl_pos.x / cam.zoom),
+        .y = bottom + (self.sdl_pos.y / cam.zoom),
+    };
+}
+
+};
 
 // ****************************************** ATLAS MANAGER **********************************
 
@@ -378,18 +399,34 @@ fn RebuildScripts(
 
 
 pub fn main() !void {
+
     const start_time = std.time.nanoTimestamp(); 
     // Window Creation
-    var game_window = try sdl.Window.init(800, 600);
+    var game_window = try sdl.Window.init(1920, 1080);
     defer game_window.deinit();
 
+    var drawable_w: c_int = 0;
+    var drawable_h: c_int = 0;
+    _ = c.SDL_GetWindowSizeInPixels(game_window.window, &drawable_w, &drawable_h);
+    game_window.screen_width = drawable_w;
+    game_window.screen_height = drawable_h;
+
+    const w: f32 = @floatFromInt(game_window.screen_width);
+    const h: f32 =  @floatFromInt(game_window.screen_height);
     // Editor Input
     var editor_input = input.EditorIntent{
-        .drag_speed = 0.02,
+        .drag_speed = 1.0,
     };
     
     // Camera 
-    var camera = Camera{};
+    var camera = Camera{
+        .pos = math.Vec2.Make(w * 0.5, h * 0.5),
+    };
+    camera.pos.x /= camera.zoom;
+    camera.pos.y /= camera.zoom;
+    // Mouse
+    var mouse = Mouse{};
+    std.log.info("mouse world: {d},{d}", .{mouse.world_pos.x, mouse.world_pos.y});
    
     // Allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -459,27 +496,56 @@ pub fn main() !void {
         game_init(&project_context.game_api);
     }
     
+//    const slot_sprite_draw = helper.SpriteDraw{
+//        .entity = 0,
+//        .uv_min = .{0.0, 0.0},
+//        .uv_max = .{1.0, 1.0},
+//        .sprite_pos   = .{0.0, 0.0},        // world position (your choice)
+//        .sprite_scale = .{ 100, 50.0 },// world size (or whatever units you use)
+//        .sprite_rotation = .{1.0, 0.0}, // cos=1, sin=0 (no rotation)
+//        .tint = .{ 1, 1, 1, 1 },   // no tint
+//        .atlas_id = 0,
+//    };
+//    try project_context.sprite_draws.append(allocator, slot_sprite_draw);
+//
     while (!game_window.should_close){
 
         const now = std.time.nanoTimestamp();
         const time_sec = @as(f64, @floatFromInt(now - start_time)) / 1_000_000_000.0;
         
         game_window.pollEvents(&renderer);
-
-        input.BuildEditorIntent(&editor_input, game_window.raw_input);
-
-        camera.pos = math.Vec2.Add(camera.pos , editor_input.drag_delta);
+        input.BuildEditorIntent(
+            &project_context.sprite_draws, 
+            &editor_input, 
+            game_window.raw_input,
+            mouse.world_pos, // This will be updated below
+        );
         camera.zoom = editor_input.zoom;
+        camera.pos = math.Vec2.Add(camera.pos, math.Vec2.Make(
+            editor_input.drag_delta.x / camera.zoom,
+            editor_input.drag_delta.y / camera.zoom,
+        ));
+        camera.Update(
+            @floatFromInt(game_window.screen_width),
+            @floatFromInt(game_window.screen_height),
+        );
+
+        mouse.sdl_pos = game_window.raw_input.mouse_pos;
+
+        mouse.Update(
+            &camera,
+            @floatFromInt(game_window.screen_width),
+            @floatFromInt(game_window.screen_height),
+        );
+
+        if (game_window.raw_input.buttons_down & input.Bit(.mouse_left) != 0) {
+            _ = input.Select(&project_context.sprite_draws, mouse.world_pos);
+        }
 
         if (project_context.game_update) |game_update| {
             game_update(time_sec);
         }
 
-        camera.Update(
-            @floatFromInt(game_window.screen_width), 
-            @floatFromInt(game_window.screen_height)
-        );
-        
         const scripts_bytes = try scripts_notifier.poll();
         if (scripts_bytes > 0){
             std.log.info("Rebuilding scripts", .{});
