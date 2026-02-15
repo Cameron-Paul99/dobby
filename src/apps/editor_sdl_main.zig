@@ -50,7 +50,7 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc) callconv(.c) u32 {
     const ctx = g_active_ctx;
     const id = ctx.alive.Create() orelse unreachable;
 
-    const draw = helper.SpriteDraw{
+    const sprite = helper.SpriteDraw{
         .entity = id,
         .sprite_pos = desc.sprite_pos,
         .sprite_scale = desc.sprite_scale,
@@ -60,8 +60,8 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc) callconv(.c) u32 {
         .tint = desc.tint,
         .atlas_id = desc.atlas_id,
     };
-
-    ctx.sprite_draws.append(ctx.allocator , draw) catch unreachable;
+    ctx.has_sprite.Set(id);
+    ctx.sprite_components[id] = sprite;
 
     return id; 
 }
@@ -86,6 +86,8 @@ pub const ProjectContext = struct {
     game_update: ?*const fn (f64) callconv(.c) void,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
     alive: two_bit,
+    has_sprite: two_bit,
+    sprite_components: []helper.SpriteDraw,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -127,7 +129,9 @@ pub const ProjectContext = struct {
             },
             .sprite_draws = try std.ArrayList(helper.SpriteDraw)
                 .initCapacity(allocator, 0),
+            .sprite_components = try allocator.alloc(helper.SpriteDraw, MAX_ENTITIES),
             .alive = try two_bit.init(MAX_ENTITIES, allocator), 
+            .has_sprite = try two_bit.init(MAX_ENTITIES, allocator),  
         };
 
     }
@@ -162,7 +166,9 @@ pub const ProjectContext = struct {
         self.atlas_manager.deinit(self.allocator);
         self.scene_manager.deinit(self.allocator);
         self.sprite_draws.deinit(self.allocator);
+        self.allocator.free(self.sprite_components);
         try self.alive.deinit();
+        try self.has_sprite.deinit();
         self.lib.?.close();
     }
 };
@@ -394,13 +400,18 @@ fn RebuildScripts(
 
 
 
-
 // ****************************************** MAIN *******************************************
 
 
 pub fn main() !void {
 
-    const start_time = std.time.nanoTimestamp(); 
+    const start_time = std.time.nanoTimestamp();
+
+    // Allocator
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
     // Window Creation
     var game_window = try sdl.Window.init(1920, 1080);
     defer game_window.deinit();
@@ -413,6 +424,7 @@ pub fn main() !void {
 
     const w: f32 = @floatFromInt(game_window.screen_width);
     const h: f32 =  @floatFromInt(game_window.screen_height);
+
     // Editor Input
     var editor_input = input.EditorIntent{
         .drag_speed = 1.0,
@@ -424,15 +436,15 @@ pub fn main() !void {
     };
     camera.pos.x /= camera.zoom;
     camera.pos.y /= camera.zoom;
+
     // Mouse
     var mouse = Mouse{};
     std.log.info("mouse world: {d},{d}", .{mouse.world_pos.x, mouse.world_pos.y});
-   
-    // Allocator
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-   
+
+    // Select Buffer
+    var select_buffer = try std.ArrayList(u32).initCapacity(allocator, 0);
+    defer select_buffer.deinit(allocator);
+
     // Project
     var proj = try utils.LoadProject(allocator);
     defer proj.deinit(allocator);
@@ -495,7 +507,7 @@ pub fn main() !void {
     if (project_context.game_init) |game_init|{
         game_init(&project_context.game_api);
     }
-    
+
 //    const slot_sprite_draw = helper.SpriteDraw{
 //        .entity = 0,
 //        .uv_min = .{0.0, 0.0},
@@ -514,12 +526,14 @@ pub fn main() !void {
         const time_sec = @as(f64, @floatFromInt(now - start_time)) / 1_000_000_000.0;
         
         game_window.pollEvents(&renderer);
+
         input.BuildEditorIntent(
             &project_context.sprite_draws, 
             &editor_input, 
             game_window.raw_input,
             mouse.world_pos, // This will be updated below
         );
+
         camera.zoom = editor_input.zoom;
         camera.pos = math.Vec2.Add(camera.pos, math.Vec2.Make(
             editor_input.drag_delta.x / camera.zoom,
@@ -538,9 +552,6 @@ pub fn main() !void {
             @floatFromInt(game_window.screen_height),
         );
 
-        if (game_window.raw_input.buttons_down & input.Bit(.mouse_left) != 0) {
-            _ = input.Select(&project_context.sprite_draws, mouse.world_pos);
-        }
 
         if (project_context.game_update) |game_update| {
             game_update(time_sec);
@@ -565,7 +576,9 @@ pub fn main() !void {
 
             project_context.atlas_manager.metadata_dirty = false;
 
-            project_context.atlas_manager.manifest = try atlas_mod.ReadManifest(proj.parsed.value, allocator);
+            project_context.atlas_manager.manifest = try atlas_mod.ReadManifest(
+                proj.parsed.value, 
+                allocator);
 
             try project_context.atlas_manager.ApplyMetadata(
                 &renderer,
@@ -575,6 +588,41 @@ pub fn main() !void {
             );
 
         }
+        project_context.sprite_draws.clearRetainingCapacity();
+
+        project_context.has_sprite.forEachBitSet(
+        struct {
+            ctx: *ProjectContext,
+            allocator: std.mem.Allocator,
+
+            pub fn call(self: @This(), entity: u32) void {
+                    if (!self.ctx.alive.testBit(entity)) return;
+
+                    const sprite = self.ctx.sprite_components[entity];
+                    self.ctx.sprite_draws.append(self.allocator, sprite) catch unreachable;
+                }
+            }{
+            .ctx = &project_context,
+            .allocator = allocator,
+            }
+        );
+
+        input.DeleteEditorIntent(
+            &project_context.alive,
+            &project_context.has_sprite,
+            &select_buffer,
+            game_window.raw_input,
+        );
+
+        try input.BuildEditorSelectIntent(
+            &project_context.sprite_draws,
+            mouse.world_pos,
+            &select_buffer,
+            game_window.raw_input,
+            allocator,
+        );
+
+
 
         try renderer.DrawFrame(
             &core, 

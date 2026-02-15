@@ -2,6 +2,7 @@ const std = @import("std");
 const utils = @import("utils");
 const c = @import("clibs.zig").c;
 const helper = @import("helper.zig");
+const two_bit = utils.two_bit;
 const math = utils.math;
 
 pub const InputBitSet = u64;
@@ -54,6 +55,7 @@ pub const InputKey = enum(u8) {
     shift,
     ctrl,
     alt,
+    delete,
 
     // Mouse buttons
     mouse_left,
@@ -135,6 +137,7 @@ pub fn MapSDLScancode(sc: c.SDL_Scancode) ?InputKey {
         c.SDL_SCANCODE_ESCAPE    => .escape,
         c.SDL_SCANCODE_TAB       => .tab,
         c.SDL_SCANCODE_BACKSPACE => .backspace,
+        c.SDL_SCANCODE_DELETE => .delete,
 
         // Modifiers
         c.SDL_SCANCODE_LSHIFT, c.SDL_SCANCODE_RSHIFT => .shift,
@@ -163,6 +166,67 @@ pub fn MapSDLMouseButton(button: u8) ?InputKey {
     };
 
     return res;
+}
+
+pub fn DeleteEditorIntent(
+    alive: *two_bit,
+    has_sprite: *two_bit,
+    select_buffer: *std.ArrayList(u32),
+    input: RawInput,
+) void {
+
+    const delete_pressed = (input.buttons_pressed & Bit(.delete)) != 0;
+    if (!delete_pressed) return;
+    
+    for (select_buffer.items) |entity| {
+        alive.Clear(entity);
+        has_sprite.Clear(entity);
+    }
+
+    select_buffer.clearRetainingCapacity();
+
+}
+
+pub fn BuildEditorSelectIntent(
+    sprites: *std.ArrayList(helper.SpriteDraw),
+    mouse_pos: math.Vec2,
+    select_buffer: *std.ArrayList(u32),
+    input: RawInput,
+    allocator: std.mem.Allocator,
+) !void {
+
+    const left_pressed = (input.buttons_pressed & Bit(.mouse_left)) != 0;
+    const multi_held   = (input.buttons_down & Bit(.shift)) != 0;
+    //std.log.info("Selected buffer length is: {d}", .{select_buffer.items.len});
+
+    if (!left_pressed) return;
+
+    const entity = Select(sprites, mouse_pos);
+
+    if (entity) |e| {
+
+        if (multi_held){
+
+            std.log.info("Multi held is being pressed", .{});
+
+            for (select_buffer.items) |existing| {
+                if (existing == e) return;
+            }
+
+            try select_buffer.append(allocator, e);
+
+        } else {
+            std.log.info("SELECTED", .{});
+            select_buffer.clearRetainingCapacity();
+            try select_buffer.append(allocator, e);
+
+        }
+    }else {
+        std.log.info("Deselecting", .{}); 
+        select_buffer.clearRetainingCapacity();
+
+    }
+
 }
 
 pub fn BuildEditorIntent(
@@ -229,7 +293,6 @@ pub fn Select(
             std.log.info("Selected entity: {d} \n in location: {d}, {d}",
                 .{ sprite.entity, sprite.sprite_pos[0], sprite.sprite_pos[1] });
 
-            _ = sprites.swapRemove(i);
             return sprite.entity;
         }
     }

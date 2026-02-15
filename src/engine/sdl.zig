@@ -63,8 +63,29 @@ pub const Window = struct {
             switch (evt.type) {
                 c.SDL_EVENT_QUIT => self.should_close = true,
                 c.SDL_EVENT_WINDOW_CLOSE_REQUESTED => self.should_close = true,
-                c.SDL_EVENT_KEY_DOWN => _ = input.MapSDLScancode(evt.key.scancode),
-                c.SDL_EVENT_KEY_UP =>_ = input.MapSDLScancode(evt.key.scancode) ,
+                c.SDL_EVENT_KEY_DOWN =>{
+
+                    if (input.MapSDLScancode(evt.key.scancode)) |key| {
+                        const m = input.Bit(key);
+                        if ((self.raw_input.buttons_down & m) == 0) {
+
+                            self.raw_input.buttons_pressed |= m;
+
+                        }
+                        self.raw_input.buttons_down |= m;
+
+                        std.debug.print("Key {s} DOWN\n", .{@tagName(key)});
+                        
+                    }
+                },
+                c.SDL_EVENT_KEY_UP => {
+
+                    if( input.MapSDLScancode(evt.key.scancode)) |key| {
+                        self.raw_input.buttons_down &= ~input.Bit(key);
+                        std.debug.print("Key {s} UP\n", .{@tagName(key)});
+                    }
+
+                },
                 c.SDL_EVENT_MOUSE_WHEEL=> {
                   
                     self.raw_input.scroll = evt.wheel.y; // zoom in
@@ -104,7 +125,7 @@ pub const Window = struct {
                     self.raw_input.mouse_delta.x += evt.motion.xrel;
                     self.raw_input.mouse_delta.y += evt.motion.yrel;
 
-                    std.debug.print("Mouse moved\n", .{});
+                   // std.debug.print("Mouse moved\n", .{});
 
                 },
                 c.SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED => {
