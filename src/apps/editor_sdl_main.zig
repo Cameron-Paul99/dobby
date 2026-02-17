@@ -17,6 +17,7 @@ const algo = utils.algo;
 const notify = utils.notify;
 const atlas_mod = utils.atlas;
 const two_bit = utils.two_bit;
+const time = utils.time;
 
 
 // Opaque = 0
@@ -42,13 +43,14 @@ pub export fn RemoveEntity(id: u32) callconv(.c) void {
 
 pub export fn AddEntity() callconv(.c) u32 {
     const ctx = g_active_ctx;
-    return ctx.alive.Create() orelse unreachable;
+    const id = ctx.alive.Create() orelse unreachable;
+    std.log.info("Entity {d} is alive", .{id});
+    return id;
 }
 
-pub export fn SpawnSprite(desc: *const g_api.SpriteDesc) callconv(.c) u32 {
+pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) void {
     
     const ctx = g_active_ctx;
-    const id = ctx.alive.Create() orelse unreachable;
 
     const sprite = helper.SpriteDraw{
         .entity = id,
@@ -62,8 +64,6 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc) callconv(.c) u32 {
     };
     ctx.has_sprite.Set(id);
     ctx.sprite_components[id] = sprite;
-
-    return id; 
 }
 pub export fn GetAllocator() callconv(.c) *anyopaque {
     return &g_active_ctx.allocator;
@@ -85,6 +85,7 @@ pub const ProjectContext = struct {
     game_init: ?*const fn (*g_api.GameAPI) callconv(.c) void,
     game_update: ?*const fn (f64) callconv(.c) void,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
+    paused: bool = true,
     alive: two_bit,
     has_sprite: two_bit,
     sprite_components: []helper.SpriteDraw,
@@ -405,7 +406,7 @@ fn RebuildScripts(
 
 pub fn main() !void {
 
-    const start_time = std.time.nanoTimestamp();
+    var t = time.Start();
 
     // Allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -499,6 +500,7 @@ pub fn main() !void {
 
     g_active_ctx = &project_context;
     project_context.game_api.user_data = g_active_ctx;
+
     project_context.alive.clearAll();
     RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
         std.log.err("Script rebuild failed: {}", .{err});
@@ -508,31 +510,17 @@ pub fn main() !void {
         game_init(&project_context.game_api);
     }
 
-//    const slot_sprite_draw = helper.SpriteDraw{
-//        .entity = 0,
-//        .uv_min = .{0.0, 0.0},
-//        .uv_max = .{1.0, 1.0},
-//        .sprite_pos   = .{0.0, 0.0},        // world position (your choice)
-//        .sprite_scale = .{ 100, 50.0 },// world size (or whatever units you use)
-//        .sprite_rotation = .{1.0, 0.0}, // cos=1, sin=0 (no rotation)
-//        .tint = .{ 1, 1, 1, 1 },   // no tint
-//        .atlas_id = 0,
-//    };
-//    try project_context.sprite_draws.append(allocator, slot_sprite_draw);
-//
     while (!game_window.should_close){
-
-        const now = std.time.nanoTimestamp();
-        const time_sec = @as(f64, @floatFromInt(now - start_time)) / 1_000_000_000.0;
         
         game_window.pollEvents(&renderer);
 
-        input.BuildEditorIntent(
-            &project_context.sprite_draws, 
-            &editor_input, 
+        input.BuildEditorIntent( 
+            &editor_input,
             game_window.raw_input,
-            mouse.world_pos, // This will be updated below
+            &t,
         );
+
+        t.Runnin();
 
         camera.zoom = editor_input.zoom;
         camera.pos = math.Vec2.Add(camera.pos, math.Vec2.Make(
@@ -554,7 +542,7 @@ pub fn main() !void {
 
 
         if (project_context.game_update) |game_update| {
-            game_update(time_sec);
+            if (!t.pause) game_update(t.time_sec);
         }
 
         const scripts_bytes = try scripts_notifier.poll();

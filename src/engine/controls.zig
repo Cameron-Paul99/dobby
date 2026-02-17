@@ -230,20 +230,24 @@ pub fn BuildEditorSelectIntent(
 }
 
 pub fn BuildEditorIntent(
-    sprites: *std.ArrayList(helper.SpriteDraw), 
     intent: *EditorIntent, 
     input: RawInput,
-    mouse_pos: math.Vec2,
+    time: *utils.time,
 ) void {
 
     const prev_zoom = intent.zoom;
     const drag_s = intent.drag_speed;
-
     intent.* = EditorIntent{
         .drag_speed = drag_s,
         .zoom = prev_zoom,
         .mouse_pos = input.mouse_pos,
     };
+
+    // Pause
+    if ((input.buttons_pressed & Bit(.p) != 0) and 
+        (input.buttons_down & Bit(.ctrl) != 0)){
+            time.PauseCal();
+    }
 
     // Drag
     if (input.buttons_down & Bit(.mouse_right) != 0) {
@@ -262,8 +266,6 @@ pub fn BuildEditorIntent(
 
     intent.zoom_changed = intent.zoom != prev_zoom;
 
-    _ = sprites;
-    _ = mouse_pos;
 }
 
 pub inline fn Bit(key: InputKey) InputBitSet {
