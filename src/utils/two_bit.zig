@@ -42,7 +42,7 @@ pub fn init(max_entries: u32, allocator: std.mem.Allocator) !Self {
     };
 }
 
-pub fn deinit(self: *Self) !void{
+pub fn deinit(self: *Self) void{
      self.allocator.free(self.l1);
      self.allocator.free(self.l2);
 }

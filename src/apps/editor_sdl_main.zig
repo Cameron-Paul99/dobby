@@ -18,18 +18,12 @@ const notify = utils.notify;
 const atlas_mod = utils.atlas;
 const two_bit = utils.two_bit;
 const time = utils.time;
+const Camera = utils.camera;
+const Mouse = utils.mouse;
+const AtlasManager = utils.atlas_manager;
+const SceneManager = utils.scene_manager;
 
 
-// Opaque = 0
-// Alpha = 1
-// UI = 2
-
-// INVARIANTS:
-// 1. atlases.json is sorted by id
-// 2. atlas_list is always sorted by id
-// 3. IDs are stable and never renumbered
-// 4. Editor never invents IDs
-//
 const MAX_ENTITIES: u32 = 100_000;
 
 var g_active_ctx: *ProjectContext = undefined;
@@ -75,6 +69,7 @@ pub export fn SetSpritePos(entity: u32, x: f32, y: f32) callconv(.c) void {
     _ = y;
 }
 
+// ****************************************** PROCJECT CONTEXT *******************************************
 pub const ProjectContext = struct {
     proj_name: []const u8,
     allocator: std.mem.Allocator,
@@ -109,6 +104,7 @@ pub const ProjectContext = struct {
             .atlas_manager = .{
                 .atlas_list = try std.ArrayList(atlas_mod.AtlasAsset)
                     .initCapacity(allocator, 0),
+                .desired = &[_]atlas_mod.AtlasEntry{},
             },
             .lib = lib,
             .game_api = g_api.GameAPI {
@@ -122,10 +118,10 @@ pub const ProjectContext = struct {
             .game_init = lib.lookup(GameInitFn, "game_init"),
             .game_update = lib.lookup(GameUpdateFn, "game_update"),
             .scene_manager = .{
-                .scenes = try std.ArrayList(Scene).initCapacity(allocator, 0),
+                .scenes = try std.ArrayList(SceneManager.Scene).initCapacity(allocator, 0),
                 .atlas_alias_table = try std.ArrayList(atlas_mod.AtlasAliasId_u32)
                     .initCapacity(allocator, 0),
-                .scene_connection_table = try std.ArrayList(SceneId_u32)
+                .scene_connection_table = try std.ArrayList(SceneManager.SceneId_u32)
                     .initCapacity(allocator, 0),
             },
             .sprite_draws = try std.ArrayList(helper.SpriteDraw)
@@ -168,208 +164,12 @@ pub const ProjectContext = struct {
         self.scene_manager.deinit(self.allocator);
         self.sprite_draws.deinit(self.allocator);
         self.allocator.free(self.sprite_components);
-        try self.alive.deinit();
-        try self.has_sprite.deinit();
+        self.alive.deinit();
+        self.has_sprite.deinit();
         self.lib.?.close();
     }
 };
 
-
-
-// ****************************************** CAMERA ************************************
-pub const Camera = struct {
-    pos: math.Vec2 = math.Vec2.ZERO,
-    zoom: f32 = 1.0,
-    view_proj: math.Mat4 = math.Mat4.IDENTITY,
-
-pub fn Update(self: *Camera, screen_w: f32, screen_h: f32) void { 
-
-    const half_w = ( screen_w * 0.5 ) / self.zoom; 
-    const half_h = ( screen_h * 0.5 ) / self.zoom; 
-
-    const left = self.pos.x - half_w; 
-    const right = self.pos.x + half_w; 
-
-    const bottom = self.pos.y - half_h; 
-    const top = self.pos.y + half_h; 
-    self.view_proj = math.Ortho(left, right, bottom, top); 
-}
-
-};
-
-// ****************************************** MOUSE ************************************
-pub const Mouse = struct {
-    world_pos: math.Vec2 = math.Vec2.ZERO,
-    sdl_pos: math.Vec2 = math.Vec2.ZERO,
-
-pub fn Update(
-    self: *Mouse,
-    cam: *const Camera,
-    screen_w: f32,
-    screen_h: f32,
-) void {
-
-    const half_w = (screen_w * 0.5) / cam.zoom;
-    const half_h = (screen_h * 0.5) / cam.zoom;
-
-    const left   = cam.pos.x - half_w;
-    const bottom = cam.pos.y - half_h;
-
-    self.world_pos = .{
-        .x = left + (self.sdl_pos.x / cam.zoom),
-        .y = bottom + (self.sdl_pos.y / cam.zoom),
-    };
-}
-
-};
-
-// ****************************************** ATLAS MANAGER **********************************
-
-
-pub const AtlasManager = struct {
-
-    atlas_list: std.ArrayList(atlas_mod.AtlasAsset),
-    metadata_dirty: bool = false,
-    manifest: ?atlas_mod.ParsedManifest = null, 
-
-    pub fn ApplyMetadata(
-        self: *AtlasManager,
-        renderer: *render.Renderer,
-        core: *core_mod.Core,
-        desired: []const atlas_mod.AtlasEntry,
-        allocator: std.mem.Allocator,
-    ) !void {
-        var i: usize = 0; // current
-        var j: usize = 0; // desired
-
-        while (i < self.atlas_list.items.len or j < desired.len) {
-
-            // DELETE
-            if (i < self.atlas_list.items.len and (j >= desired.len or self.atlas_list.items[i].id < desired[j].id))
-            {
-                self.RemoveAtlas(i, allocator);
-                continue; // current shifts
-            }
-
-            // ADD
-            if (j < desired.len and (i >= self.atlas_list.items.len or desired[j].id < self.atlas_list.items[i].id))
-            {
-                _ = try self.AddAtlas(renderer, core , desired[j], allocator);
-                j += 1;
-                continue;
-            }
-
-            // SAME ID → UPDATE / NO-OP
-            if (self.atlas_list.items[i].id == desired[j].id) {
-                if (self.atlas_list.items[i].version_hash != desired[j].rev) {
-                    self.atlas_list.items[i].version_hash = desired[j].rev;
-                }
-                i += 1;
-                j += 1;
-            }
-        }
-    }
-
-    fn AddAtlas(
-        self: *AtlasManager,
-        renderer: *render.Renderer,
-        core: *core_mod.Core,
-        meta: atlas_mod.AtlasEntry,
-        allocator: std.mem.Allocator) !atlas_mod.AtlasAliasId_u32 {
-
-        const owned_path = try allocator.dupe(u8, meta.path);
-
-        const atlas = atlas_mod.AtlasAsset{
-            .id = meta.id,
-            .path = owned_path,
-            .version_hash = meta.rev,
-        };
-
-        try self.atlas_list.append(allocator, atlas);
-
-        try renderer.AddAtlasGPU(core, atlas, allocator);
-
-        return @intCast(meta.id);
-    }
-
-
-    fn RemoveAtlas(
-        self: *AtlasManager,
-        index: usize,
-        allocator: std.mem.Allocator,
-    ) void{
-        allocator.free(self.atlas_list.items[index].path);
-        _ = self.atlas_list.orderedRemove(index);
-    }
-
-    pub fn deinit(self: *AtlasManager, allocator: std.mem.Allocator) void{
-
-        if (self.manifest) |*manifest| {
-            manifest.deinit(allocator);
-        }
-        self.manifest = null;
-        self.atlas_list.deinit(allocator);
-
-    }
-
-};
-
-// ******************************************** SCENE MANAGER *********************************
-
-pub const IndexRange = struct {
-    offset: u32 = 0,
-    count: u32 = 0,
-};
-
-pub const SceneId_u32 = u32;
-
-pub const Scene = struct {
-    scene_index: u32 = 0,
-    atlas_aliases: IndexRange = .{},
-    connected_scenes: IndexRange = .{},
-};
-
-pub const SceneManager = struct {
-
-    scenes: std.ArrayList(Scene),
-    atlas_alias_table: std.ArrayList(atlas_mod.AtlasAliasId_u32),
-    scene_connection_table: std.ArrayList(SceneId_u32),
-
-    pub fn MakeScene(
-        self: *SceneManager, 
-        allocator: std.mem.Allocator,
-        alias_ids: []const atlas_mod.AtlasAliasId_u32,
-        connected_scene_ids: []const SceneId_u32 ) !void{
-        
-        // Reserve space
-        try self.atlas_alias_table.appendSlice(allocator, alias_ids);
-        try self.scene_connection_table.appendSlice(allocator, connected_scene_ids);
-
-        const alias_offset = self.atlas_alias_table.items.len - alias_ids.len;
-        const conn_offset  = self.scene_connection_table.items.len - connected_scene_ids.len;
-        
-        // Make New Scene
-        const scene = Scene{
-            .scene_index = @intCast(self.scenes.items.len),
-            .atlas_aliases = .{
-                .offset = @intCast(alias_offset),
-                .count = @intCast(alias_ids.len),
-            },
-            .connected_scenes = .{
-                .offset = @intCast(conn_offset),
-                .count = @intCast(connected_scene_ids.len),
-            },
-        };
-
-        try self.scenes.append(allocator, scene);
-    }
-
-    pub fn deinit(self: *SceneManager, allocator: std.mem.Allocator) void{
-        self.scenes.deinit(allocator);
-        self.atlas_alias_table.deinit(allocator);
-        self.scene_connection_table.deinit(allocator);
-    }
-};
 
 fn RebuildScripts(
     allocator: std.mem.Allocator, 
@@ -400,7 +200,6 @@ fn RebuildScripts(
 }
 
 
-
 // ****************************************** MAIN *******************************************
 
 
@@ -423,20 +222,13 @@ pub fn main() !void {
     game_window.screen_width = drawable_w;
     game_window.screen_height = drawable_h;
 
-    const w: f32 = @floatFromInt(game_window.screen_width);
-    const h: f32 =  @floatFromInt(game_window.screen_height);
-
     // Editor Input
     var editor_input = input.EditorIntent{
         .drag_speed = 1.0,
     };
     
     // Camera 
-    var camera = Camera{
-        .pos = math.Vec2.Make(w * 0.5, h * 0.5),
-    };
-    camera.pos.x /= camera.zoom;
-    camera.pos.y /= camera.zoom;
+    var cam = Camera.init(@floatFromInt(game_window.screen_width),@floatFromInt(game_window.screen_height)); 
 
     // Mouse
     var mouse = Mouse{};
@@ -510,6 +302,9 @@ pub fn main() !void {
         game_init(&project_context.game_api);
     }
 
+
+// ****************************************** Rendering START *******************************************
+
     while (!game_window.should_close){
         
         game_window.pollEvents(&renderer);
@@ -521,26 +316,27 @@ pub fn main() !void {
         );
 
         t.Runnin();
+    
+// ****************************************** CAMERA UPDATING *******************************************
+        cam.UpdateCameraAttributes(
+            editor_input.zoom, 
+            editor_input.drag_delta
+        );
 
-        camera.zoom = editor_input.zoom;
-        camera.pos = math.Vec2.Add(camera.pos, math.Vec2.Make(
-            editor_input.drag_delta.x / camera.zoom,
-            editor_input.drag_delta.y / camera.zoom,
-        ));
-        camera.Update(
+        cam.UpdateViewProj(
             @floatFromInt(game_window.screen_width),
             @floatFromInt(game_window.screen_height),
         );
 
-        mouse.sdl_pos = game_window.raw_input.mouse_pos;
-
+// ****************************************** MOUSE UPDATING *******************************************
         mouse.Update(
-            &camera,
+            game_window.raw_input.mouse_pos,
+            &cam,
             @floatFromInt(game_window.screen_width),
             @floatFromInt(game_window.screen_height),
         );
 
-
+// ****************************************** PROJECT UPDATING *******************************************
         if (project_context.game_update) |game_update| {
             if (!t.pause) game_update(t.time_sec);
         }
@@ -568,14 +364,20 @@ pub fn main() !void {
                 proj.parsed.value, 
                 allocator);
 
-            try project_context.atlas_manager.ApplyMetadata(
-                &renderer,
-                &core,
-                project_context.atlas_manager.manifest.?.parsed.value.atlases,
+            const prev_size = project_context.atlas_manager.atlas_list.items.len;
+            project_context.atlas_manager.desired = project_context.atlas_manager.manifest.?.parsed.value.atlases; 
+            
+            const new_size = try project_context.atlas_manager.ApplyMetadata(
                 allocator,
             );
 
+            for (prev_size..new_size) |i| {
+                const new_atlas = project_context.atlas_manager.atlas_list.items[i];
+                try renderer.AddAtlasGPU(&core, new_atlas, allocator);
+            }
+
         }
+
         project_context.sprite_draws.clearRetainingCapacity();
 
         project_context.has_sprite.forEachBitSet(
@@ -611,6 +413,7 @@ pub fn main() !void {
         );
 
 
+// ****************************************** RENDERING *******************************************
 
         try renderer.DrawFrame(
             &core, 
@@ -618,7 +421,7 @@ pub fn main() !void {
             &game_window, 
             allocator, 
             project_context.sprite_draws.items,
-            camera.view_proj,
+            cam.view_proj,
         );
 
     }
