@@ -13,12 +13,10 @@ pub fn CreateTextureImage(
     color_space: helper.KtxColorSpace,
     full_path_z: [:0]const u8 ) !helper.AllocatedImage{
 
-    const exe_dir = try std.fs.selfExeDirPathAlloc(allocator);
-    defer allocator.free(exe_dir);
-
    // const full_path_z = try std.fs.path.joinZ(allocator, &.{ exe_dir, "..", path_z }); 
     //defer allocator.free(full_path_z);
-
+    _ = allocator;
+std.log.info("Trying to load: {s}", .{ full_path_z });
     var tex2: ?*c.ktxTexture2 = null;
     const create_flags: c.ktxTextureCreateFlags = c.KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT;
     const rc0 = c.ktxTexture2_CreateFromNamedFile(full_path_z, create_flags, &tex2);

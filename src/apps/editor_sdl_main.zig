@@ -20,9 +20,7 @@ const two_bit = utils.two_bit;
 const time = utils.time;
 const Camera = utils.camera;
 const Mouse = utils.mouse;
-const AtlasManager = utils.atlas_manager;
 const SceneManager = utils.scene_manager;
-
 
 const MAX_ENTITIES: u32 = 100_000;
 
@@ -104,7 +102,6 @@ pub const ProjectContext = struct {
             .atlas_manager = .{
                 .atlas_list = try std.ArrayList(atlas_mod.AtlasAsset)
                     .initCapacity(allocator, 0),
-                .desired = &[_]atlas_mod.AtlasEntry{},
             },
             .lib = lib,
             .game_api = g_api.GameAPI {
@@ -170,6 +167,93 @@ pub const ProjectContext = struct {
     }
 };
 
+// ****************************************** ATLAS MANAGER **********************************
+
+
+pub const AtlasManager = struct {
+
+    atlas_list: std.ArrayList(atlas_mod.AtlasAsset),
+    metadata_dirty: bool = true,
+    manifest: ?atlas_mod.ParsedManifest = null, 
+
+    pub fn ApplyMetadata(
+        self: *AtlasManager,
+        renderer: *render.Renderer,
+        core: *core_mod.Core,
+        desired: []const atlas_mod.AtlasEntry,
+        allocator: std.mem.Allocator,
+    ) !void {
+        var i: usize = 0; // current
+        var j: usize = 0; // desired
+
+        while (i < self.atlas_list.items.len or j < desired.len) {
+
+            // DELETE
+            if (i < self.atlas_list.items.len and (j >= desired.len or self.atlas_list.items[i].id < desired[j].id))
+            {
+                self.RemoveAtlas(i, allocator);
+                continue; // current shifts
+            }
+
+            // ADD
+            if (j < desired.len and (i >= self.atlas_list.items.len or desired[j].id < self.atlas_list.items[i].id))
+            {
+                _ = try self.AddAtlas(renderer, core , desired[j], allocator);
+                j += 1;
+                continue;
+            }
+
+            // SAME ID → UPDATE / NO-OP
+            if (self.atlas_list.items[i].id == desired[j].id) {
+                if (self.atlas_list.items[i].version_hash != desired[j].rev) {
+                    self.atlas_list.items[i].version_hash = desired[j].rev;
+                }
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+
+    fn AddAtlas(
+        self: *AtlasManager,
+        renderer: *render.Renderer,
+        core: *core_mod.Core,
+        meta: atlas_mod.AtlasEntry,
+        allocator: std.mem.Allocator) !atlas_mod.AtlasAliasId_u32 {
+
+        const owned_path = try allocator.dupe(u8, meta.path);
+
+        const atlas = atlas_mod.AtlasAsset{
+            .id = meta.id,
+            .path = owned_path,
+            .version_hash = meta.rev,
+        };
+
+        try self.atlas_list.append(allocator, atlas);
+
+        try renderer.AddAtlasGPU(core, atlas, allocator);
+
+        return @intCast(meta.id);
+    }
+
+
+    fn RemoveAtlas(
+        self: *AtlasManager,
+        index: usize,
+        allocator: std.mem.Allocator,
+    ) void{
+        allocator.free(self.atlas_list.items[index].path);
+        _ = self.atlas_list.orderedRemove(index);
+    }
+
+    pub fn deinit(self: *AtlasManager, allocator: std.mem.Allocator) void{
+        self.manifest.?.deinit(allocator);
+        self.manifest = null;
+        self.atlas_list.deinit(allocator);
+
+    }
+
+};
 
 fn RebuildScripts(
     allocator: std.mem.Allocator, 
@@ -198,7 +282,6 @@ fn RebuildScripts(
     try proj_ctx.ReloadProjectScripts();
 
 }
-
 
 // ****************************************** MAIN *******************************************
 
@@ -360,21 +443,14 @@ pub fn main() !void {
 
             project_context.atlas_manager.metadata_dirty = false;
 
-            project_context.atlas_manager.manifest = try atlas_mod.ReadManifest(
-                proj.parsed.value, 
-                allocator);
+            project_context.atlas_manager.manifest = try atlas_mod.ReadManifest(proj.parsed.value, allocator);
 
-            const prev_size = project_context.atlas_manager.atlas_list.items.len;
-            project_context.atlas_manager.desired = project_context.atlas_manager.manifest.?.parsed.value.atlases; 
-            
-            const new_size = try project_context.atlas_manager.ApplyMetadata(
+            try project_context.atlas_manager.ApplyMetadata(
+                &renderer,
+                &core,
+                project_context.atlas_manager.manifest.?.parsed.value.atlases,
                 allocator,
             );
-
-            for (prev_size..new_size) |i| {
-                const new_atlas = project_context.atlas_manager.atlas_list.items[i];
-                try renderer.AddAtlasGPU(&core, new_atlas, allocator);
-            }
 
         }
 
@@ -411,7 +487,6 @@ pub fn main() !void {
             game_window.raw_input,
             allocator,
         );
-
 
 // ****************************************** RENDERING *******************************************
 
