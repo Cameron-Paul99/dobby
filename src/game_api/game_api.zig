@@ -2,11 +2,10 @@ const std = @import("std");
 
 pub const SpriteDesc = struct {
     id: u32 = 0,
+    name: []const u8,
     sprite_pos: [2]f32, 
     sprite_scale: [2]f32, 
     sprite_rotation: [2]f32, 
-    uv_min: [2]f32, 
-    uv_max: [2]f32, 
     tint: [4]f32, 
     atlas_id: u32,
 };

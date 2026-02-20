@@ -44,13 +44,22 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) v
     
     const ctx = g_active_ctx;
 
+    const slot_uv = atlas_mod.GetImageFromAtlas(0, desc.name, ctx.proj, ctx.allocator) catch |err| {
+        std.log.err("GetImageFromAtlas failed: {}", .{err});
+        return; // or fallback
+    };
+
+    if (slot_uv != null) {
+        std.log.info("Found the slot", .{});
+        ctx.allocator.free(slot_uv.?.name);
+    }
     const sprite = helper.SpriteDraw{
         .entity = id,
         .sprite_pos = desc.sprite_pos,
         .sprite_scale = desc.sprite_scale,
         .sprite_rotation = desc.sprite_rotation,
-        .uv_min = desc.uv_min,
-        .uv_max = desc.uv_max,
+        .uv_min = slot_uv.?.uv_min,
+        .uv_max = slot_uv.?.uv_max,
         .tint = desc.tint,
         .atlas_id = desc.atlas_id,
     };
@@ -70,8 +79,8 @@ pub export fn SetSpritePos(entity: u32, x: f32, y: f32) callconv(.c) void {
 // ****************************************** PROCJECT CONTEXT *******************************************
 pub const ProjectContext = struct {
     proj_name: []const u8,
+    proj: utils.Project,
     allocator: std.mem.Allocator,
-    scene_manager: SceneManager,
     atlas_manager: AtlasManager,
     game_api: g_api.GameAPI = undefined,
     lib: ?std.DynLib,
@@ -98,6 +107,10 @@ pub const ProjectContext = struct {
 
         return .{
             .proj_name = name,
+            .proj = .{
+              .name = "",
+              .path = "",
+            },
             .allocator = allocator,
             .atlas_manager = .{
                 .atlas_list = try std.ArrayList(atlas_mod.AtlasAsset)
@@ -114,13 +127,6 @@ pub const ProjectContext = struct {
             },
             .game_init = lib.lookup(GameInitFn, "game_init"),
             .game_update = lib.lookup(GameUpdateFn, "game_update"),
-            .scene_manager = .{
-                .scenes = try std.ArrayList(SceneManager.Scene).initCapacity(allocator, 0),
-                .atlas_alias_table = try std.ArrayList(atlas_mod.AtlasAliasId_u32)
-                    .initCapacity(allocator, 0),
-                .scene_connection_table = try std.ArrayList(SceneManager.SceneId_u32)
-                    .initCapacity(allocator, 0),
-            },
             .sprite_draws = try std.ArrayList(helper.SpriteDraw)
                 .initCapacity(allocator, 0),
             .sprite_components = try allocator.alloc(helper.SpriteDraw, MAX_ENTITIES),
@@ -158,7 +164,6 @@ pub const ProjectContext = struct {
 
     pub fn deinit(self: *ProjectContext) void {
         self.atlas_manager.deinit(self.allocator);
-        self.scene_manager.deinit(self.allocator);
         self.sprite_draws.deinit(self.allocator);
         self.allocator.free(self.sprite_components);
         self.alive.deinit();
@@ -375,6 +380,8 @@ pub fn main() !void {
 
     g_active_ctx = &project_context;
     project_context.game_api.user_data = g_active_ctx;
+
+    project_context.proj = proj.parsed.value;
 
     project_context.alive.clearAll();
     RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
