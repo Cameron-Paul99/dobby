@@ -1009,10 +1009,24 @@ pub fn CreatePipelines(
         .maxDepthBounds = 1.0,
     });
 
-    const color_blend_attachment_state = std.mem.zeroInit(c.VkPipelineColorBlendAttachmentState, .{
-        .colorWriteMask = c.VK_COLOR_COMPONENT_R_BIT | c.VK_COLOR_COMPONENT_G_BIT | c.VK_COLOR_COMPONENT_B_BIT | c.VK_COLOR_COMPONENT_A_BIT,
-    });
+    const color_blend_attachment_state =
+        std.mem.zeroInit(c.VkPipelineColorBlendAttachmentState, .{
+            .blendEnable = c.VK_TRUE,
 
+            .srcColorBlendFactor = c.VK_BLEND_FACTOR_SRC_ALPHA,
+            .dstColorBlendFactor = c.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            .colorBlendOp = c.VK_BLEND_OP_ADD,
+
+            .srcAlphaBlendFactor = c.VK_BLEND_FACTOR_ONE,
+            .dstAlphaBlendFactor = c.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            .alphaBlendOp = c.VK_BLEND_OP_ADD,
+
+            .colorWriteMask =
+                c.VK_COLOR_COMPONENT_R_BIT |
+                c.VK_COLOR_COMPONENT_G_BIT |
+                c.VK_COLOR_COMPONENT_B_BIT |
+                c.VK_COLOR_COMPONENT_A_BIT,
+    });
     var shader_stages = [_]c.VkPipelineShaderStageCreateInfo{
         vert_stage_ci,
         frag_stage_ci,

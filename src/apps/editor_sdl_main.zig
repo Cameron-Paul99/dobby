@@ -23,9 +23,10 @@ const Mouse = utils.mouse;
 const SceneManager = utils.scene_manager;
 
 const MAX_ENTITIES: u32 = 100_000;
+const MAX_GAME_MEMORY = 1 * 1024 * 1024; // 1 MB
 
 var g_active_ctx: *ProjectContext = undefined;
-const GameInitFn   = *const fn (*g_api.GameAPI) callconv(.c) void;
+const GameInitFn   = *const fn (*g_api.GameAPI, *g_api.GameMemory) callconv(.c) void;
 const GameUpdateFn = *const fn (f64) callconv(.c) void;
 
 pub export fn RemoveEntity(id: u32) callconv(.c) void {
@@ -50,7 +51,6 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) v
     };
 
     if (slot_uv != null) {
-        std.log.info("Found the slot", .{});
         ctx.allocator.free(slot_uv.?.name);
     }
     const sprite = helper.SpriteDraw{
@@ -64,6 +64,7 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) v
         .atlas_id = desc.atlas_id,
     };
     ctx.has_sprite.Set(id);
+    std.log.info("Sprite name is: {s}", .{desc.name});
     ctx.sprite_components[id] = sprite;
 }
 pub export fn GetAllocator() callconv(.c) *anyopaque {
@@ -80,11 +81,13 @@ pub export fn SetSpritePos(entity: u32, x: f32, y: f32) callconv(.c) void {
 pub const ProjectContext = struct {
     proj_name: []const u8,
     proj: utils.Project,
+    game_memory_buffer: []u8,
+    game_memory: g_api.GameMemory = undefined,
     allocator: std.mem.Allocator,
     atlas_manager: AtlasManager,
     game_api: g_api.GameAPI = undefined,
     lib: ?std.DynLib,
-    game_init: ?*const fn (*g_api.GameAPI) callconv(.c) void,
+    game_init: ?*const fn (*g_api.GameAPI, *g_api.GameMemory) callconv(.c) void,
     game_update: ?*const fn (f64) callconv(.c) void,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
     paused: bool = true,
@@ -105,11 +108,19 @@ pub const ProjectContext = struct {
         defer allocator.free(path);
         var lib = try std.DynLib.open(path);
 
+        const buffer = try allocator.alignedAlloc(u8,@enumFromInt(6),  MAX_GAME_MEMORY, ); 
+        @memset(buffer, 0);
+
         return .{
             .proj_name = name,
             .proj = .{
               .name = "",
               .path = "",
+            },
+            .game_memory_buffer = buffer,
+            .game_memory = .{
+                .ptr = buffer.ptr,
+                .size = buffer.len,
             },
             .allocator = allocator,
             .atlas_manager = .{
@@ -158,7 +169,7 @@ pub const ProjectContext = struct {
         if (self.game_init == null) return error.MissingGameInit;
         if (self.game_update == null) return error.MissingGameUpdate;
 
-        self.game_init.?(&self.game_api);
+        self.game_init.?(&self.game_api, &self.game_memory);
 
     }
 
@@ -166,6 +177,7 @@ pub const ProjectContext = struct {
         self.atlas_manager.deinit(self.allocator);
         self.sprite_draws.deinit(self.allocator);
         self.allocator.free(self.sprite_components);
+        self.allocator.free(self.game_memory_buffer);
         self.alive.deinit();
         self.has_sprite.deinit();
         self.lib.?.close();
@@ -389,9 +401,10 @@ pub fn main() !void {
     };
 
     if (project_context.game_init) |game_init|{
-        game_init(&project_context.game_api);
+        game_init(&project_context.game_api, &project_context.game_memory);
     }
-
+    
+   
 
 // ****************************************** Rendering START *******************************************
 

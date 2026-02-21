@@ -1,15 +1,19 @@
 const GameAPI = @import("game_api").GameAPI;
+const GameMemory = @import("game_api").GameMemory;
 const std = @import("std");
 const slot_mod = @import("slot.zig");
+const chip_mod = @import("chip.zig");
 
 pub var g_api: *GameAPI = undefined;
+pub var g_memory: *GameMemory = undefined;
 
 pub const HEIGHT = 128;
 pub const Board = [HEIGHT]u64;
 
 
-pub export fn game_init(api: *GameAPI) callconv(.c) void {
+pub export fn game_init(api: *GameAPI, game_memory: *GameMemory ) callconv(.c) void {
     g_api = api;
+    g_memory = game_memory;
 
 
     const allocator_fn = g_api.*.get_allocator();
@@ -20,7 +24,7 @@ pub export fn game_init(api: *GameAPI) callconv(.c) void {
     var slots = std.ArrayList(slot_mod.Slot).initCapacity(allocator.*, 0)
         catch unreachable;
     defer slots.deinit(allocator.*);
-    
+
     for (0..HEIGHT) |y| {
         var row: u64 = board[y];
 
@@ -37,13 +41,18 @@ pub export fn game_init(api: *GameAPI) callconv(.c) void {
         }
     }
 
-   
+    const chip_id = g_api.*.add_entity();
+    const chip_desc = chip_mod.ChipToDesc(0);
+    g_api.*.spawn_sprite(&chip_desc, chip_id);
 
     for (slots.items) |slot| {
-         const id = g_api.*.add_entity();
-         const desc = slot_mod.slotToSpriteDesc(slot, 0);
-         g_api.*.spawn_sprite(&desc, id);
+        const id = g_api.*.add_entity();
+        const desc = slot_mod.slotToSpriteDesc(slot, 0);
+        g_api.*.spawn_sprite(&desc, id);
+
     }
+
+
 
 }
 
@@ -51,3 +60,8 @@ pub export fn game_update(time_sec: f64) callconv(.c) void{
    std.log.info("Updated, {d}", .{time_sec});
 }
 
+pub export fn reload_game() callconv(.c) void {
+
+
+
+}

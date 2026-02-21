@@ -11,8 +11,8 @@ pub const Slot = struct {
 pub const WIDTH: u32 = 64;
 pub const HEIGHT: u32 = 128;
 
-const TILE_SIZE_X: f32 = 100.0;
-const TILE_SIZE_Y: f32 = 100.0;
+pub const TILE_SIZE_X: f32 = 100.0;
+pub const TILE_SIZE_Y: f32 = 100.0;
 
 const BOARD_WORLD_W: f32 = @as(f32, WIDTH) * TILE_SIZE_X;
 const BOARD_WORLD_H: f32 = @as(f32, HEIGHT) * TILE_SIZE_Y;

@@ -19,6 +19,11 @@ pub const GameAPI = extern struct {
     get_allocator: *const fn () callconv(.c) *anyopaque,
 };
 
+pub const GameMemory = extern struct {
+    ptr: ?*anyopaque,
+    size: usize,
+};
+
 pub const GameExports = extern struct {
     init: fn (*GameAPI) callconv(.c) void,
     update: fn (f32) callconv(.c) void,

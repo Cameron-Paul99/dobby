@@ -17,11 +17,6 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    const lua_dep = b.dependency("zlua", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
     const game_api_mod = b.createModule(.{
         .root_source_file = b.path("src/game_api/game_api.zig"),
         .target = target,
@@ -44,7 +39,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     setup_exe.root_module.addImport("utils", utils_mod);
-   // engine_mod.addIncludePath( b.path("thirdparty/lua/src"));
+
        // Asset Cooker EXE
     const asset_cooker = b.addExecutable(.{
         .name = "Asset_Cooker",
@@ -73,7 +68,6 @@ pub fn build(b: *std.Build) !void {
 
     editor_sdl.root_module.addImport("game_api", game_api_mod);
     editor_sdl.root_module.addImport("engine", engine_mod);
-    editor_sdl.root_module.addImport("zlua", lua_dep.module("zlua"));
     editor_sdl.root_module.addImport("utils", utils_mod);
     editor_sdl.root_module.addAnonymousImport("zigimg", .{ .root_source_file = b.path("thirdparty/zigimg/zigimg.zig") }); 
     editor_sdl.linkSystemLibrary("SDL3");
