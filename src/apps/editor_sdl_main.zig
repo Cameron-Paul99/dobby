@@ -55,12 +55,14 @@ pub export fn SetTransform2D(id: u32, transform: Transform2D) callconv(.c) void 
 pub export fn AddPhysics(id: u32) callconv(.c) void {
 
     const ctx = g_active_ctx;
+    ctx.static_dirty = true;
     ctx.physics.Set(id);
 
 }
 
 pub export fn RemovePhysics(id: u32) callconv(.c) void {
     const ctx = g_active_ctx;
+    ctx.static_dirty = true;
     ctx.physics.Clear(id);
 }
 
@@ -76,11 +78,14 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) v
     if (slot_uv != null) {
         ctx.allocator.free(slot_uv.?.name);
     }
+
+    const transform = ctx.entity_transforms[id];
+
     const sprite = helper.SpriteDraw{
         .entity = id,
-        .sprite_pos = desc.sprite_pos,
-        .sprite_scale = desc.sprite_scale,
-        .sprite_rotation = desc.sprite_rotation,
+        .sprite_pos = .{transform.pos_x, transform.pos_y},
+        .sprite_scale = .{transform.scale_x, transform.scale_y},
+        .sprite_rotation = .{transform.rot_x, transform.rot_y},
         .uv_min = slot_uv.?.uv_min,
         .uv_max = slot_uv.?.uv_max,
         .tint = desc.tint,

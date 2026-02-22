@@ -49,9 +49,6 @@ pub fn slotToSpriteDesc(
 
     return SpriteDesc{
         .name = "Slot",
-        .sprite_pos = .{ entity_transform.pos_x, entity_transform.pos_y },
-        .sprite_scale = .{ TILE_SIZE_X, TILE_SIZE_Y },
-        .sprite_rotation = .{ 0.0, 0.0 },
         .tint = .{ 1.0, 1.0, 1.0, 1.0 },
         .atlas_id = atlas_id,
     };

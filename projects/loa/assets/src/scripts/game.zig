@@ -46,7 +46,7 @@ pub export fn game_init(api: *GameAPI, game_memory: *GameMemory ) callconv(.c) v
     }
 
     const chip_id = g_api.*.add_entity();
-    const chip_desc = chip_mod.ChipToDesc(0);
+    const chip_desc = chip_mod.ChipToDesc(chip_id, 0, g_api);
     g_api.*.spawn_sprite(&chip_desc, chip_id);
     g_api.*.add_physics(chip_id);
 
