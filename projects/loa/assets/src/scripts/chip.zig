@@ -20,7 +20,7 @@ pub fn ChipToDesc(atlas_id: u32) SpriteDesc {
 
     return SpriteDesc {
         .name = "Chip",
-        .sprite_pos = .{ 0.0, 0.0 },
+        .sprite_pos = .{ 0.0, 11700.0 },
         .sprite_scale = .{ slot.TILE_SIZE_X, slot.TILE_SIZE_Y },
         .sprite_rotation = .{ 0.0, 0.0 },
         .tint = .{ 1.0, 1.0, 1.0, 1.0 },

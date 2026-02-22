@@ -23,6 +23,8 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    game_api_mod.addImport("utils", utils_mod);
+
     engine_mod.addImport("utils", utils_mod);
     engine_mod.addIncludePath(b.path("thirdparty/vma"));
     engine_mod.addIncludePath(b.path("thirdparty/sdl3/include"));

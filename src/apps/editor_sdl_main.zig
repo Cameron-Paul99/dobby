@@ -10,6 +10,7 @@ const helper = engine.helper;
 const text = engine.textures;
 const input = engine.input;
 const c = engine.c;
+const Transform2D = g_api.Transform2D;
 const print = std.debug.print;
 const sdl = engine.sdl;
 const math = utils.math;
@@ -20,6 +21,7 @@ const two_bit = utils.two_bit;
 const time = utils.time;
 const Camera = utils.camera;
 const Mouse = utils.mouse;
+const RadiusRender = helper.RadiusRender;
 const SceneManager = utils.scene_manager;
 
 const MAX_ENTITIES: u32 = 100_000;
@@ -37,8 +39,29 @@ pub export fn RemoveEntity(id: u32) callconv(.c) void {
 pub export fn AddEntity() callconv(.c) u32 {
     const ctx = g_active_ctx;
     const id = ctx.alive.Create() orelse unreachable;
-    std.log.info("Entity {d} is alive", .{id});
+
+    const entity_transform = Transform2D {};
+    
+    ctx.entity_transforms[id] = entity_transform;
+   // std.log.info("Entity {d} is alive", .{id});
     return id;
+}
+
+pub export fn SetTransform2D(id: u32, transform: Transform2D) callconv(.c) void {
+    const ctx = g_active_ctx;
+    ctx.entity_transforms[id] = transform;
+}
+
+pub export fn AddPhysics(id: u32) callconv(.c) void {
+
+    const ctx = g_active_ctx;
+    ctx.physics.Set(id);
+
+}
+
+pub export fn RemovePhysics(id: u32) callconv(.c) void {
+    const ctx = g_active_ctx;
+    ctx.physics.Clear(id);
 }
 
 pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) void {
@@ -64,7 +87,7 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) v
         .atlas_id = desc.atlas_id,
     };
     ctx.has_sprite.Set(id);
-    std.log.info("Sprite name is: {s}", .{desc.name});
+    //std.log.info("Sprite name is: {s}", .{desc.name});
     ctx.sprite_components[id] = sprite;
 }
 pub export fn GetAllocator() callconv(.c) *anyopaque {
@@ -92,8 +115,12 @@ pub const ProjectContext = struct {
     sprite_draws: std.ArrayList(helper.SpriteDraw),
     paused: bool = true,
     alive: two_bit,
+    render_area: RadiusRender, 
     has_sprite: two_bit,
+    physics: two_bit,
+    static_dirty: bool = true,
     sprite_components: []helper.SpriteDraw,
+    entity_transforms: []Transform2D,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -135,14 +162,20 @@ pub const ProjectContext = struct {
                 .spawn_sprite = SpawnSprite,
                 .set_sprite_pos = SetSpritePos,
                 .get_allocator = GetAllocator,
+                .add_physics = AddPhysics,
+                .remove_physics = RemovePhysics,
+                .set_transform_2D = SetTransform2D,
             },
             .game_init = lib.lookup(GameInitFn, "game_init"),
             .game_update = lib.lookup(GameUpdateFn, "game_update"),
             .sprite_draws = try std.ArrayList(helper.SpriteDraw)
                 .initCapacity(allocator, 0),
             .sprite_components = try allocator.alloc(helper.SpriteDraw, MAX_ENTITIES),
+            .entity_transforms = try allocator.alloc(Transform2D, MAX_ENTITIES), 
             .alive = try two_bit.init(MAX_ENTITIES, allocator), 
-            .has_sprite = try two_bit.init(MAX_ENTITIES, allocator),  
+            .render_area = try RadiusRender.init(MAX_ENTITIES, allocator),
+            .has_sprite = try two_bit.init(MAX_ENTITIES, allocator),
+            .physics = try two_bit.init(MAX_ENTITIES, allocator),
         };
 
     }
@@ -177,9 +210,12 @@ pub const ProjectContext = struct {
         self.atlas_manager.deinit(self.allocator);
         self.sprite_draws.deinit(self.allocator);
         self.allocator.free(self.sprite_components);
+        self.allocator.free(self.entity_transforms);
         self.allocator.free(self.game_memory_buffer);
         self.alive.deinit();
+        self.render_area.deinit();
         self.has_sprite.deinit();
+        self.physics.deinit();
         self.lib.?.close();
     }
 };
@@ -396,6 +432,9 @@ pub fn main() !void {
     project_context.proj = proj.parsed.value;
 
     project_context.alive.clearAll();
+    project_context.physics.clearAll();
+    project_context.has_sprite.clearAll();
+
     RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
         std.log.err("Script rebuild failed: {}", .{err});
     };
@@ -403,9 +442,8 @@ pub fn main() !void {
     if (project_context.game_init) |game_init|{
         game_init(&project_context.game_api, &project_context.game_memory);
     }
-    
-   
 
+   t.HardRestart(); 
 // ****************************************** Rendering START *******************************************
 
     while (!game_window.should_close){
@@ -474,25 +512,6 @@ pub fn main() !void {
 
         }
 
-        project_context.sprite_draws.clearRetainingCapacity();
-
-        project_context.has_sprite.forEachBitSet(
-        struct {
-            ctx: *ProjectContext,
-            allocator: std.mem.Allocator,
-
-            pub fn call(self: @This(), entity: u32) void {
-                    if (!self.ctx.alive.testBit(entity)) return;
-
-                    const sprite = self.ctx.sprite_components[entity];
-                    self.ctx.sprite_draws.append(self.allocator, sprite) catch unreachable;
-                }
-            }{
-            .ctx = &project_context,
-            .allocator = allocator,
-            }
-        );
-
         input.DeleteEditorIntent(
             &project_context.alive,
             &project_context.has_sprite,
@@ -514,8 +533,12 @@ pub fn main() !void {
             &core, 
             &sc, 
             &game_window, 
-            allocator, 
-            project_context.sprite_draws.items,
+            allocator,
+            project_context.sprite_components,
+            project_context.alive,
+            project_context.has_sprite,
+            project_context.physics,
+           &project_context.static_dirty,
             cam.view_proj,
         );
 

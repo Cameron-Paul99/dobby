@@ -248,7 +248,17 @@ pub fn BuildEditorIntent(
         (input.buttons_down & Bit(.ctrl) != 0)){
             time.PauseCal();
     }
-
+    // Restart
+    if ((input.buttons_pressed & Bit(.r) != 0) and 
+        (input.buttons_down & Bit(.ctrl) != 0)){
+            time.Restart();
+    }
+    // Hard Restart
+    if ((input.buttons_pressed & Bit(.r) != 0) and 
+        (input.buttons_down & Bit(.ctrl) != 0) and
+        (input.buttons_down & Bit(.alt) != 0)){
+            time.HardRestart();
+    }
     // Drag
     if (input.buttons_down & Bit(.mouse_right) != 0) {
         intent.drag_delta = math.Vec2.Make(

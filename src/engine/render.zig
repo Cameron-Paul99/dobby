@@ -9,15 +9,10 @@ const sdl = @import("sdl.zig");
 const log = std.log;
 const math = utils.math;
 const atlas_mod = utils.atlas;
+const two_bit = utils.two_bit;
 
 pub const MaterialTemplateId_u32 = u32;
 pub const MaterialInstanceId_u32 = u32;
-
-//const Vec2 = math.Vec2;
-//const Vec3 = math.Vec3;
-//const Vec4 = math.Vec4;
-//const Mat4 = math.Mat4;
-
 
 const MaterialTemplate = struct {
     pipeline: c.VkPipeline,
@@ -72,7 +67,8 @@ pub const Renderer = struct {
     vertex_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     index_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     dummy_ssbo: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
-    sprite_instance_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+    dynamic_instance_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+    static_instance_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     descriptor_pool: c.VkDescriptorPool = helper.VK_NULL_HANDLE,
     set_layout_frame: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
     set_layout_material: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
@@ -81,8 +77,10 @@ pub const Renderer = struct {
     request_swapchain_recreate: bool = false,
     renderer_init: bool = false,
     index_count: u32 = 0,
-    instance_count: u32 = 0,
-    sprite_draws: std.ArrayList(helper.SpriteDraw),
+    dynamic_instance_count: u32 = 0,
+    static_instance_count: u32 = 0,
+    static_draws: std.ArrayList(helper.SpriteDraw),
+    dynamic_draws: std.ArrayList(helper.SpriteDraw),
     pending_atlas: bool = false,
     atlas_textures: std.ArrayList(helper.AllocatedImage), // All Atlases
     cam: GPUCameraData,
@@ -113,7 +111,8 @@ pub const Renderer = struct {
             .material_system = material_system,
             .upload_context = .{},
             .vma = vma,
-            .sprite_draws = try std.ArrayList(helper.SpriteDraw).initCapacity(allocator, 0),
+            .static_draws = try std.ArrayList(helper.SpriteDraw).initCapacity(allocator, 0),
+            .dynamic_draws = try std.ArrayList(helper.SpriteDraw).initCapacity(allocator, 0),
             .atlas_textures = try std.ArrayList(helper.AllocatedImage).initCapacity(allocator, 0),
             .cam = GPUCameraData{
                 .view_proj = math.Ortho(
@@ -125,7 +124,8 @@ pub const Renderer = struct {
 
         //renderer.cam.view_proj = renderer.cam.view_proj.TranslateWorld(math.Vec3.Make(0.0, 10.0, 0.0));
 
-        try renderer.sprite_draws.ensureTotalCapacity(allocator , MAX_SPRITES);
+        try renderer.static_draws.ensureTotalCapacity(allocator, MAX_SPRITES);
+        try renderer.dynamic_draws.ensureTotalCapacity(allocator, MAX_SPRITES);
 
         errdefer renderer.deinit(allocator, core);
 
@@ -181,14 +181,22 @@ pub const Renderer = struct {
             core
         );
 
-        renderer.sprite_instance_buffer = try helper.CreateBuffer(
+
+        renderer.dynamic_instance_buffer = try helper.CreateBuffer(
             renderer.vma,
             MAX_SPRITES * @sizeOf(helper.SpriteDraw),
             c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             c.VMA_MEMORY_USAGE_GPU_ONLY,
             0,
         );
-        
+
+        renderer.static_instance_buffer = try helper.CreateBuffer(
+            renderer.vma,
+            MAX_SPRITES * @sizeOf(helper.SpriteDraw),
+            c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            c.VMA_MEMORY_USAGE_GPU_ONLY,
+            0,
+        );
         renderer.index_count = @intCast(inds.len);
         //renderer.instance_count = @intCast()
         
@@ -207,6 +215,10 @@ pub const Renderer = struct {
         win: *sdl.Window,
         allocator: std.mem.Allocator,
         sprites: []helper.SpriteDraw,
+        alive: two_bit,
+        has_sprite: two_bit,
+        physics: two_bit,
+        static_dirty: *bool,
         view_proj: math.Mat4, ) !void {
 
         self.cam.view_proj = view_proj;
@@ -349,33 +361,86 @@ pub const Renderer = struct {
             null,
        );
 
-        const offsets = [_]c.VkDeviceSize{0, 0};
+        const offsets = [_]c.VkDeviceSize{0, 0, 0};
         const buffers = [_]c.VkBuffer{ 
             self.vertex_buffer.buffer, 
-            self.sprite_instance_buffer.buffer, 
+            self.dynamic_instance_buffer.buffer,
+            self.static_instance_buffer.buffer,
         };
 
-        self.sprite_draws.clearRetainingCapacity();
-     //   if (self.sprite_draws.items.len > MAX_SPRITES) {
-      //      self.sprite_draws.items.len = MAX_SPRITES;
-      //  }
-        for (sprites) |sprite| {
-            try self.sprite_draws.append(allocator, sprite);
-        }
+        self.dynamic_draws.clearRetainingCapacity();
 
-        self.instance_count = @as(u32, @intCast(self.sprite_draws.items.len));
-        if (self.instance_count > 0) {
+        if (static_dirty.*) {
+            self.static_draws.clearRetainingCapacity();
+        }
+        
+        // TODO: Change to inner radius later
+        has_sprite.forEachBitSet(
+            struct {
+                dynamic_draws: *std.ArrayList(helper.SpriteDraw),
+                static_draws: *std.ArrayList(helper.SpriteDraw),
+                sprite_components: []helper.SpriteDraw,
+                alive: *const two_bit,
+                physics: *const two_bit,
+                static_dirty: bool,
+                allocator: std.mem.Allocator,
+
+            pub fn call(filter: @This(), entity: u32) void {
+                if (!filter.alive.testBit(entity)) return;
+
+                    if (filter.physics.testBit(entity)) {
+
+                        const sprite = filter.sprite_components[entity];
+                        filter.dynamic_draws.append(filter.allocator, sprite) catch unreachable;
+
+                    }else{
+                        if (filter.static_dirty){
+                            const sprite = filter.sprite_components[entity];
+                            filter.static_draws.append(filter.allocator, sprite) catch unreachable;
+                            //std.log.info("Appending to static ", .{});
+                        }
+
+                    }
+                }
+            }{
+                .dynamic_draws = &self.dynamic_draws,
+                .static_draws = &self.static_draws,
+                .sprite_components = sprites,
+                .alive = &alive,
+                .physics = &physics,
+                .static_dirty = static_dirty.*,
+                .allocator = allocator,
+            }
+        );
+
+        static_dirty.* = false;
+
+        self.dynamic_instance_count = @as(u32, @intCast(self.dynamic_draws.items.len));
+        if (self.dynamic_instance_count > 0) {
             try helper.UploadInstanceData(
                 self.vma,
                 &self.upload_context,
                 core,
-                &self.sprite_instance_buffer,
-                self.sprite_draws.items,
+                &self.dynamic_instance_buffer,
+                self.dynamic_draws.items,
             );
-        }      
+        }
+
+        self.static_instance_count = @as(u32, @intCast(self.static_draws.items.len));
+        if (self.static_instance_count > 0) {
+            try helper.UploadInstanceData(
+                self.vma,
+                &self.upload_context,
+                core,
+                &self.static_instance_buffer,
+                self.static_draws.items,
+            );
+        } 
+
         c.vkCmdBindVertexBuffers(cmd, 0, buffers.len, &buffers, &offsets);
         c.vkCmdBindIndexBuffer(cmd, self.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT16);
-        c.vkCmdDrawIndexed(cmd, self.index_count, self.instance_count, 0, 0, 0);
+        c.vkCmdDrawIndexed(cmd, self.index_count, self.dynamic_instance_count, 0, 0, 0);
+        c.vkCmdDrawIndexed(cmd, self.index_count, self.static_instance_count, 0, 0, 0);
 
         c.vkCmdEndRenderPass(cmd);
         try helper.check_vk(c.vkEndCommandBuffer(cmd));
@@ -510,11 +575,13 @@ pub const Renderer = struct {
             self.set_layout_compute = null;
         }
 
-        self.sprite_draws.deinit(allocator);
+        self.dynamic_draws.deinit(allocator);
+        self.static_draws.deinit(allocator);
         
         helper.DestroyBuffer(self.vma, &self.vertex_buffer);
         helper.DestroyBuffer(self.vma, &self.index_buffer);
-        helper.DestroyBuffer(self.vma, &self.sprite_instance_buffer);
+        helper.DestroyBuffer(self.vma, &self.dynamic_instance_buffer);
+        helper.DestroyBuffer(self.vma, &self.static_instance_buffer);
 
         for (self.atlas_textures.items) |*img| {
             helper.DestroyImage(core, self.vma, img);

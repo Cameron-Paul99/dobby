@@ -10,6 +10,15 @@ pub const SpriteDesc = struct {
     atlas_id: u32,
 };
 
+
+pub const Transform2D = extern struct {
+    pos_x: f32 = 0.0,
+    pos_y: f32 = 0.0,
+    scale_x: f32 = 0.0,
+    scale_y: f32 = 0.0,
+    rot_x: f32 = 0.0,
+    rot_y: f32 = 0.0,
+};
 pub const GameAPI = extern struct {
     user_data: ?*anyopaque,
     add_entity: *const fn () callconv(.c) u32,
@@ -17,6 +26,9 @@ pub const GameAPI = extern struct {
     spawn_sprite: *const fn (*const SpriteDesc, u32) callconv(.c) void,
     set_sprite_pos: *const fn (u32, f32, f32) callconv(.c) void,
     get_allocator: *const fn () callconv(.c) *anyopaque,
+    add_physics: *const fn (u32) callconv(.c) void,
+    remove_physics: *const fn (u32) callconv(.c) void,
+    set_transform_2D: *const fn (u32, Transform2D) callconv(.c) void,
 };
 
 pub const GameMemory = extern struct {

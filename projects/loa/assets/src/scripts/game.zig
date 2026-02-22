@@ -10,6 +10,10 @@ pub var g_memory: *GameMemory = undefined;
 pub const HEIGHT = 128;
 pub const Board = [HEIGHT]u64;
 
+const GameState = struct {
+    version: u32,
+    board: [HEIGHT]u64,
+};
 
 pub export fn game_init(api: *GameAPI, game_memory: *GameMemory ) callconv(.c) void {
     g_api = api;
@@ -25,7 +29,7 @@ pub export fn game_init(api: *GameAPI, game_memory: *GameMemory ) callconv(.c) v
         catch unreachable;
     defer slots.deinit(allocator.*);
 
-    for (0..HEIGHT) |y| {
+    for (120..HEIGHT) |y| {
         var row: u64 = board[y];
 
         while (row != 0) {
@@ -44,10 +48,11 @@ pub export fn game_init(api: *GameAPI, game_memory: *GameMemory ) callconv(.c) v
     const chip_id = g_api.*.add_entity();
     const chip_desc = chip_mod.ChipToDesc(0);
     g_api.*.spawn_sprite(&chip_desc, chip_id);
+    g_api.*.add_physics(chip_id);
 
     for (slots.items) |slot| {
         const id = g_api.*.add_entity();
-        const desc = slot_mod.slotToSpriteDesc(slot, 0);
+        const desc = slot_mod.slotToSpriteDesc(slot, id, 0, g_api);
         g_api.*.spawn_sprite(&desc, id);
 
     }

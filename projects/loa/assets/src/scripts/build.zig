@@ -25,7 +25,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const utils_mod = b.createModule(.{
+        .root_source_file = b.path("../../../../../src/utils/utils.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     game.root_module.addImport("game_api", game_api_mod);
+    game.root_module.addImport("utils", utils_mod);
 
     b.installArtifact(game);
     

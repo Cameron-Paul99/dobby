@@ -90,7 +90,7 @@ pub fn Create(self: *Self) ?Entity {
     return null;
 }
 
-pub fn testBit(self: *Self, entity: Entity) bool { 
+pub fn testBit(self: *const Self, entity: Entity) bool { 
     const l2_idx = entity / L2_BITS_u32; 
     const bit: u6 = @intCast(entity % L2_BITS_u32); 
     return (self.l2[l2_idx] & (@as(u64, 1) << bit)) != 0; 
@@ -102,7 +102,7 @@ pub fn clearAll(self: *Self) void {
     @memset(self.l2, 0);
 }
 
-pub fn forEachBitSet(self: *Self, f:anytype) void {
+pub fn forEachBitSet(self: *const Self, f:anytype) void {
     
     for (self.l1, 0..) |l1_block, l1_index| {
         
