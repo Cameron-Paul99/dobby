@@ -135,3 +135,6 @@ pub fn forEachBitSet(self: *const Self, f:anytype) void {
     }
 
 }
+pub inline fn capacity(self: *const Self) u32 {
+    return @as(u32, @intCast(self.l2.len)) * 64;
+}

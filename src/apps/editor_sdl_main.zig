@@ -47,9 +47,36 @@ pub export fn AddEntity() callconv(.c) u32 {
     return id;
 }
 
-pub export fn SetTransform2D(id: u32, transform: Transform2D) callconv(.c) void {
+pub export fn AddTransform2D(id: u32, delta: Transform2D) callconv(.c) void {
     const ctx = g_active_ctx;
-    ctx.entity_transforms[id] = transform;
+    var t = &ctx.entity_transforms[id];
+
+    t.pos_x += delta.pos_x;
+    t.pos_y += delta.pos_y;
+
+    t.scale_x += delta.scale_x;
+    t.scale_y += delta.scale_y;
+
+    t.rot_x += delta.rot_x;
+    t.rot_y += delta.rot_y;
+
+    if (ctx.has_sprite.testBit(id)) {
+        var sprite = &ctx.sprite_components[id];
+        sprite.sprite_pos = .{ t.pos_x, t.pos_y };
+        sprite.sprite_scale = .{ t.scale_x, t.scale_y };
+        sprite.sprite_rotation = .{ t.rot_x, t.rot_y }; 
+    }
+}
+
+pub export fn AddTransform2DPos(id: u32, dx: f32, dy: f32) callconv(.c) void {
+    const ctx = g_active_ctx;
+    ctx.entity_transforms[id].pos_x += dx;
+    ctx.entity_transforms[id].pos_y += dy;
+      if (ctx.has_sprite.testBit(id)) {
+        const t = ctx.entity_transforms[id];
+        var s = &ctx.sprite_components[id];
+        s.sprite_pos = .{ t.pos_x, t.pos_y };
+    }
 }
 
 pub export fn AddPhysics(id: u32) callconv(.c) void {
@@ -91,6 +118,7 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) v
         .tint = desc.tint,
         .atlas_id = desc.atlas_id,
     };
+    std.log.info("Spawning sprite for entity: {d}", .{id});
     ctx.has_sprite.Set(id);
     //std.log.info("Sprite name is: {s}", .{desc.name});
     ctx.sprite_components[id] = sprite;
@@ -104,6 +132,33 @@ pub export fn SetSpritePos(entity: u32, x: f32, y: f32) callconv(.c) void {
     _ = x;
     _ = y;
 }
+fn EditorMoveEntity(
+    editor_input: input.RawInput,
+    select_buffer: *std.ArrayList(u32),
+    camera: *Camera,
+) void {
+
+    const move_down = (editor_input.buttons_down & input.Bit(.mouse_left)) != 0;
+
+
+    if (move_down and select_buffer.items.len > 0) {
+
+        var delta = editor_input.mouse_delta;
+
+        std.log.info(
+            "Raw mouse delta: {d}, {d}",
+            .{ delta.x, delta.y }
+        );
+
+        delta = math.Vec2.Mul(delta, 1.0 / camera.zoom);
+
+        for (select_buffer.items) |entity_id| {
+
+            AddTransform2DPos(entity_id, delta.x, delta.y);
+        }
+    }
+}
+
 
 // ****************************************** PROCJECT CONTEXT *******************************************
 pub const ProjectContext = struct {
@@ -169,7 +224,7 @@ pub const ProjectContext = struct {
                 .get_allocator = GetAllocator,
                 .add_physics = AddPhysics,
                 .remove_physics = RemovePhysics,
-                .set_transform_2D = SetTransform2D,
+                .set_transform_2D = AddTransform2D,
             },
             .game_init = lib.lookup(GameInitFn, "game_init"),
             .game_update = lib.lookup(GameUpdateFn, "game_update"),
@@ -186,7 +241,12 @@ pub const ProjectContext = struct {
     }
 
     pub fn ReloadProjectScripts(self: *ProjectContext) !void {
-        self.alive.clearAll();
+
+      self.alive.clearAll();
+      self.has_sprite.clearAll();
+      self.physics.clearAll();
+      self.static_dirty = true; 
+
         const path = try std.fmt.allocPrint(
             self.allocator,
             "projects/{s}/assets/src/scripts/zig-out/lib/lib{s}_game.so",
@@ -444,9 +504,7 @@ pub fn main() !void {
         std.log.err("Script rebuild failed: {}", .{err});
     };
 
-    if (project_context.game_init) |game_init|{
-        game_init(&project_context.game_api, &project_context.game_memory);
-    }
+    var reload: bool = false;
 
    t.HardRestart(); 
 // ****************************************** Rendering START *******************************************
@@ -459,8 +517,14 @@ pub fn main() !void {
             &editor_input,
             game_window.raw_input,
             &t,
+            &reload,
         );
-
+        if (reload){
+            reload = false;
+            RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
+                std.log.err("Script rebuild failed: {}", .{err});
+            };
+        }
         t.Runnin();
     
 // ****************************************** CAMERA UPDATING *******************************************
@@ -520,17 +584,51 @@ pub fn main() !void {
         input.DeleteEditorIntent(
             &project_context.alive,
             &project_context.has_sprite,
+            &project_context.physics,
             &select_buffer,
+            &project_context.static_dirty,
             game_window.raw_input,
         );
 
         try input.BuildEditorSelectIntent(
-            &project_context.sprite_draws,
+            project_context.sprite_components,
             mouse.world_pos,
+            &project_context.alive,
+            &project_context.has_sprite,
             &select_buffer,
             game_window.raw_input,
             allocator,
         );
+
+
+
+        EditorMoveEntity(
+            game_window.raw_input,
+            &select_buffer,
+            &cam,
+        );
+
+    project_context.sprite_draws.clearRetainingCapacity();
+
+    project_context.has_sprite.forEachBitSet(
+        struct {
+            list: *std.ArrayList(helper.SpriteDraw),
+            comps: []helper.SpriteDraw,
+            alive: *const two_bit,
+            allocator: std.mem.Allocator,
+
+            pub fn call(f: @This(), entity: u32) void {
+                if (!f.alive.testBit(entity)) return;
+                f.list.append(f.allocator, f.comps[entity]) catch unreachable;
+            }
+        }{
+            .list = &project_context.sprite_draws,
+            .comps = project_context.sprite_components,
+            .alive = &project_context.alive,
+            .allocator = allocator
+        }
+    );
+
 
 // ****************************************** RENDERING *******************************************
 
@@ -539,11 +637,7 @@ pub fn main() !void {
             &sc, 
             &game_window, 
             allocator,
-            project_context.sprite_components,
-            project_context.alive,
-            project_context.has_sprite,
-            project_context.physics,
-           &project_context.static_dirty,
+            project_context.sprite_draws.items,
             cam.view_proj,
         );
 

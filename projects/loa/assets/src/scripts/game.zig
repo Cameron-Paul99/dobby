@@ -3,6 +3,7 @@ const GameMemory = @import("game_api").GameMemory;
 const std = @import("std");
 const slot_mod = @import("slot.zig");
 const chip_mod = @import("chip.zig");
+const Transform2D = @import("game_api").Transform2D;
 
 pub var g_api: *GameAPI = undefined;
 pub var g_memory: *GameMemory = undefined;
@@ -14,6 +15,9 @@ const GameState = struct {
     version: u32,
     board: [HEIGHT]u64,
 };
+
+var first_chip = chip_mod.Chip{};
+pub var prev_pos = struct { x: f32 = 0, y: f32 = 0 }{};
 
 pub export fn game_init(api: *GameAPI, game_memory: *GameMemory ) callconv(.c) void {
     g_api = api;
@@ -46,6 +50,7 @@ pub export fn game_init(api: *GameAPI, game_memory: *GameMemory ) callconv(.c) v
     }
 
     const chip_id = g_api.*.add_entity();
+    first_chip.entity = chip_id;
     const chip_desc = chip_mod.ChipToDesc(chip_id, 0, g_api);
     g_api.*.spawn_sprite(&chip_desc, chip_id);
     g_api.*.add_physics(chip_id);
@@ -60,9 +65,10 @@ pub export fn game_init(api: *GameAPI, game_memory: *GameMemory ) callconv(.c) v
 
 
 }
-
+pub var has_stopped: bool = false;
 pub export fn game_update(time_sec: f64) callconv(.c) void{
    std.log.info("Updated, {d}", .{time_sec});
+
 }
 
 pub export fn reload_game() callconv(.c) void {

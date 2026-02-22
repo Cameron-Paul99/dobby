@@ -171,25 +171,34 @@ pub fn MapSDLMouseButton(button: u8) ?InputKey {
 pub fn DeleteEditorIntent(
     alive: *two_bit,
     has_sprite: *two_bit,
+    physics: *two_bit,
     select_buffer: *std.ArrayList(u32),
+    static_dirty: *bool,
     input: RawInput,
 ) void {
-
     const delete_pressed = (input.buttons_pressed & Bit(.delete)) != 0;
     if (!delete_pressed) return;
-    
+
+    var touched_static = false;
+
     for (select_buffer.items) |entity| {
+        if (!physics.testBit(entity)) touched_static = true;
+
         alive.Clear(entity);
         has_sprite.Clear(entity);
+        physics.Clear(entity); // harmless; keeps state consistent
     }
 
-    select_buffer.clearRetainingCapacity();
+    if (touched_static) static_dirty.* = true;
 
+    select_buffer.clearRetainingCapacity();
 }
 
 pub fn BuildEditorSelectIntent(
-    sprites: *std.ArrayList(helper.SpriteDraw),
+    sprites: []helper.SpriteDraw,
     mouse_pos: math.Vec2,
+    alive: *const two_bit,
+    has_sprite: *const two_bit,
     select_buffer: *std.ArrayList(u32),
     input: RawInput,
     allocator: std.mem.Allocator,
@@ -201,7 +210,7 @@ pub fn BuildEditorSelectIntent(
 
     if (!left_pressed) return;
 
-    const entity = Select(sprites, mouse_pos);
+    const entity = Select(sprites,alive, has_sprite ,mouse_pos);
 
     if (entity) |e| {
 
@@ -233,6 +242,7 @@ pub fn BuildEditorIntent(
     intent: *EditorIntent, 
     input: RawInput,
     time: *utils.time,
+    reload: *bool,
 ) void {
 
     const prev_zoom = intent.zoom;
@@ -258,6 +268,7 @@ pub fn BuildEditorIntent(
         (input.buttons_down & Bit(.ctrl) != 0) and
         (input.buttons_down & Bit(.alt) != 0)){
             time.HardRestart();
+            reload.* = true;
     }
     // Drag
     if (input.buttons_down & Bit(.mouse_right) != 0) {
@@ -285,14 +296,24 @@ pub inline fn Bit(key: InputKey) InputBitSet {
 }
 
 pub fn Select(
-    sprites: *std.ArrayList(helper.SpriteDraw),
+    sprites: []helper.SpriteDraw,
+    alive: *const two_bit,
+    has_sprite: *const two_bit,
     mouse: math.Vec2,
 ) ?u32 {
-    var i: usize = sprites.items.len;
+    var i: usize = sprites.len;
     while (i > 0) {
         i -= 1;
 
-        const sprite = sprites.items[i];
+        const sprite = sprites[i];
+        const e = sprite.entity;
+        std.log.info("Selected sprite for entity: {d}", .{e});
+        const cap = alive.capacity();
+        if (e >= cap) continue;
+         _ = has_sprite;
+        //_ = alive;
+        if (!alive.testBit(e)) continue;
+        //if (!has_sprite.testBit(e)) continue;
 
         const min_x = sprite.sprite_pos[0];
         const max_x = sprite.sprite_pos[0] + sprite.sprite_scale[0];

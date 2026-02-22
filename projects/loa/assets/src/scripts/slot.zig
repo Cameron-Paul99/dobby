@@ -42,12 +42,10 @@ pub fn slotToSpriteDesc(
         .scale_y = TILE_SIZE_Y,
     };
     
-
-    // TODO remove redundency and not set the sprite desc and the transform. 
-    // Just set tranform and then derive the sprite desc in the spawn sprite function in editor.
     api.set_transform_2D( id ,entity_transform);
 
     return SpriteDesc{
+        .id = id,
         .name = "Slot",
         .tint = .{ 1.0, 1.0, 1.0, 1.0 },
         .atlas_id = atlas_id,

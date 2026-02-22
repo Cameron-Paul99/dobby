@@ -11,9 +11,10 @@ pub const ChipType = enum {
 };
 
 pub const Chip = struct {
-    col: u8,
-    pos_y: f32,
-    pos_x: f32,
+    entity: u32 = 0,
+    col: u8 = 0,
+    pos_y: f32 = 0.0,
+    pos_x: f32 = 0.0,
     //state: enum {Falling, Settled},
 };
 
@@ -33,6 +34,7 @@ pub fn ChipToDesc(
     api.set_transform_2D(id, entity_transform);
 
     return SpriteDesc {
+        .id = id,
         .name = "Chip",
         .tint = .{ 1.0, 1.0, 1.0, 1.0 },
         .atlas_id = atlas_id,
