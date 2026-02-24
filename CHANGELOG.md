@@ -1,3 +1,13 @@
+## [0.0.7] - Editor, ECS, and Rendering Clean Ups - Cameron Paul - 02/24/26
+- Deletion completed
+- Selection of entities
+- Select and move entities
+- Moving entities
+- Time: Start, Pause, Reset, and Hard Reset
+- Script Hot reloading
+- Notifier for rebuilding scripts
+- Game API integration
+
 ## [0.0.6] - Two bit active entity and game exe - Cameron Paul - 02/07/26
 - Two bit ecs start
 - game exe implementation
