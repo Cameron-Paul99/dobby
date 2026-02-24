@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "atlases": [
+    {
+      "id": 0,
+      "path": "projects/loa/assets/cooked/atlases/atlas_0.ktx2",
+      "atlas_imgs": [
+        {
+          "name": "Chip",
+          "uv_min": [
+            0,
+            0
+          ],
+          "uv_max": [
+            0.25,
+            0.25
+          ]
+        },
+        {
+          "name": "Slot",
+          "uv_min": [
+            0.25,
+            0
+          ],
+          "uv_max": [
+            0.73828125,
+            0.48828125
+          ]
+        }
+      ],
+      "from_path": "projects/loa/assets/src/textures/basic",
+      "rev": 2
+    }
+  ]
+}

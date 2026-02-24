@@ -2,6 +2,7 @@ const std = @import("std");
 const utils = @import("utils");
 const engine = @import("engine");
 const zigimg = @import("zigimg");
+const g_api = @import("game_api");
 const core_mod = engine.core;
 const swapchain_mod = engine.swapchain;
 const render = engine.renderer;
@@ -9,101 +10,280 @@ const helper = engine.helper;
 const text = engine.textures;
 const input = engine.input;
 const c = engine.c;
+const Transform2D = g_api.Transform2D;
 const print = std.debug.print;
 const sdl = engine.sdl;
 const math = utils.math;
 const algo = utils.algo;
 const notify = utils.notify;
 const atlas_mod = utils.atlas;
-const lua_mod = engine.lua;
-//const lua = lua_mod.lua;
-const zlua = @import("zlua");
-const Lua = zlua.Lua;
+const two_bit = utils.two_bit;
+const time = utils.time;
+const Camera = utils.camera;
+const Mouse = utils.mouse;
+const RadiusRender = helper.RadiusRender;
+const SceneManager = utils.scene_manager;
 
-// Opaque = 0
-// Alpha = 1
-// UI = 2
+const MAX_ENTITIES: u32 = 100_000;
+const MAX_GAME_MEMORY = 1 * 1024 * 1024; // 1 MB
 
-// INVARIANTS:
-// 1. atlases.json is sorted by id
-// 2. atlas_list is always sorted by id
-// 3. IDs are stable and never renumbered
-// 4. Editor never invents IDs
-fn MoveSprite(lua: *Lua) i32 {
-    const a = lua.toNumber(1) catch 0;
-    const b = lua.toNumber(2) catch 0;
-    lua.pushNumber(a + b);
-    return 1;
+var g_active_ctx: *ProjectContext = undefined;
+const GameInitFn   = *const fn (*g_api.GameAPI, *g_api.GameMemory) callconv(.c) void;
+const GameUpdateFn = *const fn (f64) callconv(.c) void;
+
+pub export fn RemoveEntity(id: u32) callconv(.c) void {
+    const ctx = g_active_ctx;
+    ctx.alive.Clear(id);
 }
 
+pub export fn AddEntity() callconv(.c) u32 {
+    const ctx = g_active_ctx;
+    const id = ctx.alive.Create() orelse unreachable;
+
+    const entity_transform = Transform2D {};
+    
+    ctx.entity_transforms[id] = entity_transform;
+   // std.log.info("Entity {d} is alive", .{id});
+    return id;
+}
+
+pub export fn AddTransform2D(id: u32, delta: Transform2D) callconv(.c) void {
+    const ctx = g_active_ctx;
+    var t = &ctx.entity_transforms[id];
+
+    t.pos_x += delta.pos_x;
+    t.pos_y += delta.pos_y;
+
+    t.scale_x += delta.scale_x;
+    t.scale_y += delta.scale_y;
+
+    t.rot_x += delta.rot_x;
+    t.rot_y += delta.rot_y;
+
+    if (ctx.has_sprite.testBit(id)) {
+        var sprite = &ctx.sprite_components[id];
+        sprite.sprite_pos = .{ t.pos_x, t.pos_y };
+        sprite.sprite_scale = .{ t.scale_x, t.scale_y };
+        sprite.sprite_rotation = .{ t.rot_x, t.rot_y }; 
+    }
+}
+
+pub export fn AddTransform2DPos(id: u32, dx: f32, dy: f32) callconv(.c) void {
+    const ctx = g_active_ctx;
+    ctx.entity_transforms[id].pos_x += dx;
+    ctx.entity_transforms[id].pos_y += dy;
+      if (ctx.has_sprite.testBit(id)) {
+        const t = ctx.entity_transforms[id];
+        var s = &ctx.sprite_components[id];
+        s.sprite_pos = .{ t.pos_x, t.pos_y };
+    }
+}
+
+pub export fn AddPhysics(id: u32) callconv(.c) void {
+
+    const ctx = g_active_ctx;
+    ctx.static_dirty = true;
+    ctx.physics.Set(id);
+
+}
+
+pub export fn RemovePhysics(id: u32) callconv(.c) void {
+    const ctx = g_active_ctx;
+    ctx.static_dirty = true;
+    ctx.physics.Clear(id);
+}
+
+pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) void {
+    
+    const ctx = g_active_ctx;
+
+    const slot_uv = atlas_mod.GetImageFromAtlas(0, desc.name, ctx.proj, ctx.allocator) catch |err| {
+        std.log.err("GetImageFromAtlas failed: {}", .{err});
+        return; // or fallback
+    };
+
+    if (slot_uv != null) {
+        ctx.allocator.free(slot_uv.?.name);
+    }
+
+    const transform = ctx.entity_transforms[id];
+
+    const sprite = helper.SpriteDraw{
+        .entity = id,
+        .sprite_pos = .{transform.pos_x, transform.pos_y},
+        .sprite_scale = .{transform.scale_x, transform.scale_y},
+        .sprite_rotation = .{transform.rot_x, transform.rot_y},
+        .uv_min = slot_uv.?.uv_min,
+        .uv_max = slot_uv.?.uv_max,
+        .tint = desc.tint,
+        .atlas_id = desc.atlas_id,
+    };
+    std.log.info("Spawning sprite for entity: {d}", .{id});
+    ctx.has_sprite.Set(id);
+    //std.log.info("Sprite name is: {s}", .{desc.name});
+    ctx.sprite_components[id] = sprite;
+}
+pub export fn GetAllocator() callconv(.c) *anyopaque {
+    return &g_active_ctx.allocator;
+}
+
+pub export fn SetSpritePos(entity: u32, x: f32, y: f32) callconv(.c) void {
+    _ = entity;
+    _ = x;
+    _ = y;
+}
+fn EditorMoveEntity(
+    editor_input: input.RawInput,
+    select_buffer: *std.ArrayList(u32),
+    camera: *Camera,
+) void {
+
+    const move_down = (editor_input.buttons_down & input.Bit(.mouse_left)) != 0;
+
+
+    if (move_down and select_buffer.items.len > 0) {
+
+        var delta = editor_input.mouse_delta;
+
+        std.log.info(
+            "Raw mouse delta: {d}, {d}",
+            .{ delta.x, delta.y }
+        );
+
+        delta = math.Vec2.Mul(delta, 1.0 / camera.zoom);
+
+        for (select_buffer.items) |entity_id| {
+
+            AddTransform2DPos(entity_id, delta.x, delta.y);
+        }
+    }
+}
+
+
+// ****************************************** PROCJECT CONTEXT *******************************************
 pub const ProjectContext = struct {
     proj_name: []const u8,
+    proj: utils.Project,
+    game_memory_buffer: []u8,
+    game_memory: g_api.GameMemory = undefined,
     allocator: std.mem.Allocator,
-    scene_manager: SceneManager,
     atlas_manager: AtlasManager,
+    game_api: g_api.GameAPI = undefined,
+    lib: ?std.DynLib,
+    game_init: ?*const fn (*g_api.GameAPI, *g_api.GameMemory) callconv(.c) void,
+    game_update: ?*const fn (f64) callconv(.c) void,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
-    lua: *Lua,
+    paused: bool = true,
+    alive: two_bit,
+    render_area: RadiusRender, 
+    has_sprite: two_bit,
+    physics: two_bit,
+    static_dirty: bool = true,
+    sprite_components: []helper.SpriteDraw,
+    entity_transforms: []Transform2D,
 
     pub fn init(
         allocator: std.mem.Allocator,
         name: []const u8,
     ) !ProjectContext{
 
-        var lua = try Lua.init(allocator);
-        lua.openLibs();
+        const path = try std.fmt.allocPrint(
+            allocator,
+            "projects/{s}/assets/src/scripts/zig-out/lib/lib{s}_game.so",
+            .{name, name},
+        );
+        defer allocator.free(path);
+        var lib = try std.DynLib.open(path);
+
+        const buffer = try allocator.alignedAlloc(u8,@enumFromInt(6),  MAX_GAME_MEMORY, ); 
+        @memset(buffer, 0);
 
         return .{
             .proj_name = name,
+            .proj = .{
+              .name = "",
+              .path = "",
+            },
+            .game_memory_buffer = buffer,
+            .game_memory = .{
+                .ptr = buffer.ptr,
+                .size = buffer.len,
+            },
             .allocator = allocator,
             .atlas_manager = .{
                 .atlas_list = try std.ArrayList(atlas_mod.AtlasAsset)
                     .initCapacity(allocator, 0),
             },
-            .scene_manager = .{
-                .scenes = try std.ArrayList(Scene).initCapacity(allocator, 0),
-                .atlas_alias_table = try std.ArrayList(atlas_mod.AtlasAliasId_u32)
-                    .initCapacity(allocator, 0),
-                .scene_connection_table = try std.ArrayList(SceneId_u32)
-                    .initCapacity(allocator, 0),
+            .lib = lib,
+            .game_api = g_api.GameAPI {
+                .user_data = null,
+                .add_entity = AddEntity,
+                .remove_enity = RemoveEntity,
+                .spawn_sprite = SpawnSprite,
+                .set_sprite_pos = SetSpritePos,
+                .get_allocator = GetAllocator,
+                .add_physics = AddPhysics,
+                .remove_physics = RemovePhysics,
+                .set_transform_2D = AddTransform2D,
             },
+            .game_init = lib.lookup(GameInitFn, "game_init"),
+            .game_update = lib.lookup(GameUpdateFn, "game_update"),
             .sprite_draws = try std.ArrayList(helper.SpriteDraw)
                 .initCapacity(allocator, 0),
-            .lua = lua,
+            .sprite_components = try allocator.alloc(helper.SpriteDraw, MAX_ENTITIES),
+            .entity_transforms = try allocator.alloc(Transform2D, MAX_ENTITIES), 
+            .alive = try two_bit.init(MAX_ENTITIES, allocator), 
+            .render_area = try RadiusRender.init(MAX_ENTITIES, allocator),
+            .has_sprite = try two_bit.init(MAX_ENTITIES, allocator),
+            .physics = try two_bit.init(MAX_ENTITIES, allocator),
         };
+
+    }
+
+    pub fn ReloadProjectScripts(self: *ProjectContext) !void {
+
+      self.alive.clearAll();
+      self.has_sprite.clearAll();
+      self.physics.clearAll();
+      self.static_dirty = true; 
+
+        const path = try std.fmt.allocPrint(
+            self.allocator,
+            "projects/{s}/assets/src/scripts/zig-out/lib/lib{s}_game.so",
+            .{self.proj_name, self.proj_name},
+        );
+        defer self.allocator.free(path);
+    
+        if (self.lib) |*old| old.close();
+        self.lib = null;
+        self.game_init = null;
+        self.game_update = null;
+
+        self.lib = try std.DynLib.open(path);
+
+        self.game_init = self.lib.?.lookup(GameInitFn, "game_init");
+        self.game_update = self.lib.?.lookup(GameUpdateFn, "game_update");
+
+        if (self.game_init == null) return error.MissingGameInit;
+        if (self.game_update == null) return error.MissingGameUpdate;
+
+        self.game_init.?(&self.game_api, &self.game_memory);
 
     }
 
     pub fn deinit(self: *ProjectContext) void {
         self.atlas_manager.deinit(self.allocator);
-        self.scene_manager.deinit(self.allocator);
         self.sprite_draws.deinit(self.allocator);
-        self.lua.deinit();
+        self.allocator.free(self.sprite_components);
+        self.allocator.free(self.entity_transforms);
+        self.allocator.free(self.game_memory_buffer);
+        self.alive.deinit();
+        self.render_area.deinit();
+        self.has_sprite.deinit();
+        self.physics.deinit();
+        self.lib.?.close();
     }
 };
-
-
-
-// ****************************************** CAMERA ************************************
-pub const Camera = struct {
-    pos: math.Vec2 = math.Vec2.ZERO,
-    view_proj: math.Mat4 = math.Mat4.IDENTITY,
-
-    pub fn Update(self: *Camera, screen_w: f32, screen_h: f32) void {
-
-        const proj = math.Ortho(0.0, screen_w, 0.0, screen_h);
-
-        const view = math.Mat4.TranslateWorld(proj , .{
-            .x = -self.pos.x,
-            .y = -self.pos.y,
-            .z = 0,
-        });
-
-        self.view_proj = view;
-
-    }
-
-};
-
 
 // ****************************************** ATLAS MANAGER **********************************
 
@@ -193,88 +373,72 @@ pub const AtlasManager = struct {
 
 };
 
-// ******************************************** SCENE MANAGER *********************************
+fn RebuildScripts(
+    allocator: std.mem.Allocator, 
+    cwd: []const u8,
+    proj_ctx: *ProjectContext) !void {
 
-pub const IndexRange = struct {
-    offset: u32 = 0,
-    count: u32 = 0,
-};
+    var argv = [_][]const u8{
+        "zig",
+        "build",
+    };
 
-pub const SceneId_u32 = u32;
+    var child = std.process.Child.init(&argv, allocator);
+    child.cwd = cwd;
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Inherit;
+    child.stderr_behavior = .Inherit;
 
-pub const Scene = struct {
-    scene_index: u32 = 0,
-    atlas_aliases: IndexRange = .{},
-    connected_scenes: IndexRange = .{},
-};
+    const term = try child.spawnAndWait();
 
-pub const SceneManager = struct {
-
-    scenes: std.ArrayList(Scene),
-    atlas_alias_table: std.ArrayList(atlas_mod.AtlasAliasId_u32),
-    scene_connection_table: std.ArrayList(SceneId_u32),
-
-    pub fn MakeScene(
-        self: *SceneManager, 
-        allocator: std.mem.Allocator,
-        alias_ids: []const atlas_mod.AtlasAliasId_u32,
-        connected_scene_ids: []const SceneId_u32 ) !void{
-        
-        // Reserve space
-        try self.atlas_alias_table.appendSlice(allocator, alias_ids);
-        try self.scene_connection_table.appendSlice(allocator, connected_scene_ids);
-
-        const alias_offset = self.atlas_alias_table.items.len - alias_ids.len;
-        const conn_offset  = self.scene_connection_table.items.len - connected_scene_ids.len;
-        
-        // Make New Scene
-        const scene = Scene{
-            .scene_index = @intCast(self.scenes.items.len),
-            .atlas_aliases = .{
-                .offset = @intCast(alias_offset),
-                .count = @intCast(alias_ids.len),
-            },
-            .connected_scenes = .{
-                .offset = @intCast(conn_offset),
-                .count = @intCast(connected_scene_ids.len),
-            },
-        };
-
-        try self.scenes.append(allocator, scene);
+    if (term != .Exited or term.Exited != 0) {
+        return error.BuildFailed;
     }
 
-    pub fn deinit(self: *SceneManager, allocator: std.mem.Allocator) void{
-        self.scenes.deinit(allocator);
-        self.atlas_alias_table.deinit(allocator);
-        self.scene_connection_table.deinit(allocator);
-    }
-};
+    std.log.info("Scripts rebuilt", .{});
 
+    try proj_ctx.ReloadProjectScripts();
 
-
+}
 
 // ****************************************** MAIN *******************************************
 
 
 pub fn main() !void {
-    
-    // Window Creation
-    var game_window = try sdl.Window.init(800, 600);
-    defer game_window.deinit();
 
-    // Editor Input
-    var editor_input = input.EditorIntent{
-        .drag_speed = 0.05,
-    };
-    
-    // Camera 
-    var camera = Camera{};
-   
+    var t = time.Start();
+
     // Allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-   
+
+    // Window Creation
+    var game_window = try sdl.Window.init(1920, 1080);
+    defer game_window.deinit();
+
+    var drawable_w: c_int = 0;
+    var drawable_h: c_int = 0;
+    _ = c.SDL_GetWindowSizeInPixels(game_window.window, &drawable_w, &drawable_h);
+    game_window.screen_width = drawable_w;
+    game_window.screen_height = drawable_h;
+
+    // Editor Input
+    var editor_input = input.EditorIntent{
+        .drag_speed = 1.0,
+    };
+    
+    // Camera 
+    var cam = Camera.init(@floatFromInt(game_window.screen_width),@floatFromInt(game_window.screen_height)); 
+
+    // Mouse
+    var mouse = Mouse{};
+    std.log.info("mouse world: {d},{d}", .{mouse.world_pos.x, mouse.world_pos.y});
+
+    // Select Buffer
+    var select_buffer = try std.ArrayList(u32).initCapacity(allocator, 0);
+    defer select_buffer.deinit(allocator);
+
     // Project
     var proj = try utils.LoadProject(allocator);
     defer proj.deinit(allocator);
@@ -308,21 +472,94 @@ pub fn main() !void {
     var atlas_notifier = try notify.Inotify.init(proj_atlas_path, allocator);
     defer atlas_notifier.deinit(allocator);
 
+    // Scripts path
+    const scripts_path = try std.fmt.allocPrint(
+        allocator,
+        "projects/{s}/assets/src/scripts/",
+        .{ proj.parsed.value.name },
+    );
+    defer allocator.free(scripts_path);
+
+    const proj_scripts_path = try allocator.dupeZ(u8, scripts_path);
+    defer allocator.free(proj_scripts_path);
+
+    // Scripts Notifier
+    var scripts_notifier = try notify.Inotify.init(proj_scripts_path, allocator);
+    defer scripts_notifier.deinit(allocator);
+
+    // Project context
     var project_context = try ProjectContext.init(allocator, proj.parsed.value.name);
     defer project_context.deinit();
+
+    g_active_ctx = &project_context;
+    project_context.game_api.user_data = g_active_ctx;
+
+    project_context.proj = proj.parsed.value;
+
+    project_context.alive.clearAll();
+    project_context.physics.clearAll();
+    project_context.has_sprite.clearAll();
+
+    RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
+        std.log.err("Script rebuild failed: {}", .{err});
+    };
+
+    var reload: bool = false;
+
+   t.HardRestart(); 
+// ****************************************** Rendering START *******************************************
 
     while (!game_window.should_close){
         
         game_window.pollEvents(&renderer);
 
-        input.BuildEditorIntent(&editor_input, game_window.raw_input);
-
-        camera.pos = math.Vec2.Add(camera.pos , editor_input.drag_delta);
-
-        camera.Update(
-            @floatFromInt(game_window.screen_width), 
-            @floatFromInt(game_window.screen_height)
+        input.BuildEditorIntent( 
+            &editor_input,
+            game_window.raw_input,
+            &t,
+            &reload,
         );
+        if (reload){
+            reload = false;
+            RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
+                std.log.err("Script rebuild failed: {}", .{err});
+            };
+        }
+        t.Runnin();
+    
+// ****************************************** CAMERA UPDATING *******************************************
+        cam.UpdateCameraAttributes(
+            editor_input.zoom, 
+            editor_input.drag_delta
+        );
+
+        cam.UpdateViewProj(
+            @floatFromInt(game_window.screen_width),
+            @floatFromInt(game_window.screen_height),
+        );
+
+// ****************************************** MOUSE UPDATING *******************************************
+        mouse.Update(
+            game_window.raw_input.mouse_pos,
+            &cam,
+            @floatFromInt(game_window.screen_width),
+            @floatFromInt(game_window.screen_height),
+        );
+
+// ****************************************** PROJECT UPDATING *******************************************
+        if (project_context.game_update) |game_update| {
+            if (!t.pause) game_update(t.time_sec);
+        }
+
+        const scripts_bytes = try scripts_notifier.poll();
+        if (scripts_bytes > 0){
+            std.log.info("Rebuilding scripts", .{});
+            project_context.sprite_draws.clearRetainingCapacity();
+            RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
+                std.log.err("Script rebuild failed: {}", .{err});
+            };
+        }
+
         const atlas_bytes = try atlas_notifier.poll();
         if (atlas_bytes > 0) {
             project_context.atlas_manager.metadata_dirty = true;
@@ -344,18 +581,70 @@ pub fn main() !void {
 
         }
 
+        input.DeleteEditorIntent(
+            &project_context.alive,
+            &project_context.has_sprite,
+            &project_context.physics,
+            &select_buffer,
+            &project_context.static_dirty,
+            game_window.raw_input,
+        );
+
+        try input.BuildEditorSelectIntent(
+            project_context.sprite_components,
+            mouse.world_pos,
+            &project_context.alive,
+            &project_context.has_sprite,
+            &select_buffer,
+            game_window.raw_input,
+            allocator,
+        );
+
+
+
+        EditorMoveEntity(
+            game_window.raw_input,
+            &select_buffer,
+            &cam,
+        );
+
+    project_context.sprite_draws.clearRetainingCapacity();
+
+    project_context.has_sprite.forEachBitSet(
+        struct {
+            list: *std.ArrayList(helper.SpriteDraw),
+            comps: []helper.SpriteDraw,
+            alive: *const two_bit,
+            allocator: std.mem.Allocator,
+
+            pub fn call(f: @This(), entity: u32) void {
+                if (!f.alive.testBit(entity)) return;
+                f.list.append(f.allocator, f.comps[entity]) catch unreachable;
+            }
+        }{
+            .list = &project_context.sprite_draws,
+            .comps = project_context.sprite_components,
+            .alive = &project_context.alive,
+            .allocator = allocator
+        }
+    );
+
+
+// ****************************************** RENDERING *******************************************
+
         try renderer.DrawFrame(
             &core, 
             &sc, 
             &game_window, 
-            allocator, 
+            allocator,
             project_context.sprite_draws.items,
-            camera.view_proj,
+            cam.view_proj,
         );
 
     }
 
 }
+
 
 
 

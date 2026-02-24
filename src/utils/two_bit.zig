@@ -10,11 +10,11 @@ pub const L2_BLOCK_u64 = u64;
 pub const L1_BLOCK_u64 = u64;
 
 inline fn popcount(x: u64) u32 {
-    return @intCast(u32, @popCount(x));
+    return @intCast(@popCount(x));
 }
 
 inline fn tzcnt(x: u64) u32 {
-    return @intCast(u32, @ctz(x));
+    return @intCast(@ctz(x));
 }
 
 l1: []L1_BLOCK_u64,
@@ -24,48 +24,117 @@ allocator: std.mem.Allocator,
 pub fn init(max_entries: u32, allocator: std.mem.Allocator) !Self {
     const l2_blocks = (max_entries + L2_BITS_u32 - 1) / L2_BITS_u32;
     const l1_blocks = (l2_blocks + L1_BITS_u32 - 1) / L1_BITS_u32;
+
+    const l1 = try allocator.alloc(L1_BLOCK_u64, l1_blocks);
+    errdefer allocator.free(l1);
+
+    const l2 = try allocator.alloc(L2_BLOCK_u64, l2_blocks);
+    errdefer allocator.free(l2);
+
+    // Important: start clean
+    @memset(l1, 0);
+    @memset(l2, 0);
+
     return .{
-        .l1 = try allocator.alloc(L1_BLOCK_u64, l1_blocks),
-        .l2 = try allocator.alloc(L2_BLOCK_u64, l2_blocks),
+        .l1 = l1,
+        .l2 = l2,
         .allocator = allocator,
     };
 }
 
-pub fn deinit(self: *Self) !void{
-    try self.allocator.free(self.l1);
-    try self.allocator.free(self.l2);
+pub fn deinit(self: *Self) void{
+     self.allocator.free(self.l1);
+     self.allocator.free(self.l2);
 }
 
 pub fn Set(self: *Self, entity: Entity) void {
-    
-    const l2_index = entity / L2_BITS_u32;
-    const bit = entity % L2_BITS_u32;
+    const l2_index: u32 = entity / L2_BITS_u32;
 
-    // |= is or
-    // << shift to the right
+    const bit: u6 = @intCast(entity % L2_BITS_u32);
+
     self.l2[l2_index] |= (@as(u64, 1) << bit);
 
-    const l1_index = l2_index / L1_BITS_u32;
-    const l1_bit = l2_index % L1_BITS_u32;
+    const l1_index: u32 = l2_index / L1_BITS_u32;
+    const l1_bit: u6 = @intCast(l2_index % L1_BITS_u32);
 
     self.l1[l1_index] |= (@as(u64, 1) << l1_bit);
-
 }
 
-pub fn Clear(self: *Self, entity: Entity) void{
+pub fn Clear(self: *Self, entity: Entity) void {
     const l2_index = entity / L2_BITS_u32;
-    const bit = entity % L2_BITS_u32;
+    const bit: u6 = @intCast(entity % L2_BITS_u32);
 
-    l2[l2_index] &= ~(@as(u64, 1) << bit);
-    
-    const l1_index = l2_index / L1_BITS_u32;
-    const l1_bit = l2_index % L1_BITS_u32;
+    self.l2[l2_index] &= ~(@as(u64, 1) << bit);
 
-    l1[l1_index] &= ~(@as(u64, 1) << bit);`
+    if (self.l2[l2_index] == 0) {
+        const l1_index = l2_index / L1_BITS_u32;
+        const l1_bit: u6 = @intCast(l2_index % L1_BITS_u32);
+
+        self.l1[l1_index] &= ~(@as(u64, 1) << l1_bit);
+    }
 }
 
-pub fn test(self: *const TwoLevelBitmap, entity: Entity) bool { 
-    const l2_idx = entity / L2_BITS; 
-    const bit = entity % L2_BITS; 
+pub fn Create(self: *Self) ?Entity {
+    for (self.l2, 0..) |l2_block, l2_index| {
+        if (l2_block == 0xFFFFFFFFFFFFFFFF) continue;
+
+        const free_bit: u6 = @intCast(@ctz(~l2_block));
+
+        const entity: Entity = 
+            @as(Entity, @intCast(l2_index)) * L2_BITS_u32 + 
+            @as(Entity, free_bit);
+
+            self.Set(entity);
+        return entity;
+    }
+    return null;
+}
+
+pub fn testBit(self: *const Self, entity: Entity) bool { 
+    const l2_idx = entity / L2_BITS_u32; 
+    const bit: u6 = @intCast(entity % L2_BITS_u32); 
     return (self.l2[l2_idx] & (@as(u64, 1) << bit)) != 0; 
+}
+
+
+pub fn clearAll(self: *Self) void {
+    @memset(self.l1, 0);
+    @memset(self.l2, 0);
+}
+
+pub fn forEachBitSet(self: *const Self, f:anytype) void {
+    
+    for (self.l1, 0..) |l1_block, l1_index| {
+        
+        var l1_bits = l1_block;
+
+        while (l1_bits != 0) {
+
+            const l1_bit = tzcnt(l1_bits);
+            l1_bits &= l1_bits - 1;
+            
+            const l2_index = l1_index * L1_BITS_u32 + l1_bit;
+
+            if (l2_index >= self.l2.len)
+                continue;
+
+
+            var l2_bits = self.l2[l2_index];
+
+            while (l2_bits != 0) {
+
+                const bit = tzcnt(l2_bits);
+                l2_bits &= l2_bits - 1;
+
+                const entity: Entity = @as(Entity, @intCast(l2_index)) * L2_BITS_u32 + bit;
+                
+                f.call(entity);
+
+            }
+        }
+    }
+
+}
+pub inline fn capacity(self: *const Self) u32 {
+    return @as(u32, @intCast(self.l2.len)) * 64;
 }

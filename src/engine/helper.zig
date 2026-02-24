@@ -8,6 +8,7 @@ const text = @import("textures.zig");
 const log = std.log;
 const sdl = utils.sdl;
 const math = utils.math;
+const two_bit = utils.two_bit;
 
 
 pub const VK_NULL_HANDLE = null;
@@ -980,6 +981,7 @@ pub fn CreateVMAAllocator(core: *gpu_context.Core) !c.VmaAllocator {
 }
 
 pub const SpriteDraw = extern struct {
+    entity: u32,
     sprite_pos: [2]f32,
     sprite_scale: [2]f32,
     sprite_rotation: [2]f32,
@@ -996,7 +998,7 @@ pub fn UploadInstanceData(
     dst: *AllocatedBuffer,
     instances: []const SpriteDraw,
 ) !void {
-    const size = instances.len * @sizeOf(SpriteDraw);
+    const size = render.MAX_SPRITES * @sizeOf(SpriteDraw);
 
     var staging = try CreateBuffer(
         vma,
@@ -1033,4 +1035,30 @@ pub fn UploadToBuffer(
 
     @memcpy(dst[0..src.len], src);
 }
+
+
+
+pub const RadiusRender = struct {
+    inner_radius: two_bit,
+    mid_radius: two_bit,
+    outer_radius: two_bit,
+    outside_radius: two_bit,
+
+    pub fn init (entities: u32, allocator: std.mem.Allocator) !RadiusRender{
+        return .{
+            .inner_radius = try two_bit.init(entities, allocator),
+            .mid_radius = try two_bit.init(entities, allocator),
+            .outer_radius = try two_bit.init(entities, allocator),
+            .outside_radius = try two_bit.init(entities, allocator),
+        };
+
+    }
+
+    pub fn deinit(self: *RadiusRender) void{
+        self.inner_radius.deinit();
+        self.mid_radius.deinit();
+        self.outer_radius.deinit();
+        self.outside_radius.deinit();
+    }
+};
 

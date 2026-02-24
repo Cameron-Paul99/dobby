@@ -70,7 +70,7 @@ pub fn ReadManifest(proj: utils.Project, allocator: std.mem.Allocator) !ParsedMa
         bytes,
         .{ .ignore_unknown_fields = true },
     );
-
+errdefer parsed.deinit(); 
     return .{
         .parsed = parsed,
         .buffer = bytes,
@@ -87,8 +87,12 @@ pub fn WriteManifest(proj: utils.Project , manifest: Manifest, allocator: std.me
     );
     defer allocator.free(manifest_path); 
     //_ = allocator;
-    var file = try std.fs.cwd().createFile( manifest_path, .{ .truncate = true });
-    defer file.close();
+    const tmp_path = try std.fmt.allocPrint(
+        allocator,
+        "projects/{s}/assets/cooked/atlases/manifest.tmp",
+        .{ proj.name },
+    );
+    defer allocator.free(tmp_path);
 
     const json_text = try std.fmt.allocPrint(
         allocator,
@@ -97,8 +101,12 @@ pub fn WriteManifest(proj: utils.Project , manifest: Manifest, allocator: std.me
     );
     defer allocator.free(json_text);
 
-    try file.writeAll(json_text);
+    var tmp_file = try std.fs.cwd().createFile(tmp_path, .{ .truncate = true });
+    defer tmp_file.close();
 
+    try tmp_file.writeAll(json_text);
+    try tmp_file.sync();
+    try std.fs.cwd().rename(tmp_path, manifest_path); 
 }
 
 pub fn AddAtlasToManifest(
