@@ -7,6 +7,7 @@ pub const time = @import("time.zig");
 pub const camera = @import("camera.zig");
 pub const mouse = @import("mouse.zig");
 pub const scene_manager = @import("scene.zig");
+pub const physics = @import("physics.zig");
 const std = @import("std");
 
 pub const Project = struct {

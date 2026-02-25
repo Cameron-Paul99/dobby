@@ -31,7 +31,7 @@ pub fn ChipToDesc(
         .scale_y = slot.TILE_SIZE_Y,
     };
 
-    api.set_transform_2D(id, entity_transform);
+    api.add_transform_2D(id, entity_transform);
 
     return SpriteDesc {
         .id = id,

@@ -28,7 +28,7 @@ pub const GameAPI = extern struct {
     get_allocator: *const fn () callconv(.c) *anyopaque,
     add_physics: *const fn (u32) callconv(.c) void,
     remove_physics: *const fn (u32) callconv(.c) void,
-    set_transform_2D: *const fn (u32, Transform2D) callconv(.c) void,
+    add_transform_2D: *const fn (u32, Transform2D) callconv(.c) void,
 };
 
 pub const GameMemory = extern struct {

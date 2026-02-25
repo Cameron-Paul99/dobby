@@ -23,6 +23,7 @@ const Camera = utils.camera;
 const Mouse = utils.mouse;
 const RadiusRender = helper.RadiusRender;
 const SceneManager = utils.scene_manager;
+const Physics = utils.physics;
 
 const MAX_ENTITIES: u32 = 100_000;
 const MAX_GAME_MEMORY = 1 * 1024 * 1024; // 1 MB
@@ -47,6 +48,12 @@ pub export fn AddEntity() callconv(.c) u32 {
     return id;
 }
 
+pub export fn SetTransform(id: u32, transform: Transform2D) callconv(.c) void {
+     const ctx = g_active_ctx;
+     ctx.entity_transforms[id] = transform;
+    
+
+}
 pub export fn AddTransform2D(id: u32, delta: Transform2D) callconv(.c) void {
     const ctx = g_active_ctx;
     var t = &ctx.entity_transforms[id];
@@ -224,7 +231,7 @@ pub const ProjectContext = struct {
                 .get_allocator = GetAllocator,
                 .add_physics = AddPhysics,
                 .remove_physics = RemovePhysics,
-                .set_transform_2D = AddTransform2D,
+                .add_transform_2D = AddTransform2D,
             },
             .game_init = lib.lookup(GameInitFn, "game_init"),
             .game_update = lib.lookup(GameUpdateFn, "game_update"),
@@ -600,34 +607,47 @@ pub fn main() !void {
             allocator,
         );
 
-
-
         EditorMoveEntity(
             game_window.raw_input,
             &select_buffer,
             &cam,
         );
 
-    project_context.sprite_draws.clearRetainingCapacity();
+        project_context.sprite_draws.clearRetainingCapacity();
 
-    project_context.has_sprite.forEachBitSet(
-        struct {
-            list: *std.ArrayList(helper.SpriteDraw),
-            comps: []helper.SpriteDraw,
-            alive: *const two_bit,
-            allocator: std.mem.Allocator,
+        project_context.has_sprite.forEachBitSet(
+            struct {
+                list: *std.ArrayList(helper.SpriteDraw),
+                comps: []helper.SpriteDraw,
+                alive: *const two_bit,
+                allocator: std.mem.Allocator,
 
-            pub fn call(f: @This(), entity: u32) void {
-                if (!f.alive.testBit(entity)) return;
-                f.list.append(f.allocator, f.comps[entity]) catch unreachable;
+                pub fn call(f: @This(), entity: u32) void {
+                    if (!f.alive.testBit(entity)) return;
+                    f.list.append(f.allocator, f.comps[entity]) catch unreachable;
+                }
+            }{
+                .list = &project_context.sprite_draws,
+                .comps = project_context.sprite_components,
+                .alive = &project_context.alive,
+                .allocator = allocator
             }
-        }{
-            .list = &project_context.sprite_draws,
-            .comps = project_context.sprite_components,
-            .alive = &project_context.alive,
-            .allocator = allocator
-        }
-    );
+        );
+
+        project_context.physics.forEachBitSet(
+            struct {
+                alive: *const two_bit,
+                entity_transforms: []Transform2D,
+                pub fn call(f: @This(), entity: u32) void {
+                    if (!f.alive.testBit(entity)) return;
+                        
+                       // Physics(entity);
+                }
+            }{
+                .entity_transforms = project_context.entity_transforms,
+                .alive = &project_context.alive,
+            }
+        );
 
 
 // ****************************************** RENDERING *******************************************
