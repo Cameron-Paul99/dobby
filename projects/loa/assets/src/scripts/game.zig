@@ -1,5 +1,6 @@
 const GameAPI = @import("game_api").GameAPI;
 const GameMemory = @import("game_api").GameMemory;
+const Physics = @import("game_api").PhysicsAPI;
 const std = @import("std");
 const slot_mod = @import("slot.zig");
 const chip_mod = @import("chip.zig");
@@ -7,6 +8,7 @@ const Transform2D = @import("game_api").Transform2D;
 
 pub var g_api: *GameAPI = undefined;
 pub var g_memory: *GameMemory = undefined;
+pub var g_physics: *Physics = undefined;
 
 pub const HEIGHT = 128;
 pub const Board = [HEIGHT]u64;
@@ -19,9 +21,10 @@ const GameState = struct {
 var first_chip = chip_mod.Chip{};
 pub var prev_pos = struct { x: f32 = 0, y: f32 = 0 }{};
 
-pub export fn game_init(api: *GameAPI, game_memory: *GameMemory ) callconv(.c) void {
+pub export fn game_init(api: *GameAPI, game_memory: *GameMemory, physics: *Physics) callconv(.c) void {
     g_api = api;
     g_memory = game_memory;
+    g_physics = physics;
 
 
     const allocator_fn = g_api.*.get_allocator();
@@ -54,6 +57,7 @@ pub export fn game_init(api: *GameAPI, game_memory: *GameMemory ) callconv(.c) v
     const chip_desc = chip_mod.ChipToDesc(chip_id, 0, g_api);
     g_api.*.spawn_sprite(&chip_desc, chip_id);
     g_api.*.add_physics(chip_id);
+    g_physics.*.enable_gravity(chip_id);
 
     for (slots.items) |slot| {
         const id = g_api.*.add_entity();

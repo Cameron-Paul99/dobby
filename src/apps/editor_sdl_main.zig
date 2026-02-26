@@ -11,6 +11,7 @@ const text = engine.textures;
 const input = engine.input;
 const c = engine.c;
 const Transform2D = g_api.Transform2D;
+const PhysicsAPI = g_api.PhysicsAPI;
 const print = std.debug.print;
 const sdl = engine.sdl;
 const math = utils.math;
@@ -29,8 +30,29 @@ const MAX_ENTITIES: u32 = 100_000;
 const MAX_GAME_MEMORY = 1 * 1024 * 1024; // 1 MB
 
 var g_active_ctx: *ProjectContext = undefined;
-const GameInitFn   = *const fn (*g_api.GameAPI, *g_api.GameMemory) callconv(.c) void;
+var physics_ctx: *Physics = undefined;
+const GameInitFn   = *const fn (*g_api.GameAPI, *g_api.GameMemory, *g_api.PhysicsAPI) callconv(.c) void;
 const GameUpdateFn = *const fn (f64) callconv(.c) void;
+
+pub export fn EnableGravity(id: u32) callconv(.c) void {
+    const ctx = physics_ctx;
+    ctx.EnableGravity(id);
+}
+
+pub export fn AddForce(id: u32, x: f32, y: f32) callconv(.c) void {
+    const ctx = physics_ctx;
+    ctx.AddForce(id, x, y);
+}
+
+pub export fn AddForceX(id: u32, x:f32) callconv(.c) void {
+    const ctx = physics_ctx;
+    ctx.AddForceX(id, x);
+}
+
+pub export fn AddForceY(id: u32, y:f32) callconv(.c) void {
+    const ctx = physics_ctx;
+    ctx.AddForceY(id, y);
+}
 
 pub export fn RemoveEntity(id: u32) callconv(.c) void {
     const ctx = g_active_ctx;
@@ -176,8 +198,9 @@ pub const ProjectContext = struct {
     allocator: std.mem.Allocator,
     atlas_manager: AtlasManager,
     game_api: g_api.GameAPI = undefined,
+    physics_api: g_api.PhysicsAPI = undefined,
     lib: ?std.DynLib,
-    game_init: ?*const fn (*g_api.GameAPI, *g_api.GameMemory) callconv(.c) void,
+    game_init: ?*const fn (*g_api.GameAPI, *g_api.GameMemory, *g_api.PhysicsAPI) callconv(.c) void,
     game_update: ?*const fn (f64) callconv(.c) void,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
     paused: bool = true,
@@ -233,6 +256,12 @@ pub const ProjectContext = struct {
                 .remove_physics = RemovePhysics,
                 .add_transform_2D = AddTransform2D,
             },
+            .physics_api = g_api.PhysicsAPI{
+                .enable_gravity = EnableGravity,
+                .add_force = AddForce,
+                .add_force_x = AddForceX,
+                .add_force_y = AddForceY,
+            },
             .game_init = lib.lookup(GameInitFn, "game_init"),
             .game_update = lib.lookup(GameUpdateFn, "game_update"),
             .sprite_draws = try std.ArrayList(helper.SpriteDraw)
@@ -274,7 +303,7 @@ pub const ProjectContext = struct {
         if (self.game_init == null) return error.MissingGameInit;
         if (self.game_update == null) return error.MissingGameUpdate;
 
-        self.game_init.?(&self.game_api, &self.game_memory);
+        self.game_init.?(&self.game_api, &self.game_memory, &self.physics_api);
 
     }
 
@@ -490,6 +519,12 @@ pub fn main() !void {
     const proj_scripts_path = try allocator.dupeZ(u8, scripts_path);
     defer allocator.free(proj_scripts_path);
 
+    // Physics
+    var physics = try Physics.init(MAX_ENTITIES, allocator);
+    defer physics.deinit(allocator);
+
+    physics_ctx = &physics;
+
     // Scripts Notifier
     var scripts_notifier = try notify.Inotify.init(proj_scripts_path, allocator);
     defer scripts_notifier.deinit(allocator);
@@ -513,7 +548,7 @@ pub fn main() !void {
 
     var reload: bool = false;
 
-   t.HardRestart(); 
+    t.HardRestart(); 
 // ****************************************** Rendering START *******************************************
 
     while (!game_window.should_close){
@@ -638,14 +673,15 @@ pub fn main() !void {
             struct {
                 alive: *const two_bit,
                 entity_transforms: []Transform2D,
+                physics: *Physics,
                 pub fn call(f: @This(), entity: u32) void {
                     if (!f.alive.testBit(entity)) return;
-                        
-                       // Physics(entity);
+                       f.physics.Step(entity, &f.entity_transforms[entity]); 
                 }
             }{
                 .entity_transforms = project_context.entity_transforms,
                 .alive = &project_context.alive,
+                .physics = &physics,
             }
         );
 

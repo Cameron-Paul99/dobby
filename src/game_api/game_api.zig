@@ -31,6 +31,13 @@ pub const GameAPI = extern struct {
     add_transform_2D: *const fn (u32, Transform2D) callconv(.c) void,
 };
 
+pub const PhysicsAPI = extern struct {
+    enable_gravity: *const fn (u32) callconv(.c) void,
+    add_force: *const fn (u32, f32, f32) callconv(.c) void,
+    add_force_x: *const fn (u32, f32) callconv(.c) void,
+    add_force_y: *const fn (u32, f32) callconv(.c) void,
+};
+
 pub const GameMemory = extern struct {
     ptr: ?*anyopaque,
     size: usize,
