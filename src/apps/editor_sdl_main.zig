@@ -668,22 +668,32 @@ pub fn main() !void {
                 .allocator = allocator
             }
         );
-
-        project_context.physics.forEachBitSet(
-            struct {
-                alive: *const two_bit,
-                entity_transforms: []Transform2D,
-                physics: *Physics,
-                pub fn call(f: @This(), entity: u32) void {
-                    if (!f.alive.testBit(entity)) return;
-                       f.physics.Step(entity, &f.entity_transforms[entity]); 
+        if (!t.pause){
+            project_context.physics.forEachBitSet(
+                struct {
+                    alive: *const two_bit,
+                    entity_transforms: []Transform2D,
+                    sprites: []helper.SpriteDraw,
+                    has_sprite: *const two_bit,
+                    physics: *Physics,
+                    pub fn call(f: @This(), entity: u32) void {
+                        if (!f.alive.testBit(entity)) return;
+                        f.physics.Step(entity, &f.entity_transforms[entity]);
+                        if (!f.has_sprite.testBit(entity)) return;
+                        f.sprites[entity].sprite_pos = .{
+                            f.entity_transforms[entity].pos_x, 
+                            f.entity_transforms[entity].pos_y
+                        };
+                    }
+                }{
+                    .entity_transforms = project_context.entity_transforms,
+                    .alive = &project_context.alive,
+                    .sprites = project_context.sprite_components,
+                    .has_sprite = &project_context.has_sprite,
+                    .physics = &physics,
                 }
-            }{
-                .entity_transforms = project_context.entity_transforms,
-                .alive = &project_context.alive,
-                .physics = &physics,
-            }
-        );
+            );
+        }
 
 
 // ****************************************** RENDERING *******************************************
