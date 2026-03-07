@@ -6,6 +6,7 @@ const sc = @import("swapchain.zig");
 const input = @import("controls.zig");
 const math = @import("utils").math;
 
+
 pub const Window = struct {
 
     window: ?*c.SDL_Window,
@@ -14,6 +15,7 @@ pub const Window = struct {
     alloc_cb: ?*c.VkAllocationCallbacks = null,
     raw_input: input.RawInput = input.RawInput{},
     should_close: bool,
+    gameMode: bool = false,
 
     pub fn init(width: c_int, height: c_int) !Window {
 
@@ -49,7 +51,8 @@ pub const Window = struct {
 
     pub fn pollEvents(
         self: *Window,
-        renderer: *render.Renderer, 
+        renderer: *render.Renderer,
+        game_input: *input.KeyBoardGameInput,
     ) void {
 
         self.raw_input.buttons_pressed = 0;
@@ -67,13 +70,14 @@ pub const Window = struct {
 
                     if (input.MapSDLScancode(evt.key.scancode)) |key| {
                         const m = input.Bit(key);
+        
                         if ((self.raw_input.buttons_down & m) == 0) {
-
+                            if (self.gameMode) game_input.game_input_pressed.?(@intFromEnum(key));
                             self.raw_input.buttons_pressed |= m;
 
                         }
                         self.raw_input.buttons_down |= m;
-
+                        if (self.gameMode) game_input.game_input_down.?(@intFromEnum(key));
                         std.debug.print("Key {s} DOWN\n", .{@tagName(key)});
                         
                     }
@@ -83,6 +87,7 @@ pub const Window = struct {
                     if( input.MapSDLScancode(evt.key.scancode)) |key| {
                         self.raw_input.buttons_down &= ~input.Bit(key);
                         std.debug.print("Key {s} UP\n", .{@tagName(key)});
+                        if (self.gameMode) game_input.game_input_up.?(@intFromEnum(key));
                     }
 
                 },
@@ -98,10 +103,12 @@ pub const Window = struct {
                         const m = input.Bit(key);
                         if ((self.raw_input.buttons_down & m) == 0) {
 
+                            if (self.gameMode) game_input.game_input_pressed.?(@intFromEnum(key));
                             self.raw_input.buttons_pressed |= m;
 
                         }
                         self.raw_input.buttons_down |= m;
+                        if (self.gameMode) game_input.game_input_down.?(@intFromEnum(key));
 
                         std.debug.print("Mouse {s} DOWN\n", .{@tagName(key)});
                     }
@@ -112,6 +119,8 @@ pub const Window = struct {
                     if (input.MapSDLMouseButton(evt.button.button)) |key| {
                         self.raw_input.buttons_down &= ~input.Bit(key);
                         std.debug.print("Mouse {s} UP\n", .{@tagName(key)});
+                        if (self.gameMode) game_input.game_input_up.?(@intFromEnum(key));
+
                     }
 
                 },

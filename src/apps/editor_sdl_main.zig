@@ -25,14 +25,20 @@ const Mouse = utils.mouse;
 const RadiusRender = helper.RadiusRender;
 const SceneManager = utils.scene_manager;
 const Physics = utils.physics;
+const GameInput = input.KeyBoardGameInput;
 
 const MAX_ENTITIES: u32 = 100_000;
 const MAX_GAME_MEMORY = 1 * 1024 * 1024; // 1 MB
 
 var g_active_ctx: *ProjectContext = undefined;
 var physics_ctx: *Physics = undefined;
+
 const GameInitFn   = *const fn (*g_api.GameAPI, *g_api.GameMemory, *g_api.PhysicsAPI) callconv(.c) void;
 const GameUpdateFn = *const fn (f64) callconv(.c) void;
+const GameInputPressedFn = *const fn (u8) callconv(.c) void;
+const GameInputDownFn = *const fn (u8) callconv(.c) void;
+const GameInputUpFn = *const fn (u8) callconv(.c) void;
+
 
 pub export fn EnableGravity(id: u32) callconv(.c) void {
     const ctx = physics_ctx;
@@ -68,6 +74,15 @@ pub export fn AddEntity() callconv(.c) u32 {
     ctx.entity_transforms[id] = entity_transform;
    // std.log.info("Entity {d} is alive", .{id});
     return id;
+}
+
+pub export fn SetCameraPosition(x: f32, y: f32) callconv(.c) void {
+    const ctx = g_active_ctx;
+    _ = ctx;
+    _ = x;
+    _ = y;
+
+
 }
 
 pub export fn SetTransform(id: u32, transform: Transform2D) callconv(.c) void {
@@ -174,12 +189,12 @@ fn EditorMoveEntity(
 
         var delta = editor_input.mouse_delta;
 
-        std.log.info(
-            "Raw mouse delta: {d}, {d}",
-            .{ delta.x, delta.y }
-        );
-
         delta = math.Vec2.Mul(delta, 1.0 / camera.zoom);
+
+        //std.log.info(
+        //    "Raw mouse delta: {d}, {d}",
+        //    .{ delta.x, delta.y }
+        //);
 
         for (select_buffer.items) |entity_id| {
 
@@ -202,6 +217,7 @@ pub const ProjectContext = struct {
     lib: ?std.DynLib,
     game_init: ?*const fn (*g_api.GameAPI, *g_api.GameMemory, *g_api.PhysicsAPI) callconv(.c) void,
     game_update: ?*const fn (f64) callconv(.c) void,
+    game_input: GameInput,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
     paused: bool = true,
     alive: two_bit,
@@ -264,6 +280,17 @@ pub const ProjectContext = struct {
             },
             .game_init = lib.lookup(GameInitFn, "game_init"),
             .game_update = lib.lookup(GameUpdateFn, "game_update"),
+            .game_input = .{
+                .game_input_pressed = lib.lookup(
+                    GameInputPressedFn, 
+                    "game_input_pressed"),
+                .game_input_down = lib.lookup(
+                    GameInputDownFn,
+                    "game_input_down"),
+                 .game_input_up = lib.lookup(
+                    GameInputDownFn,
+                    "game_input_up"),
+            },
             .sprite_draws = try std.ArrayList(helper.SpriteDraw)
                 .initCapacity(allocator, 0),
             .sprite_components = try allocator.alloc(helper.SpriteDraw, MAX_ENTITIES),
@@ -300,8 +327,23 @@ pub const ProjectContext = struct {
         self.game_init = self.lib.?.lookup(GameInitFn, "game_init");
         self.game_update = self.lib.?.lookup(GameUpdateFn, "game_update");
 
+        self.game_input.game_input_pressed = self.lib.?.lookup(
+            GameInputPressedFn, 
+            "game_input_pressed");
+
+        self.game_input.game_input_down = self.lib.?.lookup(
+            GameInputDownFn,
+            "game_input_down");
+
+        self.game_input.game_input_up = self.lib.?.lookup(
+            GameInputUpFn,
+            "game_input_up");
+
         if (self.game_init == null) return error.MissingGameInit;
         if (self.game_update == null) return error.MissingGameUpdate;
+        if (self.game_input.game_input_down == null) return error.MissingGameInputDown;
+        if (self.game_input.game_input_pressed == null) return error.MissingGameInputPressed;
+        if (self.game_input.game_input_up == null) return error.MissingGameInputUp;
 
         self.game_init.?(&self.game_api, &self.game_memory, &self.physics_api);
 
@@ -443,6 +485,7 @@ fn RebuildScripts(
 pub fn main() !void {
 
     var t = time.Start();
+    var g_t = time.Start();
 
     // Allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -463,6 +506,10 @@ pub fn main() !void {
     var editor_input = input.EditorIntent{
         .drag_speed = 1.0,
     };
+
+    // Game Input
+    //var game_input = input.
+    var gameMode = false;
     
     // Camera 
     var cam = Camera.init(@floatFromInt(game_window.screen_width),@floatFromInt(game_window.screen_height)); 
@@ -548,17 +595,20 @@ pub fn main() !void {
 
     var reload: bool = false;
 
-    t.HardRestart(); 
+    t.HardRestart();
+    g_t.HardRestart();
 // ****************************************** Rendering START *******************************************
 
     while (!game_window.should_close){
         
-        game_window.pollEvents(&renderer);
+        game_window.pollEvents(&renderer, &project_context.game_input);
 
         input.BuildEditorIntent( 
             &editor_input,
+            &gameMode,
             game_window.raw_input,
             &t,
+            &g_t,
             &reload,
         );
         if (reload){
@@ -567,8 +617,13 @@ pub fn main() !void {
                 std.log.err("Script rebuild failed: {}", .{err});
             };
         }
+
         t.Runnin();
-    
+        if (gameMode){
+            g_t.Runnin();
+            if (!game_window.gameMode) game_window.gameMode = true;
+        }
+  
 // ****************************************** CAMERA UPDATING *******************************************
         cam.UpdateCameraAttributes(
             editor_input.zoom, 
@@ -590,7 +645,13 @@ pub fn main() !void {
 
 // ****************************************** PROJECT UPDATING *******************************************
         if (project_context.game_update) |game_update| {
-            if (!t.pause) game_update(t.time_sec);
+
+            if (!t.pause and !gameMode) {
+                game_update(t.time_sec);
+            }else if (!g_t.pause) {
+                game_update(g_t.time_sec);
+            }
+            
         }
 
         const scripts_bytes = try scripts_notifier.poll();
@@ -622,31 +683,33 @@ pub fn main() !void {
             );
 
         }
+        
+        if (!gameMode){
+            input.DeleteEditorIntent(
+                &project_context.alive,
+                &project_context.has_sprite,
+                &project_context.physics,
+                &select_buffer,
+                &project_context.static_dirty,
+                game_window.raw_input,
+            );
 
-        input.DeleteEditorIntent(
-            &project_context.alive,
-            &project_context.has_sprite,
-            &project_context.physics,
-            &select_buffer,
-            &project_context.static_dirty,
-            game_window.raw_input,
-        );
+            try input.BuildEditorSelectIntent(
+                project_context.sprite_components,
+                mouse.world_pos,
+                &project_context.alive,
+                &project_context.has_sprite,
+                &select_buffer,
+                game_window.raw_input,
+                allocator,
+            );
 
-        try input.BuildEditorSelectIntent(
-            project_context.sprite_components,
-            mouse.world_pos,
-            &project_context.alive,
-            &project_context.has_sprite,
-            &select_buffer,
-            game_window.raw_input,
-            allocator,
-        );
-
-        EditorMoveEntity(
-            game_window.raw_input,
-            &select_buffer,
-            &cam,
-        );
+            EditorMoveEntity(
+                game_window.raw_input,
+                &select_buffer,
+                &cam,
+            );
+        }
 
         project_context.sprite_draws.clearRetainingCapacity();
 
@@ -668,7 +731,35 @@ pub fn main() !void {
                 .allocator = allocator
             }
         );
-        if (!t.pause){
+
+        if (!t.pause and !gameMode){
+            project_context.physics.forEachBitSet(
+                struct {
+                    alive: *const two_bit,
+                    entity_transforms: []Transform2D,
+                    sprites: []helper.SpriteDraw,
+                    has_sprite: *const two_bit,
+                    physics: *Physics,
+                    pub fn call(f: @This(), entity: u32) void {
+                        if (!f.alive.testBit(entity)) return;
+                        f.physics.Step(entity, &f.entity_transforms[entity]);
+                        if (!f.has_sprite.testBit(entity)) return;
+                        f.sprites[entity].sprite_pos = .{
+                            f.entity_transforms[entity].pos_x, 
+                            f.entity_transforms[entity].pos_y
+                        };
+                    }
+                }{
+                    .entity_transforms = project_context.entity_transforms,
+                    .alive = &project_context.alive,
+                    .sprites = project_context.sprite_components,
+                    .has_sprite = &project_context.has_sprite,
+                    .physics = &physics,
+                }
+            );
+        }
+
+        if (gameMode and !g_t.pause) {
             project_context.physics.forEachBitSet(
                 struct {
                     alive: *const two_bit,
