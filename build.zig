@@ -43,6 +43,19 @@ pub fn build(b: *std.Build) !void {
 
     setup_exe.root_module.addImport("utils", utils_mod);
 
+    const tui_exe = b.addExecutable(.{
+        .name = "TUI",
+        .root_module = b.addModule(
+            "TUI",
+            .{
+                .root_source_file = b.path("src/apps/editor_tui_main.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+    });
+
+    tui_exe.root_module.addImport("utils", utils_mod);
+
        // Asset Cooker EXE
     const asset_cooker = b.addExecutable(.{
         .name = "Asset_Cooker",
@@ -134,11 +147,16 @@ pub fn build(b: *std.Build) !void {
     const setup_step = b.step("setup", "Setup engine");
     setup_step.dependOn(&setup_cmd.step);
 
+    const tui_cmd = b.addRunArtifact(tui_exe);
+    tui_cmd.step.dependOn(b.getInstallStep());
+    const tui_step = b.step("tui", "terminal interface for dev");
+    tui_step.dependOn(&tui_cmd.step);
+
     // Run All
     const run_all_bg = b.addSystemCommand(&.{
-        "sh", "-c",
-        "zig build run_cooker & zig build run_editor & wait; kill 0",
-    });
+        "bash", "-c",
+        "trap 'kill 0' EXIT; zig build run_cooker & PID1=$!; zig build run_editor & PID2=$!; zig build tui & PID3=$!; wait $PID1 $PID2 $PID3",
+    }); 
 
     const run_dev = b.step("run_dev", "Run cooker + editor concurrently");
     run_dev.dependOn(&run_all_bg.step); 

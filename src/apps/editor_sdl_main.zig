@@ -3,6 +3,7 @@ const utils = @import("utils");
 const engine = @import("engine");
 const zigimg = @import("zigimg");
 const g_api = @import("game_api");
+const tui = @import("editor_tui_main.zig");
 const core_mod = engine.core;
 const swapchain_mod = engine.swapchain;
 const render = engine.renderer;
@@ -623,7 +624,10 @@ pub fn main() !void {
             g_t.Runnin();
             if (!game_window.gameMode) game_window.gameMode = true;
         }
-  
+        tui.BeginUI();
+        try tui.UpdateCameraUI(cam.pos.x, cam.pos.y, cam.zoom);
+        try tui.UpdateMouseUI(mouse.world_pos.x, mouse.world_pos.y);
+        try tui.FlushUI();
 // ****************************************** CAMERA UPDATING *******************************************
         cam.UpdateCameraAttributes(
             editor_input.zoom, 
@@ -786,7 +790,7 @@ pub fn main() !void {
             );
         }
 
-
+      
 // ****************************************** RENDERING *******************************************
 
         try renderer.DrawFrame(
