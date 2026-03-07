@@ -21,7 +21,7 @@ pub fn main() !void {
 
     while (!game_window.should_close){
         
-        game_window.pollEvents(&renderer);
+       // game_window.pollEvents(&renderer);
 
     }
 

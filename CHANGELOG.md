@@ -1,3 +1,9 @@
+## [0.0.8] - Basic Physics and Game Input - Cameron Paul - 03/07/26
+- Gravity
+- Forces and velocities (2D)
+- Transforms (2D)
+- Game Input layer for games
+
 ## [0.0.7] - Editor, ECS, and Rendering Clean Ups - Cameron Paul - 02/24/26
 - Deletion completed
 - Selection of entities

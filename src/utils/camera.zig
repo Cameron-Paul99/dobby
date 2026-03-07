@@ -1,4 +1,5 @@
 const math = @import("math.zig");
+const std = @import("std");
 const Vec2 = math.Vec2;
 const Mat4 = math.Mat4;
 const Self = @This();
@@ -42,6 +43,8 @@ const Self = @This();
             self.pos, 
             Vec2.Div(drag, zoom)
         );
+
+       // std.log.info("camera position {d:.3}, {d:.3}",.{self.pos.x, self.pos.y});
 
     }
 

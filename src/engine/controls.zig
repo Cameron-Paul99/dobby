@@ -15,6 +15,12 @@ pub const RawInput = struct {
     scroll: f32 = 1.0,
 };
 
+pub const KeyBoardGameInput = struct {
+    game_input_pressed: ?*const fn (u8) callconv(.c) void,
+    game_input_down: ?*const fn (u8) callconv(.c) void,
+    game_input_up: ?*const fn (u8) callconv(.c) void,
+};
+
 pub const EditorIntent = struct {
     camera_move: math.Vec3 = math.Vec3.ZERO,
     camera_rotate: math.Vec2 = math.Vec2.ZERO,
@@ -25,6 +31,7 @@ pub const EditorIntent = struct {
     selection_mask: u64 = 0,
     mouse_pos: math.Vec2 = math.Vec2.ZERO,
 };
+
 
 pub const InputKey = enum(u8) {
     // Letters
@@ -239,9 +246,11 @@ pub fn BuildEditorSelectIntent(
 }
 
 pub fn BuildEditorIntent(
-    intent: *EditorIntent, 
+    intent: *EditorIntent,
+    gameMode: *bool,
     input: RawInput,
     time: *utils.time,
+    game_time: *utils.time,
     reload: *bool,
 ) void {
 
@@ -254,10 +263,12 @@ pub fn BuildEditorIntent(
     };
 
     // Pause
+    if (!gameMode.*){
     if ((input.buttons_pressed & Bit(.p) != 0) and 
         (input.buttons_down & Bit(.ctrl) != 0)){
             time.PauseCal();
     }
+    
     // Restart
     if ((input.buttons_pressed & Bit(.r) != 0) and 
         (input.buttons_down & Bit(.ctrl) != 0)){
@@ -270,22 +281,57 @@ pub fn BuildEditorIntent(
             time.HardRestart();
             reload.* = true;
     }
+    }
+    
+    // Game Start
+    if ((input.buttons_pressed & Bit(.w) != 0) and 
+            (input.buttons_down & Bit(.ctrl) != 0)){
+                if (gameMode.* == true){
+                    std.log.info("Exiting game mode", .{});
+                    gameMode.* = false;
+                }else{
+                    std.log.info("Entering game mode", .{});
+                    gameMode.* = true;
+                    game_time.time_sec = time.time_sec;
+                    game_time.paused_start_ns = time.paused_start_ns;
+                    game_time.start_time = time.start_time;
+                    game_time.paused_ns_total = time.paused_ns_total;
+                }
+    }  
+
+    if (gameMode.*){
+        // Game Pause
+        if ((input.buttons_pressed & Bit(.p) != 0) and 
+            (input.buttons_down & Bit(.ctrl) != 0)){
+                game_time.PauseCal();
+        }
+
+        if ((input.buttons_pressed & Bit(.r) != 0) and 
+            (input.buttons_down & Bit(.ctrl) != 0)){
+                game_time.Restart();
+        }
+
+    }
+
     // Drag
-    if (input.buttons_down & Bit(.mouse_right) != 0) {
-        intent.drag_delta = math.Vec2.Make(
-            -input.mouse_delta.x,
-            -input.mouse_delta.y,
-        ).Mul(intent.drag_speed);
-    }
+    if (!gameMode.*){
 
-    // Zoom
-    if (input.scroll != 0) {
-        const zoom_speed: f32 = 1.1;
-        intent.zoom *= std.math.pow(f32, zoom_speed, input.scroll);
-        intent.zoom = std.math.clamp(intent.zoom, 0.13, 5.0);
-    }
+        if (input.buttons_down & Bit(.mouse_right) != 0) {
+            intent.drag_delta = math.Vec2.Make(
+                -input.mouse_delta.x,
+                -input.mouse_delta.y,
+            ).Mul(intent.drag_speed);
+        }
 
-    intent.zoom_changed = intent.zoom != prev_zoom;
+        // Zoom
+        if (input.scroll != 0) {
+            const zoom_speed: f32 = 1.1;
+            intent.zoom *= std.math.pow(f32, zoom_speed, input.scroll);
+            intent.zoom = std.math.clamp(intent.zoom, 0.13, 5.0);
+        }
+
+        intent.zoom_changed = intent.zoom != prev_zoom;
+    }
 
 }
 
@@ -307,13 +353,11 @@ pub fn Select(
 
         const sprite = sprites[i];
         const e = sprite.entity;
-        std.log.info("Selected sprite for entity: {d}", .{e});
         const cap = alive.capacity();
         if (e >= cap) continue;
          _ = has_sprite;
         //_ = alive;
         if (!alive.testBit(e)) continue;
-        //if (!has_sprite.testBit(e)) continue;
 
         const min_x = sprite.sprite_pos[0];
         const max_x = sprite.sprite_pos[0] + sprite.sprite_scale[0];
