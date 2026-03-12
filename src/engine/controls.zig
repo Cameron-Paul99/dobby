@@ -32,7 +32,6 @@ pub const EditorIntent = struct {
     mouse_pos: math.Vec2 = math.Vec2.ZERO,
 };
 
-
 pub const InputKey = enum(u8) {
     // Letters
     a, b, c, d, e, f, g,

@@ -33,12 +33,21 @@ const MAX_GAME_MEMORY = 1 * 1024 * 1024; // 1 MB
 
 var g_active_ctx: *ProjectContext = undefined;
 var physics_ctx: *Physics = undefined;
+var cam_ctx: *Camera = undefined;
+var mouse_ctx: *Mouse = undefined;
 
-const GameInitFn   = *const fn (*g_api.GameAPI, *g_api.GameMemory, *g_api.PhysicsAPI) callconv(.c) void;
+const GameInitFn   = *const fn (
+    *g_api.GameAPI, 
+    *g_api.GameMemory, 
+    *g_api.PhysicsAPI,
+    *g_api.CameraAPI,
+    *g_api.MouseAPI) callconv(.c) void;
 const GameUpdateFn = *const fn (f64) callconv(.c) void;
 const GameInputPressedFn = *const fn (u8) callconv(.c) void;
 const GameInputDownFn = *const fn (u8) callconv(.c) void;
 const GameInputUpFn = *const fn (u8) callconv(.c) void;
+const GameStartFn = *const fn () callconv(.c) void;
+
 
 
 pub export fn EnableGravity(id: u32) callconv(.c) void {
@@ -77,13 +86,17 @@ pub export fn AddEntity() callconv(.c) u32 {
     return id;
 }
 
-pub export fn SetCameraPosition(x: f32, y: f32) callconv(.c) void {
-    const ctx = g_active_ctx;
-    _ = ctx;
-    _ = x;
-    _ = y;
+pub export fn SetMousePosition(x: f32, y: f32) callconv(.c) void {
+   const ctx = mouse_ctx;
+   ctx.world_pos.x = x;
+   ctx.world_pos.y = y;
+}
 
-
+pub export fn SetCameraPosition(x: f32, y: f32, zoom: f32) callconv(.c) void {
+    const ctx = cam_ctx;
+    ctx.pos.x = x;
+    ctx.pos.y = y;
+    ctx.zoom = zoom;
 }
 
 pub export fn SetTransform(id: u32, transform: Transform2D) callconv(.c) void {
@@ -215,8 +228,17 @@ pub const ProjectContext = struct {
     atlas_manager: AtlasManager,
     game_api: g_api.GameAPI = undefined,
     physics_api: g_api.PhysicsAPI = undefined,
+    camera_api: g_api.CameraAPI = undefined,
+    mouse_api: g_api.MouseAPI = undefined,
     lib: ?std.DynLib,
-    game_init: ?*const fn (*g_api.GameAPI, *g_api.GameMemory, *g_api.PhysicsAPI) callconv(.c) void,
+    game_init: ?*const fn (
+        *g_api.GameAPI, 
+        *g_api.GameMemory, 
+        *g_api.PhysicsAPI, 
+        *g_api.CameraAPI,
+        *g_api.MouseAPI) 
+        callconv(.c) void,
+    game_start: ?*const fn () callconv(.c) void,
     game_update: ?*const fn (f64) callconv(.c) void,
     game_input: GameInput,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
@@ -279,7 +301,14 @@ pub const ProjectContext = struct {
                 .add_force_x = AddForceX,
                 .add_force_y = AddForceY,
             },
+            .camera_api = g_api.CameraAPI {
+                .set_camera_pos = SetCameraPosition,
+            },
+            .mouse_api = g_api.MouseAPI {
+                .set_mouse_pos = SetMousePosition,
+            },
             .game_init = lib.lookup(GameInitFn, "game_init"),
+            .game_start = lib.lookup(GameStartFn, "game_start"),
             .game_update = lib.lookup(GameUpdateFn, "game_update"),
             .game_input = .{
                 .game_input_pressed = lib.lookup(
@@ -327,6 +356,7 @@ pub const ProjectContext = struct {
 
         self.game_init = self.lib.?.lookup(GameInitFn, "game_init");
         self.game_update = self.lib.?.lookup(GameUpdateFn, "game_update");
+        self.game_start = self.lib.?.lookup(GameStartFn, "game_start");
 
         self.game_input.game_input_pressed = self.lib.?.lookup(
             GameInputPressedFn, 
@@ -342,11 +372,18 @@ pub const ProjectContext = struct {
 
         if (self.game_init == null) return error.MissingGameInit;
         if (self.game_update == null) return error.MissingGameUpdate;
+        if (self.game_start == null) return error.MissingGameStart;
         if (self.game_input.game_input_down == null) return error.MissingGameInputDown;
         if (self.game_input.game_input_pressed == null) return error.MissingGameInputPressed;
         if (self.game_input.game_input_up == null) return error.MissingGameInputUp;
 
-        self.game_init.?(&self.game_api, &self.game_memory, &self.physics_api);
+        self.game_init.?(
+            &self.game_api, 
+            &self.game_memory, 
+            &self.physics_api, 
+            &self.camera_api,
+            &self.mouse_api
+        );
 
     }
 
@@ -583,6 +620,7 @@ pub fn main() !void {
 
     g_active_ctx = &project_context;
     project_context.game_api.user_data = g_active_ctx;
+    cam_ctx = &cam;
 
     project_context.proj = proj.parsed.value;
 
@@ -622,17 +660,33 @@ pub fn main() !void {
         t.Runnin();
         if (gameMode){
             g_t.Runnin();
-            if (!game_window.gameMode) game_window.gameMode = true;
+            if (!game_window.gameMode) {
+                if (project_context.game_start) |game_start| {
+                    game_start();
+                }
+                game_window.gameMode = true;
+            }
+        }else{
+            if (game_window.gameMode){
+                game_window.gameMode = false;
+            }
         }
-        tui.BeginUI();
-        try tui.UpdateCameraUI(cam.pos.x, cam.pos.y, cam.zoom);
-        try tui.UpdateMouseUI(mouse.world_pos.x, mouse.world_pos.y);
-        try tui.FlushUI();
+
 // ****************************************** CAMERA UPDATING *******************************************
-        cam.UpdateCameraAttributes(
-            editor_input.zoom, 
-            editor_input.drag_delta
-        );
+        if (!gameMode){
+
+            cam.UpdateCameraAttributes(
+                editor_input.zoom, 
+                editor_input.drag_delta
+            );
+
+        }else{
+
+            cam.UpdateCameraAttributes(
+                cam.zoom, 
+                editor_input.drag_delta
+            );
+        }
 
         cam.UpdateViewProj(
             @floatFromInt(game_window.screen_width),
@@ -801,6 +855,22 @@ pub fn main() !void {
             project_context.sprite_draws.items,
             cam.view_proj,
         );
+
+        t.FrameCounter();
+        g_t.FrameCounter();
+
+// ****************************************** Terminal UI *******************************************
+        tui.BeginUI();
+        if (gameMode){
+            try tui.UpdateEngineUI(g_t.fps, t.time_sec, g_t.time_sec, gameMode);
+        }else {
+            try tui.UpdateEngineUI(t.fps, t.time_sec, g_t.time_sec, gameMode);
+        }
+        try tui.UpdateCameraUI(cam.pos.x, cam.pos.y, cam.zoom);
+        try tui.UpdateMouseUI(mouse.world_pos.x, mouse.world_pos.y);
+
+        try tui.FlushUI();
+
 
     }
 

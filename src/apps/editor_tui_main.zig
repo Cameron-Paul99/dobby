@@ -82,17 +82,29 @@ pub fn FlushUI() !void {
     try file.sync();
 }
 
-pub fn UpdateEngineUI() void {
-
-
-
-
-
+pub fn UpdateEngineUI(
+    fps: f64, 
+    editor_time: f64,
+    game_time: f64, 
+    game_mode: bool) !void {
+    
     // FPS
-    // Mouse Location
-    // Camera Location
-
+    const writer = ui_stream.writer();
+    try writer.writeAll("=== Engine ================================================\n");
+    try writeLine(writer, "FPS", "({d:.2})", .{ fps });
+    try writeLine(writer, "Frame", "({d:.2} ms)", .{1000.0 / fps});
+    try writeLine(writer, "Editor Time", "({d:.2})", .{ editor_time });
+    try writeLine(writer, "Game Time", "({d:.2})", .{ game_time });
+    try writeLine(writer, "Mode", "({s})", .{
+        if (game_mode) "GAME" else "EDITOR"
+    }); 
+    try writer.writeByte('\n');
 }
+
+
+
+  
+
 
 
 

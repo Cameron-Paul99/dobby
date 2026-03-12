@@ -2,7 +2,8 @@ const GameAPI = @import("game_api").GameAPI;
 const GameMemory = @import("game_api").GameMemory;
 const Physics = @import("game_api").PhysicsAPI;
 const Input = @import("game_api").InputKeyExtern;
-const CameraAPI = @import("game_api").CameraAPI;
+const Mouse = @import("game_api").MouseAPI;
+const Camera = @import("game_api").CameraAPI;
 const std = @import("std");
 const slot_mod = @import("slot.zig");
 const chip_mod = @import("chip.zig");
@@ -11,6 +12,8 @@ const Transform2D = @import("game_api").Transform2D;
 pub var g_api: *GameAPI = undefined;
 pub var g_memory: *GameMemory = undefined;
 pub var g_physics: *Physics = undefined;
+pub var g_camera: *Camera = undefined;
+pub var g_mouse: *Mouse = undefined;
 
 //pub var inputKeys = Input;
 
@@ -25,11 +28,13 @@ const GameState = struct {
 var first_chip = chip_mod.Chip{};
 pub var prev_pos = struct { x: f32 = 0, y: f32 = 0 }{};
 
-pub export fn game_init(api: *GameAPI, game_memory: *GameMemory, physics: *Physics) callconv(.c) void {
+pub export fn game_init(api: *GameAPI, game_memory: *GameMemory, physics: *Physics, camera: *Camera, mouse: *Mouse) callconv(.c) void {
+
     g_api = api;
     g_memory = game_memory;
     g_physics = physics;
-
+    g_camera = camera;
+    g_mouse = mouse;
 
     const allocator_fn = g_api.*.get_allocator();
     const allocator: *std.mem.Allocator = @ptrCast(@alignCast(allocator_fn));
@@ -70,12 +75,15 @@ pub export fn game_init(api: *GameAPI, game_memory: *GameMemory, physics: *Physi
 
     }
 
-
-
 }
-pub var has_stopped: bool = false;
+
+pub export fn game_start() callconv(.c) void {
+    g_camera.set_camera_pos(3050.96, 11922.49, 0.61);
+}
+
 pub export fn game_update(time_sec: f64) callconv(.c) void{
-   std.log.info("Updated, {d:.3}", .{time_sec});
+  // std.log.info("Updated, {d:.3}", .{time_sec});
+  _ = time_sec;
 
 }
 

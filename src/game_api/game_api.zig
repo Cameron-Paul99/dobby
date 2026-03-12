@@ -144,10 +144,10 @@ pub const PhysicsAPI = extern struct {
 };
 
 pub const CameraAPI = extern struct {
-    set_camera_pos: *const fn (f32, f32) callconv(.c) void,
-    move_camera_to: *const fn (f32, f32, f32) callconv(.c) void,
-    move_camera_vertical: *const fn (f32, f32) callconv(.c) void,
-    move_camera_horizontal: *const fn (f32, f32) callconv(.c) void,
+    set_camera_pos: *const fn (f32, f32, f32) callconv(.c) void,
+   // move_camera_to: *const fn (f32, f32, f32) callconv(.c) void,
+   // move_camera_vertical: *const fn (f32, f32) callconv(.c) void,
+   // move_camera_horizontal: *const fn (f32, f32) callconv(.c) void,
     // TODO: Drag and input
 };
 
