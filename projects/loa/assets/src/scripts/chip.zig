@@ -21,11 +21,13 @@ pub const Chip = struct {
 pub fn ChipToDesc(
     id: u32,
     atlas_id: u32,
+    x: f32,
+    y: f32,
     api: anytype,
     ) SpriteDesc {
 
     const entity_transform = Transform2D{
-        .position = .{.x = 0.0, .y = 11700.0},
+        .position = .{.x = x, .y = y},
         .scale = .{ .x = slot.TILE_SIZE_X, .y = slot.TILE_SIZE_Y },
     };
 

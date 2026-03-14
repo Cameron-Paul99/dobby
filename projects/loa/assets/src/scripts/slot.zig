@@ -17,10 +17,10 @@ pub const TILE_SIZE_X: f32 = 100.0;
 pub const TILE_SIZE_Y: f32 = 100.0;
 
 const BOARD_WORLD_W: f32 = @as(f32, WIDTH) * TILE_SIZE_X;
-const BOARD_WORLD_H: f32 = @as(f32, HEIGHT) * TILE_SIZE_Y;
+pub const BOARD_WORLD_H: f32 = @as(f32, HEIGHT) * TILE_SIZE_Y;
 
-const HALF_BOARD_W: f32 = BOARD_WORLD_W * 0.5;
-const HALF_BOARD_H: f32 = BOARD_WORLD_H * 0.5;
+pub const HALF_BOARD_W: f32 = BOARD_WORLD_W * 0.5;
+pub const HALF_BOARD_H: f32 = BOARD_WORLD_H * 0.5;
 
 pub fn slotToSpriteDesc(
     slot: Slot, 
@@ -49,4 +49,5 @@ pub fn slotToSpriteDesc(
         .atlas_id = atlas_id,
     };
 }
+
 

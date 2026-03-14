@@ -18,8 +18,6 @@ pub var g_camera: *Camera = undefined;
 pub var g_mouse: *Mouse = undefined;
 pub var g_sprite: *Sprite = undefined;
 
-//pub var inputKeys = Input;
-
 pub const HEIGHT = 128;
 pub const Board = [HEIGHT]u64;
 
@@ -71,13 +69,6 @@ pub export fn game_init(
         }
     }
 
-    const chip_id = g_api.*.add_entity();
-    first_chip.entity = chip_id;
-    const chip_desc = chip_mod.ChipToDesc(chip_id, 0, g_api);
-    g_sprite.*.spawn_sprite(&chip_desc, chip_id);
-    g_physics.*.add_physics(chip_id);
-    g_physics.*.enable_gravity(chip_id);
-
     for (slots.items) |slot| {
         const id = g_api.*.add_entity();
         const desc = slot_mod.slotToSpriteDesc(slot, id, 0, g_api);
@@ -88,16 +79,14 @@ pub export fn game_init(
 }
 
 pub export fn game_start() callconv(.c) void {
-    g_camera.set_camera_world_pos(.{.x = 3050.96, .y = 11922.49}, 0.61);
+    g_camera.*.set_camera_world_pos(.{
+        .x = slot_mod.HALF_BOARD_W,
+        .y = (120.0 * slot_mod.TILE_SIZE_Y + slot_mod.BOARD_WORLD_H - 1365) * 0.5,
+    }, 1.0);
 }
 
 pub export fn game_update(time_sec: f64) callconv(.c) void{
-  // std.log.info("Updated, {d:.3}", .{time_sec});
   _ = time_sec;
-  const pos = g_mouse.*.get_mouse_world_pos();
-
-  std.log.info("Mouse position: {d:.3} and {d:.3}", .{pos.x, pos.y});
-
 }
 
 pub export fn game_input_pressed(key: u8) callconv(.c) void {
@@ -109,6 +98,22 @@ pub export fn game_input_pressed(key: u8) callconv(.c) void {
         // space was pressed
     }
     if (key == Input.mouse_left.value) {
+        const mouse_loc = g_mouse.*.get_mouse_world_pos();
+        const col = @as(i32, @intFromFloat(@floor(mouse_loc.x / slot_mod.TILE_SIZE_X)));
+
+        if (col < 0) return;
+        if (col >= @as(i32, @intCast(slot_mod.WIDTH))) return;
+
+        const chip_id = g_api.*.add_entity();
+        first_chip.entity = chip_id;
+
+        const x = @as(f32, @floatFromInt(col)) * slot_mod.TILE_SIZE_X;
+
+        const chip_desc = chip_mod.ChipToDesc(chip_id, 0, x, mouse_loc.y, g_api);
+        g_sprite.*.spawn_sprite(&chip_desc, chip_id);
+        g_physics.*.add_physics(chip_id);
+        g_physics.*.enable_gravity(chip_id);
+
     }
 
 }
