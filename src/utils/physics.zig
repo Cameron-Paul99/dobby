@@ -20,8 +20,8 @@ pub fn Step(self: *Self, entity: u32, transform: *Transform2D) void {
    
     self.Gravity(entity, transform);
     const vel = self.velocities[entity];
-    transform.pos_x += vel.x;
-    transform.pos_y += vel.y;
+    transform.position.x += vel.x;
+    transform.position.y += vel.y;
 
 }
 
@@ -80,6 +80,6 @@ pub fn Gravity(self: *Self, entity: u32, transform: *Transform2D) void {
         vel.y = TERMINAL;
    }
 
-   transform.pos_y += vel.y;
+   transform.position.y += vel.y;
 }
 

@@ -989,6 +989,7 @@ pub const SpriteSet = struct {
 
 pub const SpriteDraw = extern struct {
     entity: u32,
+    placement: u32 = 0,
     sprite_pos: [2]f32,
     sprite_scale: [2]f32,
     sprite_rotation: [2]f32,

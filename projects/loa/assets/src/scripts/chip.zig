@@ -25,10 +25,8 @@ pub fn ChipToDesc(
     ) SpriteDesc {
 
     const entity_transform = Transform2D{
-        .pos_x = 0.0,
-        .pos_y = 11700.0,
-        .scale_x = slot.TILE_SIZE_X,
-        .scale_y = slot.TILE_SIZE_Y,
+        .position = .{.x = 0.0, .y = 11700.0},
+        .scale = .{ .x = slot.TILE_SIZE_X, .y = slot.TILE_SIZE_Y },
     };
 
     api.add_transform_2D(id, entity_transform);
@@ -36,7 +34,7 @@ pub fn ChipToDesc(
     return SpriteDesc {
         .id = id,
         .name = "Chip",
-        .tint = .{ 1.0, 1.0, 1.0, 1.0 },
+        .color = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
         .atlas_id = atlas_id,
     };
 

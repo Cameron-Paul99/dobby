@@ -3,7 +3,8 @@ const utils = @import("utils");
 const engine = @import("engine");
 const zigimg = @import("zigimg");
 const g_api = @import("game_api");
-const tui = @import("editor_tui_main.zig");
+const tui = @import("tui.zig");
+const Bridge = @import("bridge.zig");
 const core_mod = engine.core;
 const swapchain_mod = engine.swapchain;
 const render = engine.renderer;
@@ -32,179 +33,19 @@ const MAX_ENTITIES: u32 = 100_000;
 const MAX_GAME_MEMORY = 1 * 1024 * 1024; // 1 MB
 const MAX_SPRITES_PER_ENTITY = 100;
 
-var g_active_ctx: *ProjectContext = undefined;
-var physics_ctx: *Physics = undefined;
-var cam_ctx: *Camera = undefined;
-var mouse_ctx: *Mouse = undefined;
-
 const GameInitFn   = *const fn (
     *g_api.GameAPI, 
     *g_api.GameMemory, 
     *g_api.PhysicsAPI,
-    *g_api.CameraAPI,
-    *g_api.MouseAPI) callconv(.c) void;
+    *g_api.Camera2DAPI,
+    *g_api.MouseAPI,
+    *g_api.SpriteAPI) callconv(.c) void;
 const GameUpdateFn = *const fn (f64) callconv(.c) void;
 const GameInputPressedFn = *const fn (u8) callconv(.c) void;
 const GameInputDownFn = *const fn (u8) callconv(.c) void;
 const GameInputUpFn = *const fn (u8) callconv(.c) void;
 const GameStartFn = *const fn () callconv(.c) void;
 
-pub export fn EnableGravity(id: u32) callconv(.c) void {
-    const ctx = physics_ctx;
-    ctx.EnableGravity(id);
-}
-
-pub export fn AddForce(id: u32, x: f32, y: f32) callconv(.c) void {
-    const ctx = physics_ctx;
-    ctx.AddForce(id, x, y);
-}
-
-pub export fn AddForceX(id: u32, x:f32) callconv(.c) void {
-    const ctx = physics_ctx;
-    ctx.AddForceX(id, x);
-}
-
-pub export fn AddForceY(id: u32, y:f32) callconv(.c) void {
-    const ctx = physics_ctx;
-    ctx.AddForceY(id, y);
-}
-
-pub export fn RemoveEntity(id: u32) callconv(.c) void {
-    const ctx = g_active_ctx;
-    ctx.alive.Clear(id);
-}
-
-pub export fn AddEntity() callconv(.c) u32 {
-    const ctx = g_active_ctx;
-    const id = ctx.alive.Create() orelse unreachable;
-
-    const entity_transform = Transform2D {};
-    
-    ctx.entity_transforms[id] = entity_transform;
-   // std.log.info("Entity {d} is alive", .{id});
-    return id;
-}
-
-pub export fn SetMousePosition(x: f32, y: f32) callconv(.c) void {
-   const ctx = mouse_ctx;
-   ctx.world_pos.x = x;
-   ctx.world_pos.y = y;
-}
-
-pub export fn SetCameraPosition(x: f32, y: f32, zoom: f32) callconv(.c) void {
-    const ctx = cam_ctx;
-    ctx.pos.x = x;
-    ctx.pos.y = y;
-    ctx.zoom = zoom;
-}
-
-pub export fn SetTransform(id: u32, transform: Transform2D) callconv(.c) void {
-     const ctx = g_active_ctx;
-     ctx.entity_transforms[id] = transform;
-    
-
-}
-pub export fn AddTransform2D(id: u32, delta: Transform2D) callconv(.c) void {
-    const ctx = g_active_ctx;
-    var t = &ctx.entity_transforms[id];
-
-    t.pos_x += delta.pos_x;
-    t.pos_y += delta.pos_y;
-
-    t.scale_x += delta.scale_x;
-    t.scale_y += delta.scale_y;
-
-    t.rot_x += delta.rot_x;
-    t.rot_y += delta.rot_y;
-
-    if (ctx.has_sprite.testBit(id)) {
-        var set = &ctx.sprite_components[id];
-
-        for (set.sprites[0..set.count]) |*sprite| {
-            sprite.*.sprite_pos = .{ t.pos_x, t.pos_y };
-            sprite.*.sprite_scale = .{ t.scale_x, t.scale_y };
-            sprite.*.sprite_rotation = .{ t.rot_x, t.rot_y }; 
-        }
-    }
-}
-
-pub export fn AddTransform2DPos(id: u32, dx: f32, dy: f32) callconv(.c) void {
-    const ctx = g_active_ctx;
-    ctx.entity_transforms[id].pos_x += dx;
-    ctx.entity_transforms[id].pos_y += dy;
-      if (ctx.has_sprite.testBit(id)) {
-        const t = ctx.entity_transforms[id];
-
-        var set = &ctx.sprite_components[id];
-        for (set.sprites[0..set.count]) |*sprite| {
-            sprite.*.sprite_pos = .{ t.pos_x, t.pos_y };
-        }
-    }
-}
-
-pub export fn AddPhysics(id: u32) callconv(.c) void {
-
-    const ctx = g_active_ctx;
-    ctx.static_dirty = true;
-    ctx.physics.Set(id);
-
-}
-
-pub export fn RemovePhysics(id: u32) callconv(.c) void {
-    const ctx = g_active_ctx;
-    ctx.static_dirty = true;
-    ctx.physics.Clear(id);
-}
-
-pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) void {
-    
-    const ctx = g_active_ctx;
-
-    const slot_uv = atlas_mod.GetImageFromAtlas(0, desc.name, ctx.proj, ctx.allocator) catch |err| {
-        std.log.err("GetImageFromAtlas failed: {}", .{err});
-        return; // or fallback
-    };
-
-    if (slot_uv != null) {
-        ctx.allocator.free(slot_uv.?.name);
-    }
-
-    const transform = ctx.entity_transforms[id];
-
-    const sprite = helper.SpriteDraw{
-        .entity = id,
-        .sprite_pos = .{transform.pos_x, transform.pos_y},
-        .sprite_scale = .{transform.scale_x, transform.scale_y},
-        .sprite_rotation = .{transform.rot_x, transform.rot_y},
-        .uv_min = slot_uv.?.uv_min,
-        .uv_max = slot_uv.?.uv_max,
-        .tint = desc.tint,
-        .atlas_id = desc.atlas_id,
-    };
-    std.log.info("Spawning sprite for entity: {d}", .{id});
-    if (!ctx.has_sprite.testBit(id)){
-        ctx.has_sprite.Set(id);
-    }
-
-    //std.log.info("Sprite name is: {s}", .{desc.name});
-    const set = &ctx.sprite_components[id];
-    if (set.count >= MAX_SPRITES_PER_ENTITY) {
-        std.log.err("Too many sprites for entity {d}", .{id});
-        return;
-    }
-    set.sprites[set.count] = sprite;
-    set.count += 1;
-
-}
-pub export fn GetAllocator() callconv(.c) *anyopaque {
-    return &g_active_ctx.allocator;
-}
-
-pub export fn SetSpritePos(entity: u32, x: f32, y: f32) callconv(.c) void {
-    _ = entity;
-    _ = x;
-    _ = y;
-}
 fn EditorMoveEntity(
     editor_input: input.RawInput,
     select_buffer: *std.ArrayList(u32),
@@ -227,7 +68,7 @@ fn EditorMoveEntity(
 
         for (select_buffer.items) |entity_id| {
 
-            AddTransform2DPos(entity_id, delta.x, delta.y);
+            Bridge.AddTransform2DPos(entity_id, delta.x, delta.y);
         }
     }
 }
@@ -243,15 +84,17 @@ pub const ProjectContext = struct {
     atlas_manager: AtlasManager,
     game_api: g_api.GameAPI = undefined,
     physics_api: g_api.PhysicsAPI = undefined,
-    camera_api: g_api.CameraAPI = undefined,
+    camera_api: g_api.Camera2DAPI = undefined,
     mouse_api: g_api.MouseAPI = undefined,
+    sprite_api: g_api.SpriteAPI = undefined,
     lib: ?std.DynLib,
     game_init: ?*const fn (
         *g_api.GameAPI, 
         *g_api.GameMemory, 
         *g_api.PhysicsAPI, 
-        *g_api.CameraAPI,
-        *g_api.MouseAPI) 
+        *g_api.Camera2DAPI,
+        *g_api.MouseAPI,
+        *g_api.SpriteAPI) 
         callconv(.c) void,
     game_start: ?*const fn () callconv(.c) void,
     game_update: ?*const fn (f64) callconv(.c) void,
@@ -305,26 +148,46 @@ pub const ProjectContext = struct {
             .lib = lib,
             .game_api = g_api.GameAPI {
                 .user_data = null,
-                .add_entity = AddEntity,
-                .remove_enity = RemoveEntity,
-                .spawn_sprite = SpawnSprite,
-                .set_sprite_pos = SetSpritePos,
-                .get_allocator = GetAllocator,
-                .add_physics = AddPhysics,
-                .remove_physics = RemovePhysics,
-                .add_transform_2D = AddTransform2D,
+                .add_entity = Bridge.AddEntity,
+                .remove_enity = Bridge.RemoveEntity,
+                .get_allocator = Bridge.GetAllocator,
+                .add_transform_2D = Bridge.AddTransform2D,
             },
             .physics_api = g_api.PhysicsAPI{
-                .enable_gravity = EnableGravity,
-                .add_force = AddForce,
-                .add_force_x = AddForceX,
-                .add_force_y = AddForceY,
+                .enable_gravity = Bridge.EnableGravity,
+                .add_force = Bridge.AddForce,
+                .add_force_x = Bridge.AddForceX,
+                .add_force_y = Bridge.AddForceY,
+                .add_physics = Bridge.AddPhysics,
+                .remove_physics = Bridge.RemovePhysics,
             },
-            .camera_api = g_api.CameraAPI {
-                .set_camera_pos = SetCameraPosition,
+            .camera_api = g_api.Camera2DAPI {
+                .set_camera_world_pos = Bridge.SetCameraWorldPosition,
+                .move_camera_to_world_pos = Bridge.MoveCameraToWorldPosition,
+                .move_camera_vertical = Bridge.MoveCameraVertical,
+                .move_camera_horizontal = Bridge.MoveCameraHorizontal,
             },
             .mouse_api = g_api.MouseAPI {
-                .set_mouse_pos = SetMousePosition,
+                .set_mouse_world_pos = Bridge.SetMouseWorldPosition,
+                .get_mouse_world_pos = Bridge.GetMouseWorldPosition,
+                
+            },
+            .sprite_api = g_api.SpriteAPI {
+
+                .spawn_sprite = Bridge.SpawnSprite,
+
+                .set_sprite_world_pos = Bridge.SetSpriteWorldPos,
+                .get_sprite_world_pos = Bridge.GetSpriteWorldPos,
+
+                .set_sprite_color = Bridge.SetSpriteColor,
+                .get_sprite_color = Bridge.GetSpriteColor,
+
+                .set_entity_sprites_color = Bridge.SetEntitySpritesColor,
+                .get_entity_sprites_color = Bridge.GetEntitySpritesColor,
+
+                .set_entity_sprites_world_pos = Bridge.SetEntitySpritesWorldPos,
+                .get_entity_sprites_world_pos = Bridge.GetEntitySpritesWorldPos,
+                
             },
             .game_init = lib.lookup(GameInitFn, "game_init"),
             .game_start = lib.lookup(GameStartFn, "game_start"),
@@ -401,7 +264,8 @@ pub const ProjectContext = struct {
             &self.game_memory, 
             &self.physics_api, 
             &self.camera_api,
-            &self.mouse_api
+            &self.mouse_api,
+            &self.sprite_api,
         );
 
     }
@@ -627,7 +491,7 @@ pub fn main() !void {
     var physics = try Physics.init(MAX_ENTITIES, allocator);
     defer physics.deinit(allocator);
 
-    physics_ctx = &physics;
+    Bridge.physics_ctx = &physics;
 
     // Scripts Notifier
     var scripts_notifier = try notify.Inotify.init(proj_scripts_path, allocator);
@@ -637,9 +501,10 @@ pub fn main() !void {
     var project_context = try ProjectContext.init(allocator, proj.parsed.value.name);
     defer project_context.deinit();
 
-    g_active_ctx = &project_context;
-    project_context.game_api.user_data = g_active_ctx;
-    cam_ctx = &cam;
+    Bridge.g_active_ctx = &project_context;
+    project_context.game_api.user_data = Bridge.g_active_ctx;
+    Bridge.cam_ctx = &cam;
+    Bridge.mouse_ctx = &mouse;
 
     project_context.proj = proj.parsed.value;
 
@@ -828,8 +693,8 @@ pub fn main() !void {
                         const set = &f.comps[entity];
                         for (set.sprites[0..set.count]) |*sprite| {
                             sprite.*.sprite_pos = .{
-                                f.entity_transforms[entity].pos_x, 
-                                f.entity_transforms[entity].pos_y
+                                f.entity_transforms[entity].position.x, 
+                                f.entity_transforms[entity].position.y
                             };
                         }
                     }
@@ -858,8 +723,8 @@ pub fn main() !void {
                         const set = &f.comps[entity];
                         for (set.sprites[0..set.count]) |*sprite| {
                             sprite.*.sprite_pos = .{
-                                f.entity_transforms[entity].pos_x, 
-                                f.entity_transforms[entity].pos_y
+                                f.entity_transforms[entity].position.x, 
+                                f.entity_transforms[entity].position.y
                             };
                         } 
                     }

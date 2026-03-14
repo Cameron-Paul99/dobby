@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.addModule(
             "TUI",
             .{
-                .root_source_file = b.path("src/apps/editor_tui_main.zig"),
+                .root_source_file = b.path("src/apps/tui.zig"),
                 .target = target,
                 .optimize = optimize,
             }),

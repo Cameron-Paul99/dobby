@@ -36,10 +36,8 @@ pub fn slotToSpriteDesc(
 
     // set transform
     const entity_transform = Transform2D{
-        .pos_x = world_x,
-        .pos_y = world_y,
-        .scale_x = TILE_SIZE_X,
-        .scale_y = TILE_SIZE_Y,
+        .position = .{.x = world_x, .y = world_y},
+        .scale = .{ .x = TILE_SIZE_X, .y = TILE_SIZE_Y},
     };
     
     api.add_transform_2D( id ,entity_transform);
@@ -47,7 +45,7 @@ pub fn slotToSpriteDesc(
     return SpriteDesc{
         .id = id,
         .name = "Slot",
-        .tint = .{ 1.0, 1.0, 1.0, 1.0 },
+        .color = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
         .atlas_id = atlas_id,
     };
 }
