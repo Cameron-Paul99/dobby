@@ -980,6 +980,13 @@ pub fn CreateVMAAllocator(core: *gpu_context.Core) !c.VmaAllocator {
 
 }
 
+const MAX_SPRITES_PER_ENTITY = 100;
+
+pub const SpriteSet = struct {
+    count: u32 = 0,
+    sprites: [MAX_SPRITES_PER_ENTITY]SpriteDraw = undefined,
+};
+
 pub const SpriteDraw = extern struct {
     entity: u32,
     sprite_pos: [2]f32,

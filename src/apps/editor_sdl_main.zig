@@ -30,6 +30,7 @@ const GameInput = input.KeyBoardGameInput;
 
 const MAX_ENTITIES: u32 = 100_000;
 const MAX_GAME_MEMORY = 1 * 1024 * 1024; // 1 MB
+const MAX_SPRITES_PER_ENTITY = 100;
 
 var g_active_ctx: *ProjectContext = undefined;
 var physics_ctx: *Physics = undefined;
@@ -47,8 +48,6 @@ const GameInputPressedFn = *const fn (u8) callconv(.c) void;
 const GameInputDownFn = *const fn (u8) callconv(.c) void;
 const GameInputUpFn = *const fn (u8) callconv(.c) void;
 const GameStartFn = *const fn () callconv(.c) void;
-
-
 
 pub export fn EnableGravity(id: u32) callconv(.c) void {
     const ctx = physics_ctx;
@@ -119,10 +118,13 @@ pub export fn AddTransform2D(id: u32, delta: Transform2D) callconv(.c) void {
     t.rot_y += delta.rot_y;
 
     if (ctx.has_sprite.testBit(id)) {
-        var sprite = &ctx.sprite_components[id];
-        sprite.sprite_pos = .{ t.pos_x, t.pos_y };
-        sprite.sprite_scale = .{ t.scale_x, t.scale_y };
-        sprite.sprite_rotation = .{ t.rot_x, t.rot_y }; 
+        var set = &ctx.sprite_components[id];
+
+        for (set.sprites[0..set.count]) |*sprite| {
+            sprite.*.sprite_pos = .{ t.pos_x, t.pos_y };
+            sprite.*.sprite_scale = .{ t.scale_x, t.scale_y };
+            sprite.*.sprite_rotation = .{ t.rot_x, t.rot_y }; 
+        }
     }
 }
 
@@ -132,8 +134,11 @@ pub export fn AddTransform2DPos(id: u32, dx: f32, dy: f32) callconv(.c) void {
     ctx.entity_transforms[id].pos_y += dy;
       if (ctx.has_sprite.testBit(id)) {
         const t = ctx.entity_transforms[id];
-        var s = &ctx.sprite_components[id];
-        s.sprite_pos = .{ t.pos_x, t.pos_y };
+
+        var set = &ctx.sprite_components[id];
+        for (set.sprites[0..set.count]) |*sprite| {
+            sprite.*.sprite_pos = .{ t.pos_x, t.pos_y };
+        }
     }
 }
 
@@ -177,9 +182,19 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) v
         .atlas_id = desc.atlas_id,
     };
     std.log.info("Spawning sprite for entity: {d}", .{id});
-    ctx.has_sprite.Set(id);
+    if (!ctx.has_sprite.testBit(id)){
+        ctx.has_sprite.Set(id);
+    }
+
     //std.log.info("Sprite name is: {s}", .{desc.name});
-    ctx.sprite_components[id] = sprite;
+    const set = &ctx.sprite_components[id];
+    if (set.count >= MAX_SPRITES_PER_ENTITY) {
+        std.log.err("Too many sprites for entity {d}", .{id});
+        return;
+    }
+    set.sprites[set.count] = sprite;
+    set.count += 1;
+
 }
 pub export fn GetAllocator() callconv(.c) *anyopaque {
     return &g_active_ctx.allocator;
@@ -248,7 +263,7 @@ pub const ProjectContext = struct {
     has_sprite: two_bit,
     physics: two_bit,
     static_dirty: bool = true,
-    sprite_components: []helper.SpriteDraw,
+    sprite_components: []helper.SpriteSet,
     entity_transforms: []Transform2D,
 
     pub fn init(
@@ -266,7 +281,11 @@ pub const ProjectContext = struct {
 
         const buffer = try allocator.alignedAlloc(u8,@enumFromInt(6),  MAX_GAME_MEMORY, ); 
         @memset(buffer, 0);
+        const sprite_components = try allocator.alloc(helper.SpriteSet, MAX_ENTITIES);
 
+        for (sprite_components) |*set| {
+            set.* = .{};
+        }
         return .{
             .proj_name = name,
             .proj = .{
@@ -323,7 +342,7 @@ pub const ProjectContext = struct {
             },
             .sprite_draws = try std.ArrayList(helper.SpriteDraw)
                 .initCapacity(allocator, 0),
-            .sprite_components = try allocator.alloc(helper.SpriteDraw, MAX_ENTITIES),
+            .sprite_components = sprite_components,
             .entity_transforms = try allocator.alloc(Transform2D, MAX_ENTITIES), 
             .alive = try two_bit.init(MAX_ENTITIES, allocator), 
             .render_area = try RadiusRender.init(MAX_ENTITIES, allocator),
@@ -756,7 +775,6 @@ pub fn main() !void {
                 project_context.sprite_components,
                 mouse.world_pos,
                 &project_context.alive,
-                &project_context.has_sprite,
                 &select_buffer,
                 game_window.raw_input,
                 allocator,
@@ -774,13 +792,16 @@ pub fn main() !void {
         project_context.has_sprite.forEachBitSet(
             struct {
                 list: *std.ArrayList(helper.SpriteDraw),
-                comps: []helper.SpriteDraw,
+                comps: []helper.SpriteSet,
                 alive: *const two_bit,
                 allocator: std.mem.Allocator,
 
                 pub fn call(f: @This(), entity: u32) void {
                     if (!f.alive.testBit(entity)) return;
-                    f.list.append(f.allocator, f.comps[entity]) catch unreachable;
+                    const set = &f.comps[entity];
+                    for (set.sprites[0..set.count]) |sprite| {
+                        f.list.append(f.allocator, sprite) catch unreachable;
+                    }
                 }
             }{
                 .list = &project_context.sprite_draws,
@@ -795,22 +816,27 @@ pub fn main() !void {
                 struct {
                     alive: *const two_bit,
                     entity_transforms: []Transform2D,
-                    sprites: []helper.SpriteDraw,
+                    comps: []helper.SpriteSet,
                     has_sprite: *const two_bit,
                     physics: *Physics,
                     pub fn call(f: @This(), entity: u32) void {
+
                         if (!f.alive.testBit(entity)) return;
                         f.physics.Step(entity, &f.entity_transforms[entity]);
+
                         if (!f.has_sprite.testBit(entity)) return;
-                        f.sprites[entity].sprite_pos = .{
-                            f.entity_transforms[entity].pos_x, 
-                            f.entity_transforms[entity].pos_y
-                        };
+                        const set = &f.comps[entity];
+                        for (set.sprites[0..set.count]) |*sprite| {
+                            sprite.*.sprite_pos = .{
+                                f.entity_transforms[entity].pos_x, 
+                                f.entity_transforms[entity].pos_y
+                            };
+                        }
                     }
                 }{
                     .entity_transforms = project_context.entity_transforms,
                     .alive = &project_context.alive,
-                    .sprites = project_context.sprite_components,
+                    .comps = project_context.sprite_components,
                     .has_sprite = &project_context.has_sprite,
                     .physics = &physics,
                 }
@@ -822,22 +848,25 @@ pub fn main() !void {
                 struct {
                     alive: *const two_bit,
                     entity_transforms: []Transform2D,
-                    sprites: []helper.SpriteDraw,
+                    comps: []helper.SpriteSet,
                     has_sprite: *const two_bit,
                     physics: *Physics,
                     pub fn call(f: @This(), entity: u32) void {
                         if (!f.alive.testBit(entity)) return;
                         f.physics.Step(entity, &f.entity_transforms[entity]);
                         if (!f.has_sprite.testBit(entity)) return;
-                        f.sprites[entity].sprite_pos = .{
-                            f.entity_transforms[entity].pos_x, 
-                            f.entity_transforms[entity].pos_y
-                        };
+                        const set = &f.comps[entity];
+                        for (set.sprites[0..set.count]) |*sprite| {
+                            sprite.*.sprite_pos = .{
+                                f.entity_transforms[entity].pos_x, 
+                                f.entity_transforms[entity].pos_y
+                            };
+                        } 
                     }
                 }{
                     .entity_transforms = project_context.entity_transforms,
                     .alive = &project_context.alive,
-                    .sprites = project_context.sprite_components,
+                    .comps = project_context.sprite_components,
                     .has_sprite = &project_context.has_sprite,
                     .physics = &physics,
                 }

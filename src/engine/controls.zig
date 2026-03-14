@@ -201,10 +201,9 @@ pub fn DeleteEditorIntent(
 }
 
 pub fn BuildEditorSelectIntent(
-    sprites: []helper.SpriteDraw,
+    sprite_sets: []helper.SpriteSet,
     mouse_pos: math.Vec2,
     alive: *const two_bit,
-    has_sprite: *const two_bit,
     select_buffer: *std.ArrayList(u32),
     input: RawInput,
     allocator: std.mem.Allocator,
@@ -216,7 +215,7 @@ pub fn BuildEditorSelectIntent(
 
     if (!left_pressed) return;
 
-    const entity = Select(sprites,alive, has_sprite ,mouse_pos);
+    const entity = Select(sprite_sets,alive,mouse_pos);
 
     if (entity) |e| {
 
@@ -341,35 +340,40 @@ pub inline fn Bit(key: InputKey) InputBitSet {
 }
 
 pub fn Select(
-    sprites: []helper.SpriteDraw,
+    sprite_sets: []helper.SpriteSet,
     alive: *const two_bit,
-    has_sprite: *const two_bit,
     mouse: math.Vec2,
 ) ?u32 {
-    var i: usize = sprites.len;
+    var i: usize = sprite_sets.len;
     while (i > 0) {
         i -= 1;
 
-        const sprite = sprites[i];
-        const e = sprite.entity;
-        const cap = alive.capacity();
-        if (e >= cap) continue;
-         _ = has_sprite;
-        //_ = alive;
+        const e: u32 = @intCast(i);
+        if (e >= alive.capacity()) continue;
         if (!alive.testBit(e)) continue;
 
-        const min_x = sprite.sprite_pos[0];
-        const max_x = sprite.sprite_pos[0] + sprite.sprite_scale[0];
-        const min_y = sprite.sprite_pos[1];
-        const max_y = sprite.sprite_pos[1] + sprite.sprite_scale[1];
+        const set = &sprite_sets[i];
 
-        if (mouse.x >= min_x and mouse.x <= max_x and
-            mouse.y >= min_y and mouse.y <= max_y)
-        {
-            std.log.info("Selected entity: {d} \n in location: {d}, {d}",
-                .{ sprite.entity, sprite.sprite_pos[0], sprite.sprite_pos[1] });
+        var j: usize = set.count;
 
-            return sprite.entity;
+        while (j > 0) {
+
+            j -= 1;
+            const sprite = set.sprites[j];
+
+            const min_x = sprite.sprite_pos[0];
+            const max_x = sprite.sprite_pos[0] + sprite.sprite_scale[0];
+            const min_y = sprite.sprite_pos[1];
+            const max_y = sprite.sprite_pos[1] + sprite.sprite_scale[1];
+
+            if (mouse.x >= min_x and mouse.x <= max_x and
+                mouse.y >= min_y and mouse.y <= max_y)
+            {
+                std.log.info("Selected entity: {d} \n in location: {d}, {d}",
+                    .{ sprite.entity, sprite.sprite_pos[0], sprite.sprite_pos[1] });
+
+                return sprite.entity;
+            }
         }
     }
     return null;
