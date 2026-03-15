@@ -425,7 +425,7 @@ pub const SpriteAPI = extern struct {
     /// Sets the world position of a sprite owned by an entity.
     set_entity_sprites_world_pos: *const fn (u32, Position2D) callconv(.c) void,
 
-    get_entity_sprites_world_pos: *const fn (u32, Position2D) callconv(.c) void,
+    get_entity_sprites_world_pos: *const fn (u32) callconv(.c) Position2D,
 
     /// Sets the world position of a sprite owned by an entity.
     set_sprite_world_pos: *const fn (u32, u32, Position2D) callconv(.c) void,

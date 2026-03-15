@@ -202,25 +202,22 @@ pub fn DeleteEditorIntent(
 
 pub fn BuildEditorSelectIntent(
     sprite_sets: []helper.SpriteSet,
+    sprite_storage: []const helper.SpriteDraw,
     mouse_pos: math.Vec2,
     alive: *const two_bit,
     select_buffer: *std.ArrayList(u32),
     input: RawInput,
     allocator: std.mem.Allocator,
 ) !void {
-
     const left_pressed = (input.buttons_pressed & Bit(.mouse_left)) != 0;
     const multi_held   = (input.buttons_down & Bit(.shift)) != 0;
-    //std.log.info("Selected buffer length is: {d}", .{select_buffer.items.len});
 
     if (!left_pressed) return;
 
-    const entity = Select(sprite_sets,alive,mouse_pos);
+    const entity = Select(sprite_sets, sprite_storage, alive, mouse_pos);
 
     if (entity) |e| {
-
-        if (multi_held){
-
+        if (multi_held) {
             std.log.info("Multi held is being pressed", .{});
 
             for (select_buffer.items) |existing| {
@@ -228,19 +225,15 @@ pub fn BuildEditorSelectIntent(
             }
 
             try select_buffer.append(allocator, e);
-
         } else {
             std.log.info("SELECTED", .{});
             select_buffer.clearRetainingCapacity();
             try select_buffer.append(allocator, e);
-
         }
-    }else {
-        std.log.info("Deselecting", .{}); 
+    } else {
+        std.log.info("Deselecting", .{});
         select_buffer.clearRetainingCapacity();
-
     }
-
 }
 
 pub fn BuildEditorIntent(
@@ -341,6 +334,7 @@ pub inline fn Bit(key: InputKey) InputBitSet {
 
 pub fn Select(
     sprite_sets: []helper.SpriteSet,
+    sprite_storage: []const helper.SpriteDraw,
     alive: *const two_bit,
     mouse: math.Vec2,
 ) ?u32 {
@@ -352,14 +346,21 @@ pub fn Select(
         if (e >= alive.capacity()) continue;
         if (!alive.testBit(e)) continue;
 
-        const set = &sprite_sets[i];
+        const set = sprite_sets[i];
+        if (set.count == 0) continue;
 
-        var j: usize = set.count;
+        const start: usize = @intCast(set.start);
+        const count: usize = @intCast(set.count);
+        const end = start + count;
 
+        if (end > sprite_storage.len) continue;
+
+        const sprites = sprite_storage[start..end];
+
+        var j: usize = sprites.len;
         while (j > 0) {
-
             j -= 1;
-            const sprite = set.sprites[j];
+            const sprite = sprites[j];
 
             const min_x = sprite.sprite_pos[0];
             const max_x = sprite.sprite_pos[0] + sprite.sprite_scale[0];
@@ -369,8 +370,10 @@ pub fn Select(
             if (mouse.x >= min_x and mouse.x <= max_x and
                 mouse.y >= min_y and mouse.y <= max_y)
             {
-                std.log.info("Selected entity: {d} \n in location: {d}, {d}",
-                    .{ sprite.entity, sprite.sprite_pos[0], sprite.sprite_pos[1] });
+                std.log.info(
+                    "Selected entity: {d}\n in location: {d}, {d}",
+                    .{ sprite.entity, sprite.sprite_pos[0], sprite.sprite_pos[1] },
+                );
 
                 return sprite.entity;
             }

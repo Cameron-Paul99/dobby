@@ -102,26 +102,28 @@ pub export fn AddTransform2D(id: u32, delta: Transform2D) callconv(.c) void {
     t.rotation.y += delta.rotation.y;
 
     if (ctx.has_sprite.testBit(id)) {
-        var set = &ctx.sprite_components[id];
+        const sprites = GetEntitySprites(ctx, id);
 
-        for (set.sprites[0..set.count]) |*sprite| {
-            sprite.*.sprite_pos = .{ t.position.x, t.position.y };
-            sprite.*.sprite_scale = .{ t.scale.x, t.scale.y };
-            sprite.*.sprite_rotation = .{ t.rotation.x, t.rotation.y }; 
+        for (sprites) |*sprite| {
+            sprite.sprite_pos = .{ t.position.x, t.position.y };
+            sprite.sprite_scale = .{ t.scale.x, t.scale.y };
+            sprite.sprite_rotation = .{ t.rotation.x, t.rotation.y };
         }
     }
 }
 
 pub export fn AddTransform2DPos(id: u32, dx: f32, dy: f32) callconv(.c) void {
     const ctx = g_active_ctx;
+
     ctx.entity_transforms[id].position.x += dx;
     ctx.entity_transforms[id].position.y += dy;
-      if (ctx.has_sprite.testBit(id)) {
-        const t = ctx.entity_transforms[id];
 
-        var set = &ctx.sprite_components[id];
-        for (set.sprites[0..set.count]) |*sprite| {
-            sprite.*.sprite_pos = .{ t.position.x, t.position.y };
+    if (ctx.has_sprite.testBit(id)) {
+        const t = ctx.entity_transforms[id];
+        const sprites = GetEntitySprites(ctx, id);
+
+        for (sprites) |*sprite| {
+            sprite.sprite_pos = .{ t.position.x, t.position.y };
         }
     }
 }
@@ -155,7 +157,7 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) v
 
     const transform = ctx.entity_transforms[id];
 
-    var sprite = helper.SpriteDraw{
+    const sprite = helper.SpriteDraw{
         .entity = id,
         .sprite_pos = .{transform.position.x, transform.position.y},
         .sprite_scale = .{transform.scale.x, transform.scale.y},
@@ -172,28 +174,39 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) v
 
     //std.log.info("Sprite name is: {s}", .{desc.name});
     const set = &ctx.sprite_components[id];
+
     if (set.count >= MAX_SPRITES_PER_ENTITY) {
         std.log.err("Too many sprites for entity {d}", .{id});
         return;
     }
-   
-    sprite.placement = set.count;
-    set.sprites[set.count] = sprite;
-    set.count += 1; 
+    if (set.count == 0) {
+        set.start =  @intCast(ctx.sprite_storage.items.len);
+    }else{
+        const expected_end = set.start + set.count;
+        if (expected_end != ctx.sprite_storage.items.len) {
+            std.log.err("Sprite range for entity {d} is no longer contiguous", .{id});
+            return;
+        }
+    }
 
+    ctx.sprite_storage.append(ctx.allocator, sprite) catch |err| {
+        std.log.err("Failed to append sprite storage: {}", .{err});
+        return;
+    };
+    set.count += 1;
 }
 pub export fn GetAllocator() callconv(.c) *anyopaque {
     return &g_active_ctx.allocator;
 }
 
-pub export fn SetSpriteWorldPos(entity: u32, id:u32, pos: Position2D) callconv(.c) void {
+pub export fn SetSpriteWorldPos(entity: u32, index:u32, pos: Position2D) callconv(.c) void {
     _ = entity;
     _ = pos;
-    _ = id;
+    _ = index;
 }
-pub export fn GetSpriteWorldPos(entity: u32, id:u32) Position2D{
+pub export fn GetSpriteWorldPos(entity: u32, index:u32) Position2D{
     _ = entity;
-    _ = id;
+    _ = index;
     return .{
         .x =0,
         .y = 0,
@@ -201,13 +214,41 @@ pub export fn GetSpriteWorldPos(entity: u32, id:u32) Position2D{
 }
 
 pub export fn SetEntitySpritesWorldPos(entity: u32, pos: Position2D) callconv(.c) void {
-    _ = entity;
-    _ = pos;
+    const ctx = g_active_ctx;
+
+    if (!ctx.has_sprite.testBit(entity)) return;
+
+    const set = ctx.sprite_components[entity];
+
+    const start: usize = @intCast(set.start);
+    const end: usize = start + @as(usize, @intCast(set.count));
+
+    const sprites = ctx.sprite_storage.items[start..end];
+
+    for (sprites) |*sprite| {
+        sprite.sprite_pos = .{ pos.x, pos.y };
+    }
 }
 
-pub export fn GetEntitySpritesWorldPos(entity: u32, pos: Position2D) callconv(.c) void {
-    _ = entity;
-    _ = pos;
+pub export fn GetEntitySpritesWorldPos(entity: u32) callconv(.c) Position2D {
+    const ctx = g_active_ctx;
+
+    if (!ctx.has_sprite.testBit(entity)) {
+        return .{ .x = 0, .y = 0 };
+    }
+
+    const set = ctx.sprite_components[entity];
+
+    if (set.count == 0) {
+        return .{ .x = 0, .y = 0 };
+    }
+
+    const sprite = ctx.sprite_storage.items[@intCast(set.start)];
+
+    return .{
+        .x = sprite.sprite_pos[0],
+        .y = sprite.sprite_pos[1],
+    };
 }
 
 pub export fn SetSpriteColor(entity: u32, id:u32 ,color: Color) void{
@@ -247,4 +288,43 @@ pub export fn MoveCameraVertical(y: f32, speed: f32) void {
 pub export fn MoveCameraHorizontal(x: f32, speed: f32) void {
     _ = x;
     _ = speed;
+}
+
+pub export fn RemoveSprite(id: u32, placement: u32) callconv(.c) void {
+    const ctx = g_active_ctx;
+
+    if (!ctx.has_sprite.testBit(id)) return;
+
+    const set = &ctx.sprite_components[id];
+
+    if (placement >= set.count) return;
+
+    const start: usize = @intCast(set.start);
+    const idx: usize = start + @as(usize, placement);
+    const end: usize = start + @as(usize, set.count);
+
+    var storage = ctx.sprite_storage.items;
+
+    // shift left
+    var i = idx;
+    while (i + 1 < end) : (i += 1) {
+        storage[i] = storage[i + 1];
+        storage[i].placement = @intCast(i - start);
+    }
+
+    set.count -= 1;
+
+    // remove last element of the contiguous range
+    _ = ctx.sprite_storage.orderedRemove(end - 1);
+
+    if (set.count == 0) {
+        ctx.has_sprite.Clear(id);
+    }
+}
+
+pub fn GetEntitySprites(ctx: *ProjectContext, id: u32) []helper.SpriteDraw {
+    const set = ctx.sprite_components[id];
+    const start: usize = @intCast(set.start);
+    const end: usize = start + @as(usize, @intCast(set.count));
+    return ctx.sprite_storage.items[start..end];
 }

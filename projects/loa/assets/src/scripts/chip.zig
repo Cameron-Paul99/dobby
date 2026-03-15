@@ -10,12 +10,17 @@ pub const ChipType = enum {
     DEFAULT,
 };
 
+pub const ChipState = enum {
+    Falling,
+    Settled,
+    default,
+};
+
 pub const Chip = struct {
     entity: u32 = 0,
-    col: u8 = 0,
+    col: u6 = 0,
     pos_y: f32 = 0.0,
     pos_x: f32 = 0.0,
-    //state: enum {Falling, Settled},
 };
 
 pub fn ChipToDesc(

@@ -31,8 +31,7 @@ const GameInput = input.KeyBoardGameInput;
 
 const MAX_ENTITIES: u32 = 100_000;
 const MAX_GAME_MEMORY = 1 * 1024 * 1024; // 1 MB
-const MAX_SPRITES_PER_ENTITY = 100;
-
+                                         
 const GameInitFn   = *const fn (
     *g_api.GameAPI, 
     *g_api.GameMemory, 
@@ -45,6 +44,7 @@ const GameInputPressedFn = *const fn (u8) callconv(.c) void;
 const GameInputDownFn = *const fn (u8) callconv(.c) void;
 const GameInputUpFn = *const fn (u8) callconv(.c) void;
 const GameStartFn = *const fn () callconv(.c) void;
+const GameDeinitFn = *const fn () callconv(.c) void;
 
 fn EditorMoveEntity(
     editor_input: input.RawInput,
@@ -99,7 +99,9 @@ pub const ProjectContext = struct {
     game_start: ?*const fn () callconv(.c) void,
     game_update: ?*const fn (f64) callconv(.c) void,
     game_input: GameInput,
+    game_deinit: ?*const fn () callconv(.c) void,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
+    sprite_storage: std.ArrayList(helper.SpriteDraw),
     paused: bool = true,
     alive: two_bit,
     render_area: RadiusRender, 
@@ -203,7 +205,10 @@ pub const ProjectContext = struct {
                     GameInputDownFn,
                     "game_input_up"),
             },
+            .game_deinit = lib.lookup(GameDeinitFn, "game_deinit"),
             .sprite_draws = try std.ArrayList(helper.SpriteDraw)
+                .initCapacity(allocator, 0),
+            .sprite_storage = try std.ArrayList(helper.SpriteDraw)
                 .initCapacity(allocator, 0),
             .sprite_components = sprite_components,
             .entity_transforms = try allocator.alloc(Transform2D, MAX_ENTITIES), 
@@ -217,11 +222,17 @@ pub const ProjectContext = struct {
 
     pub fn ReloadProjectScripts(self: *ProjectContext) !void {
 
-      self.alive.clearAll();
-      self.has_sprite.clearAll();
-      self.physics.clearAll();
-      self.static_dirty = true; 
+        self.alive.clearAll();
+        self.has_sprite.clearAll();
+        self.physics.clearAll();
+        self.static_dirty = true; 
 
+        self.sprite_storage.clearRetainingCapacity();
+        self.sprite_draws.clearRetainingCapacity();
+
+        for (self.sprite_components) |*set| {
+            set.* = .{};
+        }
         const path = try std.fmt.allocPrint(
             self.allocator,
             "projects/{s}/assets/src/scripts/zig-out/lib/lib{s}_game.so",
@@ -239,6 +250,7 @@ pub const ProjectContext = struct {
         self.game_init = self.lib.?.lookup(GameInitFn, "game_init");
         self.game_update = self.lib.?.lookup(GameUpdateFn, "game_update");
         self.game_start = self.lib.?.lookup(GameStartFn, "game_start");
+        self.game_deinit = self.lib.?.lookup(GameStartFn, "game_deinit");
 
         self.game_input.game_input_pressed = self.lib.?.lookup(
             GameInputPressedFn, 
@@ -271,8 +283,10 @@ pub const ProjectContext = struct {
     }
 
     pub fn deinit(self: *ProjectContext) void {
+        self.game_deinit.?();
         self.atlas_manager.deinit(self.allocator);
         self.sprite_draws.deinit(self.allocator);
+        self.sprite_storage.deinit(self.allocator);
         self.allocator.free(self.sprite_components);
         self.allocator.free(self.entity_transforms);
         self.allocator.free(self.game_memory_buffer);
@@ -638,6 +652,7 @@ pub fn main() !void {
 
             try input.BuildEditorSelectIntent(
                 project_context.sprite_components,
+                project_context.sprite_storage.items,
                 mouse.world_pos,
                 &project_context.alive,
                 &select_buffer,
@@ -657,24 +672,30 @@ pub fn main() !void {
         project_context.has_sprite.forEachBitSet(
             struct {
                 list: *std.ArrayList(helper.SpriteDraw),
+                storage: *const std.ArrayList(helper.SpriteDraw),
                 comps: []helper.SpriteSet,
                 alive: *const two_bit,
                 allocator: std.mem.Allocator,
 
                 pub fn call(f: @This(), entity: u32) void {
                     if (!f.alive.testBit(entity)) return;
-                    const set = &f.comps[entity];
-                    for (set.sprites[0..set.count]) |sprite| {
+
+                    const set = f.comps[entity];
+                    const sprites = f.storage.items[set.start .. set.start + set.count];
+
+                    for (sprites) |sprite| {
                         f.list.append(f.allocator, sprite) catch unreachable;
                     }
                 }
             }{
                 .list = &project_context.sprite_draws,
+                .storage = &project_context.sprite_storage,
                 .comps = project_context.sprite_components,
                 .alive = &project_context.alive,
-                .allocator = allocator
+                .allocator = allocator,
             }
         );
+
 
         if (!t.pause and !gameMode){
             project_context.physics.forEachBitSet(
@@ -682,28 +703,34 @@ pub fn main() !void {
                     alive: *const two_bit,
                     entity_transforms: []Transform2D,
                     comps: []helper.SpriteSet,
+                    storage: []helper.SpriteDraw,
                     has_sprite: *const two_bit,
                     physics: *Physics,
-                    pub fn call(f: @This(), entity: u32) void {
 
+                    pub fn call(f: @This(), entity: u32) void {
                         if (!f.alive.testBit(entity)) return;
+
                         f.physics.Step(entity, &f.entity_transforms[entity]);
 
                         if (!f.has_sprite.testBit(entity)) return;
-                        const set = &f.comps[entity];
-                        for (set.sprites[0..set.count]) |*sprite| {
-                            sprite.*.sprite_pos = .{
-                                f.entity_transforms[entity].position.x, 
-                                f.entity_transforms[entity].position.y
+
+                        const set = f.comps[entity];
+                        const sprites = f.storage[set.start .. set.start + set.count];
+
+                        for (sprites) |*sprite| {
+                            sprite.sprite_pos = .{
+                                f.entity_transforms[entity].position.x,
+                                f.entity_transforms[entity].position.y,
                             };
                         }
                     }
                 }{
-                    .entity_transforms = project_context.entity_transforms,
-                    .alive = &project_context.alive,
-                    .comps = project_context.sprite_components,
-                    .has_sprite = &project_context.has_sprite,
-                    .physics = &physics,
+                .entity_transforms = project_context.entity_transforms,
+                .alive = &project_context.alive,
+                .comps = project_context.sprite_components,
+                .storage = project_context.sprite_storage.items,
+                .has_sprite = &project_context.has_sprite,
+                .physics = &physics,
                 }
             );
         }
@@ -714,31 +741,38 @@ pub fn main() !void {
                     alive: *const two_bit,
                     entity_transforms: []Transform2D,
                     comps: []helper.SpriteSet,
+                    storage: []helper.SpriteDraw,
                     has_sprite: *const two_bit,
                     physics: *Physics,
+
                     pub fn call(f: @This(), entity: u32) void {
                         if (!f.alive.testBit(entity)) return;
+
                         f.physics.Step(entity, &f.entity_transforms[entity]);
+
                         if (!f.has_sprite.testBit(entity)) return;
-                        const set = &f.comps[entity];
-                        for (set.sprites[0..set.count]) |*sprite| {
-                            sprite.*.sprite_pos = .{
-                                f.entity_transforms[entity].position.x, 
-                                f.entity_transforms[entity].position.y
+
+                        const set = f.comps[entity];
+                        const sprites = f.storage[set.start .. set.start + set.count];
+
+                        for (sprites) |*sprite| {
+                            sprite.sprite_pos = .{
+                                f.entity_transforms[entity].position.x,
+                                f.entity_transforms[entity].position.y,
                             };
-                        } 
+                        }
                     }
                 }{
                     .entity_transforms = project_context.entity_transforms,
                     .alive = &project_context.alive,
                     .comps = project_context.sprite_components,
+                    .storage = project_context.sprite_storage.items,
                     .has_sprite = &project_context.has_sprite,
                     .physics = &physics,
                 }
             );
         }
 
-      
 // ****************************************** RENDERING *******************************************
 
         try renderer.DrawFrame(
