@@ -37,3 +37,4 @@ projects/
 *.project
 *.proj
 .active_project.json
+debug.txt

@@ -126,8 +126,8 @@ pub export fn game_init(
 pub export fn game_start() callconv(.c) void {
     g_camera.*.set_camera_world_pos(.{
         .x = slot_mod.HALF_BOARD_W,
-        .y = (120.0 * slot_mod.TILE_SIZE_Y + slot_mod.BOARD_WORLD_H - 1365) * 0.5,
-    }, 1.0);
+        .y = (120.0 * slot_mod.TILE_SIZE_Y + slot_mod.BOARD_WORLD_H - 250) * 0.5,
+    }, 1.5);
 }
 
 pub export fn game_update(time_sec: f64) callconv(.c) void{
