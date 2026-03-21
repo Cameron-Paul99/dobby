@@ -23,7 +23,7 @@ pub var physics_ctx: *Physics = undefined;
 pub var cam_ctx: *Camera = undefined;
 pub var mouse_ctx: *Mouse = undefined;
 
-const MAX_SPRITES_PER_ENTITY = 100;
+const MAX_SPRITES_PER_ENTITY = 5;
 
 pub export fn EnableGravity(id: u32) callconv(.c) void {
     const ctx = physics_ctx;
@@ -141,25 +141,22 @@ pub export fn RemovePhysics(id: u32) callconv(.c) void {
     ctx.static_dirty = true;
     ctx.physics.Clear(id);
 }
-
 pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) void {
-    
+
     const ctx = g_active_ctx;
-
-    const slot_uv = atlas_mod.GetImageFromAtlas(0, desc.name, ctx.proj, ctx.allocator) catch |err| {
+    const slot_uv = atlas_mod.GetImageFromAtlas(0, std.mem.span(desc.name), ctx.proj, ctx.allocator) catch |err| {
         std.log.err("GetImageFromAtlas failed: {}", .{err});
-        return; // or fallback
+        return;
     };
-
     if (slot_uv != null) {
         ctx.allocator.free(slot_uv.?.name);
     }
-
-    const transform = ctx.entity_transforms[id];
-
+    const transform = &ctx.entity_transforms[id];
     const sprite = helper.SpriteDraw{
         .entity = id,
-        .sprite_pos = .{transform.position.x, transform.position.y},
+        .sprite_pos = .{
+            transform.position.x + desc.position.x, 
+            transform.position.y + desc.position.y},
         .sprite_scale = .{transform.scale.x, transform.scale.y},
         .sprite_rotation = .{transform.rotation.x, transform.rotation.y},
         .uv_min = slot_uv.?.uv_min,
@@ -167,32 +164,42 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) v
         .tint = .{desc.color.r, desc.color.g, desc.color.b, desc.color.a},
         .atlas_id = desc.atlas_id,
     };
+
     std.log.info("Spawning sprite for entity: {d}", .{id});
+
     if (!ctx.has_sprite.testBit(id)){
         ctx.has_sprite.Set(id);
     }
 
-    //std.log.info("Sprite name is: {s}", .{desc.name});
     const set = &ctx.sprite_components[id];
 
     if (set.count >= MAX_SPRITES_PER_ENTITY) {
         std.log.err("Too many sprites for entity {d}", .{id});
         return;
     }
+
+    // First sprite for this entity: reserve a full block of MAX_SPRITES_PER_ENTITY slots
     if (set.count == 0) {
-        set.start =  @intCast(ctx.sprite_storage.items.len);
-    }else{
-        const expected_end = set.start + set.count;
-        if (expected_end != ctx.sprite_storage.items.len) {
-            std.log.err("Sprite range for entity {d} is no longer contiguous", .{id});
+        set.start = @intCast(ctx.sprite_storage.items.len);
+        const new_len = ctx.sprite_storage.items.len + MAX_SPRITES_PER_ENTITY;
+        ctx.sprite_storage.resize(ctx.allocator, new_len) catch |err| {
+            std.log.err("Failed to reserve sprite storage block for entity {d}: {}", .{id, err});
             return;
+        };
+        // Zero-init the reserved block so unoccupied slots are clean
+        for (ctx.sprite_storage.items[set.start..new_len]) |*s| {
+            s.* = std.mem.zeroes(helper.SpriteDraw);
         }
+    }else{
+
+        std.log.info("Offset at y: {d} \n \n", .{desc.position.y});
+        std.log.info("Spawning Lock at y: {d} \n \n", .{sprite.sprite_pos[1]});
     }
 
-    ctx.sprite_storage.append(ctx.allocator, sprite) catch |err| {
-        std.log.err("Failed to append sprite storage: {}", .{err});
-        return;
-    };
+    // Write directly into the pre-reserved slot
+    ctx.sprite_storage.items[set.start + set.count] = sprite;
+    set.count += 1;
+
     std.log.info("entity={d} start={d} count={d}", .{
         id, set.start, set.count,
     });
@@ -200,9 +207,8 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) v
         ctx.sprite_storage.items.len,
         ctx.sprite_storage.capacity,
     });
-
-    set.count += 1;
 }
+
 pub export fn GetAllocator() callconv(.c) *anyopaque {
     return &g_active_ctx.allocator;
 }

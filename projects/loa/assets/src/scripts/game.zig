@@ -10,6 +10,7 @@ const slot_mod = @import("slot.zig");
 const chip_mod = @import("chip.zig");
 const Transform2D = @import("game_api").Transform2D;
 const Position = @import("game_api").Position;
+const SpriteDesc = g_api.SpriteDesc;
 
 pub var g_api: *GameAPI = undefined;
 pub var g_memory: *GameMemory = undefined;
@@ -115,7 +116,6 @@ pub export fn game_init(
     }
 
     slot_mod.span(&slots, allocator.*, 20, 120, 4, 5);
-    //slot_mod.span_col_up(&slots, allocator.*, 27, 120, 5);
     slot_mod.span(&slots, allocator.*, 27, 120, 8, 4);
     slot_mod.span(&slots, allocator.*, 40, 120, 12, 2);
     slot_mod.span(&slots, allocator.*, 30, 111, 5, 10);
@@ -127,6 +127,7 @@ pub export fn game_init(
 
     }
 
+    slot_mod.spawn_lock(637, g_sprite);
 
 }
 

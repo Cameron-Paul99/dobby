@@ -1,5 +1,6 @@
 const std = @import("std");
 const g_api = @import("game_api");
+const g_sprite = g_api.SpriteAPI;
 const SpriteDesc = g_api.SpriteDesc;
 const Transform2D = g_api.Transform2D;
 
@@ -45,6 +46,7 @@ pub fn slotToSpriteDesc(
     return SpriteDesc{
         .id = id,
         .name = "Slot",
+        .position = .{.x = 0, .y = 0},
         .color = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
         .atlas_id = atlas_id,
     };
@@ -68,7 +70,7 @@ pub fn span_col_up(
     }
 
 }
-
+//
 pub fn span(
     slots: *std.ArrayList(Slot), 
     allocator: std.mem.Allocator,
@@ -89,5 +91,16 @@ pub fn span(
             }) catch unreachable;
         }
     }
+}
 
+pub fn spawn_lock(id: u32, api: anytype) void {
+    
+    const desc = SpriteDesc {
+        .id = id,
+        .name = "Keyhole",
+        .position = .{.x = 0.0, .y = -8.0},
+        .color = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
+        .atlas_id = 0,
+    };
+    api.*.spawn_sprite(&desc, id);
 }

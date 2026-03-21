@@ -683,8 +683,8 @@ pub fn main() !void {
                     const set = f.comps[entity];
                     const sprites = f.storage.items[set.start .. set.start + set.count];
 
-                    for (sprites) |sprite| {
-                        f.list.append(f.allocator, sprite) catch unreachable;
+                    for (sprites) |*sprite| {
+                        f.list.append(f.allocator, sprite.*) catch unreachable;
                     }
                 }
             }{

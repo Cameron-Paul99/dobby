@@ -13,13 +13,13 @@ const std = @import("std");
 /// Describes a sprite to be spawned for an entity.
 ///
 /// This is typically passed into `SpriteAPI.spawn_sprite`.
-pub const SpriteDesc = struct {
+pub const SpriteDesc = extern struct {
 
     /// Optional sprite-local identifier.
     id: u32 = 0,
 
     /// Asset or atlas image name used to look up the sprite.
-    name: []const u8,
+    name: [*:0]const u8,
 
     /// World position of the sprite.
     position: Position2D = .{.x = 0.0, .y = 0.0},

@@ -41,6 +41,7 @@ pub fn ChipToDesc(
     return SpriteDesc {
         .id = id,
         .name = "Chip",
+        .position = .{.x = 0, .y =0},
         .color = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
         .atlas_id = atlas_id,
     };
