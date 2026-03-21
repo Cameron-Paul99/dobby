@@ -114,12 +114,19 @@ pub export fn game_init(
         }
     }
 
+    slot_mod.span(&slots, allocator.*, 20, 120, 4, 5);
+    //slot_mod.span_col_up(&slots, allocator.*, 27, 120, 5);
+    slot_mod.span(&slots, allocator.*, 27, 120, 8, 4);
+    slot_mod.span(&slots, allocator.*, 40, 120, 12, 2);
+    slot_mod.span(&slots, allocator.*, 30, 111, 5, 10);
+
     for (slots.items) |slot| {
         const id = g_api.*.add_entity();
         const desc = slot_mod.slotToSpriteDesc(slot, id, 0, g_api);
         g_sprite.*.spawn_sprite(&desc, id);
 
     }
+
 
 }
 

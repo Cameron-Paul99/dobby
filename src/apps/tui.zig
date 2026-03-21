@@ -1,6 +1,10 @@
 const std = @import("std");
 const editor_sdl = @import("editor_sdl_main.zig");
-
+const utils = @import("utils");
+const g_api = @import("game_api");
+const two_bit = utils.two_bit;
+const Transform2D = g_api.Transform2D;
+const Physics = utils.physics;
 var child: ?std.process.Child = undefined;
 
 fn writeLine(
@@ -101,7 +105,34 @@ pub fn UpdateEngineUI(
     try writer.writeByte('\n');
 }
 
+pub fn Selected(
+    entity: u32,
+    physics: *Physics,
+    has_physics: *two_bit,
+    sprite: *two_bit,
+    transform: Transform2D,
+    ) !void{
+    const writer = ui_stream.writer();
+    try writer.writeAll("=== Selected Entity ================================================\n");
+    try writeLine(writer, "Entity", "({d})", .{ entity });
+    try writeLine(writer, "Position", "(x: {d:.2}, y: {d:.2})", .{transform.position.x, transform.position.y});
+    try writeLine(writer, "Scale", "(x: {d:.2}, y: {d:.2})", .{transform.scale.x, transform.scale.y});
+    try writeLine(writer, "Rotation", "(x: {d:.2}, y: {d:.2})", .{transform.rotation.x, transform.rotation.y});
+    try writeLine(writer, "Physics", "({s})", .{ 
+        if (has_physics.testBit(entity)) "ENABLED" else "DISABLED" 
+    });  
+    
+    try writeLine(writer, "Gravity", "({s})", .{ 
+        if (physics.gravity_bits.testBit(entity)) "ENABLED" else "DISABLED" 
+    }); 
 
+    try writeLine(writer, "Has Sprite", "({s})", .{ 
+        if (sprite.testBit(entity)) "Yes" else "No" 
+    }); 
+
+    try writer.writeByte('\n');
+
+}
 
   
 

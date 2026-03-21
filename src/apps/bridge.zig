@@ -193,6 +193,14 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) v
         std.log.err("Failed to append sprite storage: {}", .{err});
         return;
     };
+    std.log.info("entity={d} start={d} count={d}", .{
+        id, set.start, set.count,
+    });
+    std.log.info("sprite_storage len={d} cap={d}", .{
+        ctx.sprite_storage.items.len,
+        ctx.sprite_storage.capacity,
+    });
+
     set.count += 1;
 }
 pub export fn GetAllocator() callconv(.c) *anyopaque {

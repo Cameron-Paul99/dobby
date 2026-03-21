@@ -796,7 +796,15 @@ pub fn main() !void {
         }
         try tui.UpdateCameraUI(cam.pos.x, cam.pos.y, cam.zoom);
         try tui.UpdateMouseUI(mouse.world_pos.x, mouse.world_pos.y);
-
+        for (select_buffer.items) |selected| {
+            try tui.Selected(
+                selected, 
+                &physics, 
+                &project_context.physics,
+                &project_context.has_sprite, 
+                project_context.entity_transforms[selected]
+            );
+        }
         try tui.FlushUI();
 
 

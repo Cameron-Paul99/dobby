@@ -50,4 +50,44 @@ pub fn slotToSpriteDesc(
     };
 }
 
+pub fn span_col_up(
+    slots: *std.ArrayList(Slot), 
+    allocator: std.mem.Allocator,
+    row: u6,
+    col: u7,
+    length: u7) void {
 
+    const end: u7 = col - length;
+    for (end..col) |c|
+    {
+        slots.append(allocator, Slot{
+            .x = row,
+            .y = @intCast(c),
+            .occupied = false,
+        }) catch unreachable;
+    }
+
+}
+
+pub fn span(
+    slots: *std.ArrayList(Slot), 
+    allocator: std.mem.Allocator,
+    start_row: u6,
+    start_col: u7,
+    col_len: u7,
+    row_len: u7) void {
+
+    const end_col: u7 = start_col - col_len;
+    const end_row = start_row + row_len;
+    for (end_col..start_col) |c|
+    {
+        for (start_row..end_row) |r| {
+            slots.append(allocator, Slot{
+                .x = @intCast(r),
+                .y = @intCast(c),
+                .occupied = false,
+            }) catch unreachable;
+        }
+    }
+
+}
