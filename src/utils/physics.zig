@@ -13,15 +13,15 @@ const Mat4 = math.Mat4;
 gravity_bits: two_bit,
 velocities: []Vec2,
 weights: []f32,
-const GRAVITY = 0.0000001;
+const GRAVITY = 0.001;
 const TERMINAL: f32 = 20.0;
 
 pub fn Step(self: *Self, entity: u32, transform: *Transform2D) void {
    
     self.Gravity(entity, transform);
     const vel = self.velocities[entity];
-    transform.pos_x += vel.x;
-    transform.pos_y += vel.y;
+    transform.position.x += vel.x;
+    transform.position.y += vel.y;
 
 }
 
@@ -80,6 +80,6 @@ pub fn Gravity(self: *Self, entity: u32, transform: *Transform2D) void {
         vel.y = TERMINAL;
    }
 
-   transform.pos_y += vel.y;
+   transform.position.y += vel.y;
 }
 

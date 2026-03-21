@@ -32,7 +32,6 @@ pub const EditorIntent = struct {
     mouse_pos: math.Vec2 = math.Vec2.ZERO,
 };
 
-
 pub const InputKey = enum(u8) {
     // Letters
     a, b, c, d, e, f, g,
@@ -202,27 +201,23 @@ pub fn DeleteEditorIntent(
 }
 
 pub fn BuildEditorSelectIntent(
-    sprites: []helper.SpriteDraw,
+    sprite_sets: []helper.SpriteSet,
+    sprite_storage: []const helper.SpriteDraw,
     mouse_pos: math.Vec2,
     alive: *const two_bit,
-    has_sprite: *const two_bit,
     select_buffer: *std.ArrayList(u32),
     input: RawInput,
     allocator: std.mem.Allocator,
 ) !void {
-
     const left_pressed = (input.buttons_pressed & Bit(.mouse_left)) != 0;
     const multi_held   = (input.buttons_down & Bit(.shift)) != 0;
-    //std.log.info("Selected buffer length is: {d}", .{select_buffer.items.len});
 
     if (!left_pressed) return;
 
-    const entity = Select(sprites,alive, has_sprite ,mouse_pos);
+    const entity = Select(sprite_sets, sprite_storage, alive, mouse_pos);
 
     if (entity) |e| {
-
-        if (multi_held){
-
+        if (multi_held) {
             std.log.info("Multi held is being pressed", .{});
 
             for (select_buffer.items) |existing| {
@@ -230,19 +225,15 @@ pub fn BuildEditorSelectIntent(
             }
 
             try select_buffer.append(allocator, e);
-
         } else {
             std.log.info("SELECTED", .{});
             select_buffer.clearRetainingCapacity();
             try select_buffer.append(allocator, e);
-
         }
-    }else {
-        std.log.info("Deselecting", .{}); 
+    } else {
+        std.log.info("Deselecting", .{});
         select_buffer.clearRetainingCapacity();
-
     }
-
 }
 
 pub fn BuildEditorIntent(
@@ -342,35 +333,50 @@ pub inline fn Bit(key: InputKey) InputBitSet {
 }
 
 pub fn Select(
-    sprites: []helper.SpriteDraw,
+    sprite_sets: []helper.SpriteSet,
+    sprite_storage: []const helper.SpriteDraw,
     alive: *const two_bit,
-    has_sprite: *const two_bit,
     mouse: math.Vec2,
 ) ?u32 {
-    var i: usize = sprites.len;
+    var i: usize = sprite_sets.len;
     while (i > 0) {
         i -= 1;
 
-        const sprite = sprites[i];
-        const e = sprite.entity;
-        const cap = alive.capacity();
-        if (e >= cap) continue;
-         _ = has_sprite;
-        //_ = alive;
+        const e: u32 = @intCast(i);
+        if (e >= alive.capacity()) continue;
         if (!alive.testBit(e)) continue;
 
-        const min_x = sprite.sprite_pos[0];
-        const max_x = sprite.sprite_pos[0] + sprite.sprite_scale[0];
-        const min_y = sprite.sprite_pos[1];
-        const max_y = sprite.sprite_pos[1] + sprite.sprite_scale[1];
+        const set = sprite_sets[i];
+        if (set.count == 0) continue;
 
-        if (mouse.x >= min_x and mouse.x <= max_x and
-            mouse.y >= min_y and mouse.y <= max_y)
-        {
-            std.log.info("Selected entity: {d} \n in location: {d}, {d}",
-                .{ sprite.entity, sprite.sprite_pos[0], sprite.sprite_pos[1] });
+        const start: usize = @intCast(set.start);
+        const count: usize = @intCast(set.count);
+        const end = start + count;
 
-            return sprite.entity;
+        if (end > sprite_storage.len) continue;
+
+        const sprites = sprite_storage[start..end];
+
+        var j: usize = sprites.len;
+        while (j > 0) {
+            j -= 1;
+            const sprite = sprites[j];
+
+            const min_x = sprite.sprite_pos[0];
+            const max_x = sprite.sprite_pos[0] + sprite.sprite_scale[0];
+            const min_y = sprite.sprite_pos[1];
+            const max_y = sprite.sprite_pos[1] + sprite.sprite_scale[1];
+
+            if (mouse.x >= min_x and mouse.x <= max_x and
+                mouse.y >= min_y and mouse.y <= max_y)
+            {
+                std.log.info(
+                    "Selected entity: {d}\n in location: {d}, {d}",
+                    .{ sprite.entity, sprite.sprite_pos[0], sprite.sprite_pos[1] },
+                );
+
+                return sprite.entity;
+            }
         }
     }
     return null;

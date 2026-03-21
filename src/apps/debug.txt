@@ -1,0 +1,18 @@
+=== ENGINE ================================================
+
+fps               : 71
+frame_time_ms     : 16.67
+window_size       : [1920, 1080]
+
+=== WORLD =================================================
+
+scene             : "first_test"
+entity_count      : 153
+selected_entity   : 27
+
+=== SELECTED ENTITY =======================================
+
+name              : "player"
+position          : [120.00, 64.00]
+velocity          : [0.00, -3.20]
+visible           : true

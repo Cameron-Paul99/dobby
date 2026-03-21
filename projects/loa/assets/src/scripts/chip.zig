@@ -10,25 +10,30 @@ pub const ChipType = enum {
     DEFAULT,
 };
 
+pub const ChipState = enum {
+    Falling,
+    Settled,
+    default,
+};
+
 pub const Chip = struct {
     entity: u32 = 0,
-    col: u8 = 0,
+    col: u6 = 0,
     pos_y: f32 = 0.0,
     pos_x: f32 = 0.0,
-    //state: enum {Falling, Settled},
 };
 
 pub fn ChipToDesc(
     id: u32,
     atlas_id: u32,
+    x: f32,
+    y: f32,
     api: anytype,
     ) SpriteDesc {
 
     const entity_transform = Transform2D{
-        .pos_x = 0.0,
-        .pos_y = 11700.0,
-        .scale_x = slot.TILE_SIZE_X,
-        .scale_y = slot.TILE_SIZE_Y,
+        .position = .{.x = x, .y = y},
+        .scale = .{ .x = slot.TILE_SIZE_X, .y = slot.TILE_SIZE_Y },
     };
 
     api.add_transform_2D(id, entity_transform);
@@ -36,7 +41,8 @@ pub fn ChipToDesc(
     return SpriteDesc {
         .id = id,
         .name = "Chip",
-        .tint = .{ 1.0, 1.0, 1.0, 1.0 },
+        .position = .{.x = 0, .y =0},
+        .color = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
         .atlas_id = atlas_id,
     };
 
