@@ -1,3 +1,9 @@
+## [0.0.9] - TUI Refactor, Bridge file, Contiguous array sprites, Connect 4 refactor - Cameron Paul - 03/21/26
+- TUI additions: Selected entities and rename. Begin and flush UI. Engine FPS, frame time, and location information
+- Bridge file with all exported functions
+- Contiguous array for entity sprites
+- Some game refactors
+
 ## [0.0.8] - Basic Physics and Game Input - Cameron Paul - 03/07/26
 - Gravity
 - Forces and velocities (2D)
