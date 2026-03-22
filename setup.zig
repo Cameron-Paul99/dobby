@@ -1,8 +1,125 @@
 const std = @import("std");
 const utils = @import("utils");
 
+const cooked_shaders_path = "projects/{s}/cooked/shaders";
+const cooked_atlases_path = "projects/{s}/cooked/atlases";
+const cooked_manifest_atlases_path = "projects/{s}/cooked/atlases/manifest.json";
+const src_textures_path = "projects/{s}/src/textures";
+const src_shaders_path = "projects/{s}/src/shaders";
+const src_scripts_path = "projects/{s}/src/scripts";
+const src_scripts_path_build = "projects/{s}/src/scripts/";
+const src_scripts_build_zig = "projects/{s}/src/scripts/build.zig";
+const src_scripts_game_zig = "projects/{s}/src/scripts/game.zig";
 
+const build_zig_contents =
+    \\const std = @import("std");
+    \\
+    \\pub fn build(b: *std.Build) void {{
+    \\    //const project_bin_dir =
+    \\    //    b.path("zig-out/bin");
+    \\
+    \\    const target = b.standardTargetOptions(.{{}});
+    \\    const optimize = b.standardOptimizeOption(.{{}});
+    \\
+    \\    const game = b.addLibrary(.{{
+    \\        .name = "{s}_game",
+    \\        .linkage = .dynamic,
+    \\        .root_module = b.addModule(
+    \\            "{s}_game",
+    \\            .{{
+    \\                .root_source_file = b.path("game.zig"),
+    \\                .target = target,
+    \\                .optimize = optimize,
+    \\            }},
+    \\        ),
+    \\    }});
+    \\
+    \\    const game_api_mod = b.createModule(.{{
+    \\        .root_source_file = b.path("../../../../src/game_api/game_api.zig"),
+    \\        .target = target,
+    \\        .optimize = optimize,
+    \\    }});
+    \\
+    \\    const utils_mod = b.createModule(.{{
+    \\        .root_source_file = b.path("../../../../src/utils/utils.zig"),
+    \\        .target = target,
+    \\        .optimize = optimize,
+    \\    }});
+    \\
+    \\    game.root_module.addImport("game_api", game_api_mod);
+    \\    game.root_module.addImport("utils", utils_mod);
+    \\
+    \\    b.installArtifact(game);
+    \\}}
+    \\
+;
 
+const manifest_contents = 
+    \\{
+    \\  "version": 1,
+    \\  "atlases": []
+    \\}
+;
+const game_zig_contents = 
+    \\const GameAPI = @import("game_api").GameAPI;
+    \\const GameMemory = @import("game_api").GameMemory;
+    \\const Physics = @import("game_api").PhysicsAPI;
+    \\const Input = @import("game_api").InputKeyExtern;
+    \\const Mouse = @import("game_api").MouseAPI;
+    \\const Camera = @import("game_api").Camera2DAPI;
+    \\const Sprite = @import("game_api").SpriteAPI;
+    \\const std = @import("std");
+    \\
+    \\pub var g_api: *GameAPI = undefined;
+    \\pub var g_memory: *GameMemory = undefined;
+    \\pub var g_physics: *Physics = undefined;
+    \\pub var g_camera: *Camera = undefined; 
+    \\pub var g_mouse: *Mouse = undefined;
+    \\pub var g_sprite: *Sprite = undefined;
+    \\var g_initialized: bool = false;
+    \\var g_allocator: ?*std.mem.Allocator = null;
+    \\
+    \\pub export fn game_init(
+    \\api: *GameAPI, 
+    \\game_memory: *GameMemory, 
+    \\physics: *Physics, 
+    \\camera: *Camera, 
+    \\mouse: *Mouse,
+    \\spriteAPI: *Sprite) callconv(.c) void {
+
+    \\  g_api = api;
+    \\  g_memory = game_memory;
+    \\  g_physics = physics;
+    \\  g_camera = camera;
+    \\  g_mouse = mouse;
+    \\  g_sprite = spriteAPI;
+
+    \\  const allocator_fn = g_api.*.get_allocator();
+    \\  const allocator: *std.mem.Allocator = @ptrCast(@alignCast(allocator_fn));
+    \\  g_allocator = allocator;
+    \\}
+    \\pub export fn game_start() callconv(.c) void {
+    \\
+    \\}
+    \\ pub export fn game_update(time_sec: f64) callconv(.c) void{
+    \\ _ = time_sec;
+    \\}
+    \\pub export fn game_input_pressed(key: u8) callconv(.c) void {
+    \\    _ = key;
+    \\}
+    \\pub export fn game_deinit() callconv(.c) void {
+    \\
+    \\}
+    \\pub export fn game_input_down(key: u8) callconv(.c) void {
+    \\  _ = key;
+    \\}
+    \\pub export fn game_input_up(key: u8) callconv(.c) void {
+    \\    _ = key;
+    \\}
+    \\pub export fn reload_game() callconv(.c) void {
+    \\
+    \\}
+;
  pub fn main() !void {
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -17,7 +134,7 @@ const utils = @import("utils");
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;
 
-
+    var setup_finished = false;
 
     var file: std.fs.File = undefined;
 
@@ -109,8 +226,6 @@ const utils = @import("utils");
 
     try stdout.flush();
 
-
-
     if (new_proj){
 
         try stdout.print("Name the new project\n", .{});
@@ -133,38 +248,86 @@ const utils = @import("utils");
 
             const asset_cooked_path = try std.fmt.allocPrint(
                 allocator,
-                "projects/{s}/assets/cooked/atlases",
+                cooked_atlases_path,
                 .{line},
             );
             defer allocator.free(asset_cooked_path);
 
+            const asset_manifest_cooked_path = try std.fmt.allocPrint(
+                allocator,
+                cooked_manifest_atlases_path,
+                .{line},
+            );
+            defer allocator.free(asset_manifest_cooked_path);
+
             const asset_cooked_shaders_path = try std.fmt.allocPrint(
                 allocator,
-                "projects/{s}/assets/cooked/shaders",
+                cooked_shaders_path,
                 .{line},
             );
             defer allocator.free(asset_cooked_shaders_path);
 
             const asset_src_texture_path = try std.fmt.allocPrint(
                 allocator,
-                "projects/{s}/assets/src/textures",
+                src_textures_path,
                 .{line},
             );
             defer allocator.free(asset_src_texture_path);
 
             const asset_src_shaders_path = try std.fmt.allocPrint(
                 allocator,
-                "projects/{s}/assets/src/shaders",
+                src_shaders_path,
                 .{line},
             );
             defer allocator.free(asset_src_shaders_path);
+
+            const asset_src_scripts_path = try std.fmt.allocPrint(
+                allocator,
+                src_scripts_path,
+                .{line},
+            );
+            defer allocator.free(asset_src_scripts_path);
+
+            const build_zig_path = try std.fmt.allocPrint(
+                allocator,
+                src_scripts_build_zig,
+                .{line},
+            );
+            defer allocator.free(build_zig_path);
+
+            const game_zig_path = try std.fmt.allocPrint(
+                allocator,
+                src_scripts_game_zig,
+                .{line},
+            );
+            defer allocator.free(game_zig_path);
+
+            const build_zig_proj_contents = try std.fmt.allocPrint(
+                allocator,
+                build_zig_contents,
+                .{ line, line },
+            );
+            defer allocator.free(build_zig_proj_contents);
 
             try std.fs.cwd().makePath(path);
             try std.fs.cwd().makePath(asset_cooked_path);
             try std.fs.cwd().makePath(asset_cooked_shaders_path);
             try std.fs.cwd().makePath(asset_src_texture_path);
             try std.fs.cwd().makePath(asset_src_shaders_path);
+            try std.fs.cwd().makePath(asset_src_scripts_path);
+            try std.fs.cwd().writeFile(.{
+                    .sub_path = build_zig_path,
+                    .data = build_zig_proj_contents,
+            });
+            try std.fs.cwd().writeFile(.{
+                    .sub_path = game_zig_path,
+                    .data = game_zig_contents,
+            });
 
+            try std.fs.cwd().writeFile(.{
+                    .sub_path = asset_manifest_cooked_path,
+                    .data = manifest_contents,
+            });
             const name = try std.fmt.allocPrint(
                 allocator,
                 "{s}",
@@ -181,9 +344,31 @@ const utils = @import("utils");
 
             try utils.WriteActiveProject(proj, allocator);
 
-            break;
-        }
+            var child = std.process.Child.init(
+                &[_][]const u8{
+                    "zig", "build",
+                },
+                allocator,
+            );
+            child.cwd = asset_src_scripts_path;
+            child.stdin_behavior = .Inherit;
+            child.stdout_behavior = .Inherit;
+            child.stderr_behavior = .Inherit;
 
+            const term = try child.spawnAndWait();
+    
+            switch (term) {
+                .Exited => |code| {
+                    std.debug.print("Script exited with code {}\n", .{code});
+                },
+                else => {
+                    std.debug.print("Script crashed\n", .{});
+                },
+            }
+                break;
+            }
+
+            setup_finished = true;
 
     }else if (existing_proj_name) |name| {
 
@@ -202,31 +387,32 @@ const utils = @import("utils");
             defer allocator.free(proj.path);
 
             try utils.WriteActiveProject(proj, allocator);
+            setup_finished = true;
 
     }
 
-//    var child = std.process.Child.init(
-//        &[_][]const u8{
-//            "sh",
-//            "-c",
-//            "./scripts/run_all.sh",
-//        },
-//        allocator,
-//    );
-//
-//    child.stdin_behavior = .Inherit;
-//    child.stdout_behavior = .Inherit;
-//    child.stderr_behavior = .Inherit;
-//
-//    const term = try child.spawnAndWait();
-//    
-//    switch (term) {
-//        .Exited => |code| {
-//            std.debug.print("Script exited with code {}\n", .{code});
-//        },
-//        else => {
-//            std.debug.print("Script crashed\n", .{});
-//        },
-//    }
+    if (setup_finished) {
+        var child = std.process.Child.init(
+            &[_][]const u8{
+                "zig", "build", "run_dev",
+            },
+            allocator,
+        );
+
+        child.stdin_behavior = .Inherit;
+        child.stdout_behavior = .Inherit;
+        child.stderr_behavior = .Inherit;
+
+        const term = try child.spawnAndWait();
+    
+        switch (term) {
+            .Exited => |code| {
+                std.debug.print("Script exited with code {}\n", .{code});
+            },
+            else => {
+                std.debug.print("Script crashed\n", .{});
+            },
+        }
+    }
 
 }

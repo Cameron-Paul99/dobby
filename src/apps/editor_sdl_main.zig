@@ -46,6 +46,15 @@ const GameInputUpFn = *const fn (u8) callconv(.c) void;
 const GameStartFn = *const fn () callconv(.c) void;
 const GameDeinitFn = *const fn () callconv(.c) void;
 
+const cooked_shaders_path = "projects/{s}/cooked/shaders";
+const cooked_atlases_path = "projects/{s}/cooked/atlases/";
+const src_textures_path = "projects/{s}/src/textures";
+const src_shaders_path = "projects/{s}/src/shaders";
+const src_scripts_path = "projects/{s}/src/scripts/";
+const src_scripts_build_zig = "projects/{s}/src/scripts/build.zig";
+const src_scripts_game_zig = "projects/{s}/src/scripts/game.zig";
+const scripts_lib_path ="projects/{s}/src/scripts/zig-out/lib/lib{s}_game.so"; 
+
 fn EditorMoveEntity(
     editor_input: input.RawInput,
     select_buffer: *std.ArrayList(u32),
@@ -118,7 +127,7 @@ pub const ProjectContext = struct {
 
         const path = try std.fmt.allocPrint(
             allocator,
-            "projects/{s}/assets/src/scripts/zig-out/lib/lib{s}_game.so",
+            scripts_lib_path,
             .{name, name},
         );
         defer allocator.free(path);
@@ -235,7 +244,7 @@ pub const ProjectContext = struct {
         }
         const path = try std.fmt.allocPrint(
             self.allocator,
-            "projects/{s}/assets/src/scripts/zig-out/lib/lib{s}_game.so",
+            scripts_lib_path,
             .{self.proj_name, self.proj_name},
         );
         defer self.allocator.free(path);
@@ -478,7 +487,7 @@ pub fn main() !void {
     // Atlas Path Creation
     const atlas_path = try std.fmt.allocPrint(
         allocator,
-        "projects/{s}/assets/cooked/atlases/",
+        cooked_atlases_path,
         .{ proj.parsed.value.name},
     );
     defer allocator.free(atlas_path); 
@@ -493,7 +502,7 @@ pub fn main() !void {
     // Scripts path
     const scripts_path = try std.fmt.allocPrint(
         allocator,
-        "projects/{s}/assets/src/scripts/",
+        src_scripts_path,
         .{ proj.parsed.value.name },
     );
     defer allocator.free(scripts_path);
