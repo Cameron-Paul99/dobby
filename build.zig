@@ -130,6 +130,7 @@ pub fn build(b: *std.Build) !void {
     b.installArtifact(editor_sdl);
     b.installArtifact(asset_cooker);
     b.installArtifact(game_exe);
+    b.installFile("Slot.ktx2", "Slot.ktx2");
 
     // ---- Run steps (stand-alone) ----
     const run_editor_cmd = b.addRunArtifact(editor_sdl);
