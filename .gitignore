@@ -29,9 +29,6 @@ zls-cache/
 # Optional: backup files
 *~
 
-# Third Party Zigimg
-thirdparty/zigimg
-
 # Project folder
 projects/
 *.project

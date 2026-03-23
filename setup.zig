@@ -60,6 +60,12 @@ const manifest_contents =
     \\  "atlases": []
     \\}
 ;
+const active_project_contents =
+    \\{
+    \\"name": "",
+    \\"path": ""
+    \\}
+;
 const game_zig_contents = 
     \\const GameAPI = @import("game_api").GameAPI;
     \\const GameMemory = @import("game_api").GameMemory;
@@ -226,6 +232,11 @@ const game_zig_contents =
 
     try stdout.flush();
 
+    try std.fs.cwd().writeFile(.{
+        .sub_path = ".active_project.json",
+        .data = active_project_contents,
+    });
+
     if (new_proj){
 
         try stdout.print("Name the new project\n", .{});
@@ -328,6 +339,7 @@ const game_zig_contents =
                     .sub_path = asset_manifest_cooked_path,
                     .data = manifest_contents,
             });
+
             const name = try std.fmt.allocPrint(
                 allocator,
                 "{s}",
