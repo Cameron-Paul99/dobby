@@ -27,6 +27,7 @@ pub const Inotify = struct {
             path,
             DIR_WATCH_MASK,
         );
+        std.log.debug("inotify wd = {d} for path {s}", .{ wd, path });
         if (wd < 0) return error.InotifyWatchFailed;
 
         var wd_paths = try std.ArrayList(?[]u8).initCapacity(allocator, 0);
