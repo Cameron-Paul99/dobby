@@ -631,6 +631,9 @@ pub fn main() !void {
         const atlas_bytes = try atlas_notifier.poll();
         if (atlas_bytes > 0) {
             project_context.atlas_manager.metadata_dirty = true;
+            if (project_context.atlas_manager.manifest) |*m| {
+                m.deinit(allocator);
+            }
         }
 
         if (project_context.atlas_manager.metadata_dirty){

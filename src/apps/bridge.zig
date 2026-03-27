@@ -141,10 +141,10 @@ pub export fn RemovePhysics(id: u32) callconv(.c) void {
     ctx.static_dirty = true;
     ctx.physics.Clear(id);
 }
-pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) void {
+pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32, atlas_id: u32) callconv(.c) void {
 
     const ctx = g_active_ctx;
-    const slot_uv = atlas_mod.GetImageFromAtlas(0, std.mem.span(desc.name), ctx.proj, ctx.allocator) catch |err| {
+    const slot_uv = atlas_mod.GetImageFromAtlas(@intCast(atlas_id), std.mem.span(desc.name), ctx.proj, ctx.allocator) catch |err| {
         std.log.err("GetImageFromAtlas failed: {}", .{err});
         return;
     };
@@ -157,7 +157,9 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) v
         .sprite_pos = .{
             transform.position.x + desc.position.x, 
             transform.position.y + desc.position.y},
-        .sprite_scale = .{transform.scale.x, transform.scale.y},
+        .sprite_scale = .{
+            transform.scale.x + desc.scale.x, 
+            transform.scale.y + desc.scale.x},
         .sprite_rotation = .{transform.rotation.x, transform.rotation.y},
         .uv_min = slot_uv.?.uv_min,
         .uv_max = slot_uv.?.uv_max,

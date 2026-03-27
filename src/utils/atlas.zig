@@ -63,6 +63,7 @@ pub fn ReadManifest(proj: utils.Project, allocator: std.mem.Allocator) !ParsedMa
 
     const file_size = try file.getEndPos();
     const bytes = try allocator.alloc(u8, file_size);
+    errdefer allocator.free(bytes);  
 
     _ = try file.readAll(bytes);
 
@@ -72,7 +73,7 @@ pub fn ReadManifest(proj: utils.Project, allocator: std.mem.Allocator) !ParsedMa
         bytes,
         .{ .ignore_unknown_fields = true },
     );
-errdefer parsed.deinit(); 
+
     return .{
         .parsed = parsed,
         .buffer = bytes,
