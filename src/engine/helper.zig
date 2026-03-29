@@ -275,7 +275,6 @@ pub fn IsPhysicalDeviceSuitable(allocator: std.mem.Allocator, device: gpu_contex
 
         }
 
-
         const swapchain_support = try SwapchainSupportInfo.init(arena, device.handle, surface);
 
            if (swapchain_support.formats.len == 0 or swapchain_support.present_modes.len == 0) {
@@ -407,9 +406,8 @@ pub const PipelineBuilder = struct {
     shader_stages: []c.VkPipelineShaderStageCreateInfo,
     vertex_input_state: c.VkPipelineVertexInputStateCreateInfo,
     input_assembly_state: c.VkPipelineInputAssemblyStateCreateInfo,
-    viewport: c.VkViewport,
-    scissor: c.VkRect2D,
     rasterization_state: c.VkPipelineRasterizationStateCreateInfo,
+    dynamic_state: c.VkPipelineDynamicStateCreateInfo,
     color_blend_attachment_state: c.VkPipelineColorBlendAttachmentState,
     multisample_state: c.VkPipelineMultisampleStateCreateInfo,
     pipeline_layout: c.VkPipelineLayout,
@@ -420,9 +418,7 @@ pub const PipelineBuilder = struct {
         const viewport_state = std.mem.zeroInit(c.VkPipelineViewportStateCreateInfo, .{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
             .viewportCount = 1,
-            .pViewports = &self.viewport,
             .scissorCount = 1,
-            .pScissors = &self.scissor,
         });
 
         const color_blend_state = std.mem.zeroInit(c.VkPipelineColorBlendStateCreateInfo, .{
@@ -444,6 +440,7 @@ pub const PipelineBuilder = struct {
             .pMultisampleState = &self.multisample_state,
             .pColorBlendState = &color_blend_state,
             .pDepthStencilState = &self.depth_stencil_state,
+            .pDynamicState = &self.dynamic_state,
             .layout = self.pipeline_layout,
             .renderPass = render_pass,
             .subpass = 0,
@@ -976,7 +973,6 @@ pub fn CreateVMAAllocator(core: *gpu_context.Core) !c.VmaAllocator {
     try check_vk(c.vmaCreateAllocator(&vma_ci, &allocator));
 
     return allocator;
-
 
 }
 

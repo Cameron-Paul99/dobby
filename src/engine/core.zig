@@ -77,12 +77,10 @@ pub const Core = struct {
             .alloc_cb = null,
         };
 
-        
         // Allocation of Arena State
         var arenaState = std.heap.ArenaAllocator.init(allocator);
         defer arenaState.deinit();
         const arena = arenaState.allocator();
-
          
         // SDL Init
         var sdl_extension_count: c_uint = 0;
@@ -98,6 +96,7 @@ pub const Core = struct {
         const sdl_extensions = sdl_many[0..sdl_len];
 
         const max_ext = 16;
+        if (sdl_len > max_ext) return error.TooManyExtensions;
         var ext_names: [max_ext][*:0]const u8 = undefined;
         var ext_count: usize = 0;
 
@@ -110,22 +109,20 @@ pub const Core = struct {
             std.debug.print("Enabling extension: {s}\n", .{ext});
         }
 
-
         // Enable debugging
         if (enable_debug){
             ext_names[ext_count] =  "VK_EXT_debug_utils";
             ext_count += 1;
         }
 
-
         // Create App info and Instance info
         const app_info = c.VkApplicationInfo{
             .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
             .pNext = null,
             .pApplicationName = "Dobby",
-            .applicationVersion = c.VK_MAKE_VERSION(0, 1, 0),
+            .applicationVersion = c.VK_MAKE_VERSION(0, 0, 9),
             .pEngineName = "Dobby",
-            .engineVersion = c.VK_MAKE_VERSION(0, 1, 0),
+            .engineVersion = c.VK_MAKE_VERSION(0, 0, 9),
             .apiVersion = c.VK_API_VERSION_1_1,
         };
 
@@ -139,7 +136,6 @@ pub const Core = struct {
             .enabledLayerCount = @as(u32, @intCast(validation_layers.len)),
             .ppEnabledLayerNames = validation_layers.ptr,
         };
-
 
         // Creating Instance
         var vk_instance: c.VkInstance = undefined;
@@ -239,41 +235,125 @@ pub const Core = struct {
             enabled_feats.samplerAnisotropy = c.VK_TRUE;
         }
 
-        // Logical Device
-        var queue_create_infos = std.ArrayListUnmanaged(c.VkDeviceQueueCreateInfo){};
-        const queue_priorities: f32 = 1.0;
+        // Wireframe rendering / line widths
+        if (supported_feats.fillModeNonSolid == c.VK_TRUE)
+            enabled_feats.fillModeNonSolid = c.VK_TRUE;
 
-        var queue_family_set = std.AutoArrayHashMapUnmanaged(u32, void){};
+        // Depth clamp (shadow maps, no near-plane clipping artifacts)
+        if (supported_feats.depthClamp == c.VK_TRUE)
+            enabled_feats.depthClamp = c.VK_TRUE;
 
-        try queue_family_set.put(arena, self.physical_device.graphics_queue_family, {});
-        try queue_family_set.put(arena, self.physical_device.present_queue_family, {});
-        try queue_family_set.put(arena, self.physical_device.compute_queue_family, {});
-        try queue_family_set.put(arena, self.physical_device.transfer_queue_family, {});
+        // Indexed drawing with non-uniform indices (nearly universal)
+        if (supported_feats.multiDrawIndirect == c.VK_TRUE)
+            enabled_feats.multiDrawIndirect = c.VK_TRUE;
 
-        var qIter = queue_family_set.iterator();
-        try queue_create_infos.ensureTotalCapacity(arena, queue_family_set.count());
+        // Float64 in shaders (useful for precision-sensitive work)
+        if (supported_feats.shaderFloat64 == c.VK_TRUE)
+            enabled_feats.shaderFloat64 = c.VK_TRUE;
+
+        // Clipping against multiple viewports (VR, shadow cascades)
+        if (supported_feats.multiViewport == c.VK_TRUE)
+            enabled_feats.multiViewport = c.VK_TRUE;
         
-        while (qIter.next()) |qfi| {
-            
-            try queue_create_infos.append(arena, std.mem.zeroInit(c.VkDeviceQueueCreateInfo, .{
+        // Large descriptor arrays (bindless textures)
+        if (supported_feats.shaderSampledImageArrayDynamicIndexing == c.VK_TRUE)
+            enabled_feats.shaderSampledImageArrayDynamicIndexing = c.VK_TRUE;
+
+        if (supported_feats.shaderStorageBufferArrayDynamicIndexing == c.VK_TRUE)
+            enabled_feats.shaderStorageBufferArrayDynamicIndexing = c.VK_TRUE;
+
+        // Compute shaders need this for writing to storage images (light culling pass)
+        if (supported_feats.shaderStorageImageExtendedFormats == c.VK_TRUE)
+            enabled_feats.shaderStorageImageExtendedFormats = c.VK_TRUE;
+
+        // Useful for shadow map sampling
+        if (supported_feats.shaderClipDistance == c.VK_TRUE)
+            enabled_feats.shaderClipDistance = c.VK_TRUE;
+        
+        // TODO: Add to Pipeline state
+        // Alpha-to-coverage for foliage/vegetation (trees, grass)
+       // if (supported_feats.alphaToCoverageEnable == c.VK_TRUE)  // actually a pipeline state, not a feature
+        //    {} // handled at pipeline creation time
+
+        // Wide lines for debug drawing
+        if (supported_feats.wideLines == c.VK_TRUE)
+            enabled_feats.wideLines = c.VK_TRUE;
+
+        // Logical Device
+        const queue_priorities: f32 = 1.0;
+        const family_indices = [_]u32{
+            self.physical_device.graphics_queue_family,
+            self.physical_device.present_queue_family,
+            self.physical_device.compute_queue_family,
+            self.physical_device.transfer_queue_family,
+        };
+
+        // Deduplicate into a fixed stack buffer — max 4 unique families
+        var unique_families: [4]u32 = undefined;
+        var unique_count: usize = 0;
+        outer: for (family_indices) |fi| {
+
+            for (unique_families[0..unique_count]) |uf| {
+                if (uf == fi) continue :outer;
+            }
+            unique_families[unique_count] = fi;
+            unique_count += 1;
+        }
+
+        var queue_create_infos: [4]c.VkDeviceQueueCreateInfo = undefined;
+        for (unique_families[0..unique_count], 0..) |fi, i| {
+            queue_create_infos[i] = std.mem.zeroInit(c.VkDeviceQueueCreateInfo, .{
                 .sType = c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-                .queueFamilyIndex = qfi.key_ptr.*,
+                .queueFamilyIndex = fi,
                 .queueCount = 1,
                 .pQueuePriorities = &queue_priorities,
-            }));
+            });
         }
+
+
+        // Query Vulkan 1.2 feature support
+        var supported_12_feats = std.mem.zeroInit(c.VkPhysicalDeviceVulkan12Features, .{
+            .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+        });
+
+        var feat_query = std.mem.zeroInit(c.VkPhysicalDeviceFeatures2, .{
+            .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &supported_12_feats,
+        });
+
+        c.vkGetPhysicalDeviceFeatures2(self.physical_device.handle, &feat_query);
+
+        // Enable only what's supported
+        var enabled_12_feats = std.mem.zeroInit(c.VkPhysicalDeviceVulkan12Features, .{
+            .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+            .pNext = null,
+        });
+
+        if (supported_12_feats.bufferDeviceAddress == c.VK_TRUE)
+            enabled_12_feats.bufferDeviceAddress = c.VK_TRUE;
+
+        if (supported_12_feats.shaderSampledImageArrayNonUniformIndexing == c.VK_TRUE)
+            enabled_12_feats.shaderSampledImageArrayNonUniformIndexing = c.VK_TRUE;
+
+        if (supported_12_feats.descriptorBindingPartiallyBound == c.VK_TRUE)
+            enabled_12_feats.descriptorBindingPartiallyBound = c.VK_TRUE;
+
+        if (supported_12_feats.runtimeDescriptorArray == c.VK_TRUE)
+            enabled_12_feats.runtimeDescriptorArray = c.VK_TRUE;
 
         const device_info = std.mem.zeroInit(c.VkDeviceCreateInfo, .{
             .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-            .pNext = self.device.pnext,
-            .queueCreateInfoCount = @as(u32, @intCast(queue_create_infos.items.len)),
-            .pQueueCreateInfos = queue_create_infos.items.ptr,
+            .pNext = &enabled_12_feats,
+            .queueCreateInfoCount = @as(u32, @intCast(unique_count)),
+            .pQueueCreateInfos = &queue_create_infos,
             .enabledLayerCount = 0,
             .ppEnabledLayerNames = null,
             .enabledExtensionCount = @as(u32, @intCast(required_device_extensions.len)),
             .ppEnabledExtensionNames = required_device_extensions.ptr,
             .pEnabledFeatures = &enabled_feats,
         });
+
+        // Create Device and Queues
 
         try helper.check_vk(c.vkCreateDevice(self.physical_device.handle, &device_info, self.alloc_cb, &self.device.handle));
 
@@ -282,8 +362,7 @@ pub const Core = struct {
         c.vkGetDeviceQueue(self.device.handle, self.physical_device.compute_queue_family, 0, &self.device.compute_queue);
         c.vkGetDeviceQueue(self.device.handle, self.physical_device.transfer_queue_family, 0, &self.device.transfer_queue);
 
-
-        return self; // Return
+        return self;
     }
     
     pub fn deinit(self: *Core, allocator: std.mem.Allocator) void {
