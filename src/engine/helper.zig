@@ -503,6 +503,21 @@ pub fn MakeShaderModules(device: c.VkDevice, alloc_cb: ?*c.VkAllocationCallbacks
         return .{.vert_mod = vert_mod , .frag_mod = frag_mod};
 
 }
+pub fn MakeComputeShaderModule(
+    device: c.VkDevice, 
+    alloc_cb: ?*c.VkAllocationCallbacks ,
+    comptime shader_path: []const u8) !c.VkShaderModule{
+        
+        const shader_code align(4) = @embedFile(shader_path).*;
+
+        const shader_mod = CreateShaderModule(device, &shader_code, alloc_cb) orelse VK_NULL_HANDLE;
+        
+        if (shader_mod != VK_NULL_HANDLE) log.info("Vert module loaded successfully", .{});
+
+        return shader_mod;
+
+}
+
 
 pub const Vertex = extern struct {
     pos: [2]f32,

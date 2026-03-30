@@ -157,6 +157,8 @@ pub const Core = struct {
 
         const required_device_extensions: []const [*c]const u8 = &.{
             "VK_KHR_swapchain",
+            "VK_KHR_synchronization2",      // cleaner pipeline barriers
+            "VK_KHR_timeline_semaphore",    // compute/graphics synchronization
         };
 
         self.physical_device.required_extensions = required_device_extensions;
@@ -269,6 +271,7 @@ pub const Core = struct {
         // Useful for shadow map sampling
         if (supported_feats.shaderClipDistance == c.VK_TRUE)
             enabled_feats.shaderClipDistance = c.VK_TRUE;
+
         
         // TODO: Add to Pipeline state
         // Alpha-to-coverage for foliage/vegetation (trees, grass)
@@ -321,12 +324,18 @@ pub const Core = struct {
             .pNext = &supported_12_feats,
         });
 
+        var sync2_feats = std.mem.zeroInit(c.VkPhysicalDeviceSynchronization2FeaturesKHR, .{
+            .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
+            .pNext = null,
+            .synchronization2 = c.VK_TRUE,
+        });
+
         c.vkGetPhysicalDeviceFeatures2(self.physical_device.handle, &feat_query);
 
         // Enable only what's supported
         var enabled_12_feats = std.mem.zeroInit(c.VkPhysicalDeviceVulkan12Features, .{
             .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
-            .pNext = null,
+            .pNext = &sync2_feats,
         });
 
         if (supported_12_feats.bufferDeviceAddress == c.VK_TRUE)
@@ -340,6 +349,9 @@ pub const Core = struct {
 
         if (supported_12_feats.runtimeDescriptorArray == c.VK_TRUE)
             enabled_12_feats.runtimeDescriptorArray = c.VK_TRUE;
+
+        if (supported_12_feats.timelineSemaphore == c.VK_TRUE)
+            enabled_12_feats.timelineSemaphore = c.VK_TRUE;
 
         const device_info = std.mem.zeroInit(c.VkDeviceCreateInfo, .{
             .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,

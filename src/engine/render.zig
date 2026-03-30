@@ -207,7 +207,7 @@ pub const Renderer = struct {
         renderer.sprite_instance_buffer = try helper.CreateBuffer(
             renderer.vma,
             MAX_SPRITES * @sizeOf(helper.SpriteDraw),
-            c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             c.VMA_MEMORY_USAGE_GPU_ONLY,
             0,
         );
