@@ -14,7 +14,7 @@ const MaterialSystem = mat_sys.MaterialSystem;
 
 const FRAME_OVERLAP = 4;
 
-pub const MAX_SPRITES = 8192;
+pub const MAX_SPRITES = 100_000;
 
 const MAX_ATLASES = 64;
 
@@ -77,7 +77,7 @@ pub const Renderer = struct {
     index_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     dummy_ssbo: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     sprite_instance_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
-
+    static_instance_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     // Lights
     light_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     light_indices_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
@@ -107,7 +107,9 @@ pub const Renderer = struct {
     renderer_init: bool = false,
     index_count: u32 = 0,
     instance_count: u32 = 0,
+    static_instance_count: u32 = 0,
     sprite_draws: std.ArrayListUnmanaged(helper.SpriteDraw),
+    static_sprite_draws: std.ArrayListUnmanaged(helper.SpriteDraw),
     pending_atlas: bool = false,
     atlas_textures: std.ArrayListUnmanaged(helper.AllocatedImage), // All Atlases
     cam: GPUCameraData,
@@ -139,6 +141,7 @@ pub const Renderer = struct {
             .upload_context = .{},
             .vma = vma,
             .sprite_draws = .{},
+            .static_sprite_draws = try std.ArrayListUnmanaged(helper.SpriteDraw).initCapacity(allocator, 0),
             .atlas_textures = .{},
             .cam = GPUCameraData{
                 .view_proj = math.Ortho(
@@ -149,7 +152,7 @@ pub const Renderer = struct {
         };
 
         try renderer.sprite_draws.ensureTotalCapacity(allocator , MAX_SPRITES);
-
+        
         errdefer renderer.deinit(allocator, core);
 
         // Create Descriptor Layouts
@@ -211,7 +214,14 @@ pub const Renderer = struct {
             c.VMA_MEMORY_USAGE_GPU_ONLY,
             0,
         );
-        
+
+        renderer.static_instance_buffer = try helper.CreateBuffer(
+            renderer.vma,
+            MAX_SPRITES * @sizeOf(helper.SpriteDraw),
+            c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            c.VMA_MEMORY_USAGE_GPU_ONLY,
+            0,
+        ); 
         renderer.index_count = @intCast(inds.len);
         //renderer.instance_count = @intCast()
         
@@ -230,10 +240,12 @@ pub const Renderer = struct {
         win: *sdl.Window,
         allocator: std.mem.Allocator,
         sprites: []helper.SpriteDraw,
-        view_proj: math.Mat4, ) !void {
+        static_sprites: []helper.SpriteDraw,
+        view_proj: math.Mat4, 
+        dirty: *bool) !void {
 
         self.cam.view_proj = view_proj;
-
+        
         if (self.request_swapchain_recreate and self.renderer_init) {
           
         // Avoid zero-size swapchain
@@ -390,16 +402,35 @@ pub const Renderer = struct {
        );
 
         const offsets = [_]c.VkDeviceSize{0, 0};
-        const buffers = [_]c.VkBuffer{ 
-            self.vertex_buffer.buffer, 
-            self.sprite_instance_buffer.buffer, 
-        };
-
-        self.sprite_draws.clearRetainingCapacity();
 
         for (sprites) |sprite| {
             try self.sprite_draws.append(allocator, sprite);
         }
+
+        if (dirty.*) {
+            self.static_sprite_draws.clearRetainingCapacity();
+
+            for (static_sprites) |sprite| {
+                try self.static_sprite_draws.append(allocator, sprite);
+            }
+
+            self.static_instance_count = @as(u32, @intCast(self.static_sprite_draws.items.len));
+
+            if (self.static_instance_count > 0) {
+                try helper.UploadInstanceData(
+                    self.vma,
+                    &self.upload_context,
+                    core,
+                    &self.static_instance_buffer,
+                    self.static_sprite_draws.items,
+                );
+            }
+            dirty.* = false;
+        } else {
+            self.static_instance_count = @as(u32, @intCast(self.static_sprite_draws.items.len));
+        }
+        
+        self.sprite_draws.clearRetainingCapacity();
 
         self.instance_count = @as(u32, @intCast(self.sprite_draws.items.len));
         if (self.instance_count > 0) {
@@ -410,10 +441,59 @@ pub const Renderer = struct {
                 &self.sprite_instance_buffer,
                 self.sprite_draws.items,
             );
-        }      
-        c.vkCmdBindVertexBuffers(cmd, 0, buffers.len, &buffers, &offsets);
+        } 
+
         c.vkCmdBindIndexBuffer(cmd, self.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT16);
-        c.vkCmdDrawIndexed(cmd, self.index_count, self.instance_count, 0, 0, 0);
+        if (self.static_instance_count > 0) {
+            const static_buffers = [_]c.VkBuffer{
+                self.vertex_buffer.buffer,
+                self.static_instance_buffer.buffer,
+            };
+
+            c.vkCmdBindVertexBuffers(
+                cmd,
+                0,
+                static_buffers.len,
+                &static_buffers,
+                &offsets,
+            );
+
+            c.vkCmdDrawIndexed(
+                cmd,
+                self.index_count,
+                self.static_instance_count,
+                0,
+                0,
+                0,
+            );
+        }
+
+        // --------------------
+        // Draw dynamic
+        // --------------------
+        if (self.instance_count > 0) {
+            const dynamic_buffers = [_]c.VkBuffer{
+                self.vertex_buffer.buffer,
+                self.sprite_instance_buffer.buffer,
+            };
+
+            c.vkCmdBindVertexBuffers(
+                cmd,
+                0,
+                dynamic_buffers.len,
+                &dynamic_buffers,
+                &offsets,
+            );
+
+            c.vkCmdDrawIndexed(
+                cmd,
+                self.index_count,
+                self.instance_count,
+                0,
+                0,
+                0,
+            );
+        }
 
         c.vkCmdEndRenderPass(cmd);
         try helper.check_vk(c.vkEndCommandBuffer(cmd));
@@ -546,10 +626,12 @@ pub const Renderer = struct {
         }
 
         self.sprite_draws.deinit(allocator);
-        
+        self.static_sprite_draws.deinit(allocator);
+
         helper.DestroyBuffer(self.vma, &self.vertex_buffer);
         helper.DestroyBuffer(self.vma, &self.index_buffer);
         helper.DestroyBuffer(self.vma, &self.sprite_instance_buffer);
+        helper.DestroyBuffer(self.vma, &self.static_instance_buffer);
 
         for (self.atlas_textures.items) |*img| {
             helper.DestroyImage(core, self.vma, img);

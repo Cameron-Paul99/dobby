@@ -59,30 +59,24 @@ fn EditorMoveEntity(
     editor_input: input.RawInput,
     select_buffer: *std.ArrayList(u32),
     camera: *Camera,
-) void {
+) bool {
+    const move_down =
+        (editor_input.buttons_down & input.Bit(.mouse_left)) != 0 and
+        (editor_input.buttons_pressed & input.Bit(.mouse_left)) == 0;
 
-    const move_down = (editor_input.buttons_down & input.Bit(.mouse_left)) != 0;
+    if (!(move_down and select_buffer.items.len > 0)) return false;
 
+    var delta = editor_input.mouse_delta;
+    delta = math.Vec2.Mul(delta, 1.0 / camera.zoom);
 
-    if (move_down and select_buffer.items.len > 0) {
+    if (delta.x == 0 and delta.y == 0) return false;
 
-        var delta = editor_input.mouse_delta;
-
-        delta = math.Vec2.Mul(delta, 1.0 / camera.zoom);
-
-        //std.log.info(
-        //    "Raw mouse delta: {d}, {d}",
-        //    .{ delta.x, delta.y }
-        //);
-
-        for (select_buffer.items) |entity_id| {
-
-            Bridge.AddTransform2DPos(entity_id, delta.x, delta.y);
-        }
+    for (select_buffer.items) |entity_id| {
+        Bridge.AddTransform2DPos(entity_id, delta.x, delta.y);
     }
+
+    return true;
 }
-
-
 // ****************************************** PROCJECT CONTEXT *******************************************
 pub const ProjectContext = struct {
     proj_name: []const u8,
@@ -110,6 +104,7 @@ pub const ProjectContext = struct {
     game_input: GameInput,
     game_deinit: ?*const fn () callconv(.c) void,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
+    static_sprite_draws: std.ArrayList(helper.SpriteDraw), 
     sprite_storage: std.ArrayList(helper.SpriteDraw),
     paused: bool = true,
     alive: two_bit,
@@ -217,6 +212,8 @@ pub const ProjectContext = struct {
             .game_deinit = lib.lookup(GameDeinitFn, "game_deinit"),
             .sprite_draws = try std.ArrayList(helper.SpriteDraw)
                 .initCapacity(allocator, 0),
+            .static_sprite_draws = try std.ArrayList(helper.SpriteDraw)
+                .initCapacity(allocator, 0),
             .sprite_storage = try std.ArrayList(helper.SpriteDraw)
                 .initCapacity(allocator, 0),
             .sprite_components = sprite_components,
@@ -295,6 +292,7 @@ pub const ProjectContext = struct {
         self.game_deinit.?();
         self.atlas_manager.deinit(self.allocator);
         self.sprite_draws.deinit(self.allocator);
+        self.static_sprite_draws.deinit(self.allocator);
         self.sprite_storage.deinit(self.allocator);
         self.allocator.free(self.sprite_components);
         self.allocator.free(self.entity_transforms);
@@ -672,26 +670,45 @@ pub fn main() !void {
                 allocator,
             );
 
-            EditorMoveEntity(
+            const moved = EditorMoveEntity(
                 game_window.raw_input,
                 &select_buffer,
                 &cam,
             );
-        }
 
+            if (moved) {
+                project_context.static_sprite_draws.clearRetainingCapacity();
+                project_context.static_dirty = true;
+            }
+        }
+        
         project_context.sprite_draws.clearRetainingCapacity();
 
         project_context.has_sprite.forEachBitSet(
             struct {
                 list: *std.ArrayList(helper.SpriteDraw),
+                static_list: *std.ArrayList(helper.SpriteDraw),
                 storage: *const std.ArrayList(helper.SpriteDraw),
                 comps: []helper.SpriteSet,
                 alive: *const two_bit,
+                physics: *const two_bit,
                 allocator: std.mem.Allocator,
+                dirty: bool,
 
                 pub fn call(f: @This(), entity: u32) void {
                     if (!f.alive.testBit(entity)) return;
+                    if (!f.dirty and !f.physics.testBit(entity)){
+                        return;
+                    }else if (f.dirty and !f.physics.testBit(entity)){
+                        const set = f.comps[entity];
+                        const sprites = f.storage.items[set.start .. set.start + set.count];
 
+                        for (sprites) |*sprite| {
+                            f.static_list.append(f.allocator, sprite.*) catch unreachable;
+                        }
+                        return;
+                    }
+                    
                     const set = f.comps[entity];
                     const sprites = f.storage.items[set.start .. set.start + set.count];
 
@@ -701,10 +718,13 @@ pub fn main() !void {
                 }
             }{
                 .list = &project_context.sprite_draws,
+                .static_list = &project_context.static_sprite_draws,
                 .storage = &project_context.sprite_storage,
                 .comps = project_context.sprite_components,
                 .alive = &project_context.alive,
+                .physics = &project_context.physics,
                 .allocator = allocator,
+                .dirty = project_context.static_dirty,
             }
         );
 
@@ -793,7 +813,9 @@ pub fn main() !void {
             &game_window, 
             allocator,
             project_context.sprite_draws.items,
+            project_context.static_sprite_draws.items,
             cam.view_proj,
+            &project_context.static_dirty,
         );
 
         t.FrameCounter();

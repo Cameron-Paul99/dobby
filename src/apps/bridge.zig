@@ -23,7 +23,7 @@ pub var physics_ctx: *Physics = undefined;
 pub var cam_ctx: *Camera = undefined;
 pub var mouse_ctx: *Mouse = undefined;
 
-const MAX_SPRITES_PER_ENTITY = 5;
+const MAX_SPRITES_PER_ENTITY = 50;
 
 pub export fn EnableGravity(id: u32) callconv(.c) void {
     const ctx = physics_ctx;
