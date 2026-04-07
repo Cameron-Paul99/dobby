@@ -402,6 +402,8 @@ pub const Renderer = struct {
        );
 
         const offsets = [_]c.VkDeviceSize{0, 0};
+        
+        self.sprite_draws.clearRetainingCapacity();
 
         for (sprites) |sprite| {
             try self.sprite_draws.append(allocator, sprite);
@@ -430,8 +432,6 @@ pub const Renderer = struct {
             self.static_instance_count = @as(u32, @intCast(self.static_sprite_draws.items.len));
         }
         
-        self.sprite_draws.clearRetainingCapacity();
-
         self.instance_count = @as(u32, @intCast(self.sprite_draws.items.len));
         if (self.instance_count > 0) {
             try helper.UploadInstanceData(

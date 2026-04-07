@@ -155,9 +155,10 @@ pub const ProjectContext = struct {
             .game_api = g_api.GameAPI {
                 .user_data = null,
                 .add_entity = Bridge.AddEntity,
-                .remove_enity = Bridge.RemoveEntity,
+                .remove_entity = Bridge.RemoveEntity,
                 .get_allocator = Bridge.GetAllocator,
                 .add_transform_2D = Bridge.AddTransform2D,
+                .set_transform = Bridge.SetTransform,
             },
             .physics_api = g_api.PhysicsAPI{
                 .enable_gravity = Bridge.EnableGravity,
@@ -235,7 +236,7 @@ pub const ProjectContext = struct {
 
         self.sprite_storage.clearRetainingCapacity();
         self.sprite_draws.clearRetainingCapacity();
-
+        self.static_sprite_draws.clearRetainingCapacity();
         for (self.sprite_components) |*set| {
             set.* = .{};
         }
@@ -697,9 +698,8 @@ pub fn main() !void {
 
                 pub fn call(f: @This(), entity: u32) void {
                     if (!f.alive.testBit(entity)) return;
-                    if (!f.dirty and !f.physics.testBit(entity)){
-                        return;
-                    }else if (f.dirty and !f.physics.testBit(entity)){
+
+                    if (f.dirty and !f.physics.testBit(entity)){
                         const set = f.comps[entity];
                         const sprites = f.storage.items[set.start .. set.start + set.count];
 
@@ -708,12 +708,15 @@ pub fn main() !void {
                         }
                         return;
                     }
-                    
-                    const set = f.comps[entity];
-                    const sprites = f.storage.items[set.start .. set.start + set.count];
 
-                    for (sprites) |*sprite| {
-                        f.list.append(f.allocator, sprite.*) catch unreachable;
+                    if (f.physics.testBit(entity)){
+                    
+                        const set = f.comps[entity];
+                        const sprites = f.storage.items[set.start .. set.start + set.count];
+
+                        for (sprites) |*sprite| {
+                            f.list.append(f.allocator, sprite.*) catch unreachable;
+                        }
                     }
                 }
             }{

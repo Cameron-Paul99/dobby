@@ -45,9 +45,16 @@ pub export fn AddForceY(id: u32, y:f32) callconv(.c) void {
     ctx.AddForceY(id, y);
 }
 
-pub export fn RemoveEntity(id: u32) callconv(.c) void {
+pub export fn RemoveEntity(entity: u32) callconv(.c) void {
     const ctx = g_active_ctx;
-    ctx.alive.Clear(id);
+
+    if (!ctx.alive.testBit(entity)) return;
+    ctx.alive.Clear(entity);
+    std.log.info("removing chips", .{});
+    ctx.has_sprite.Clear(entity);
+    ctx.physics.Clear(entity);
+   
+    ctx.static_sprite_draws.clearRetainingCapacity();
 }
 
 pub export fn AddEntity() callconv(.c) u32 {
@@ -81,13 +88,30 @@ pub export fn SetCameraWorldPosition(pos: Position2D, zoom: f32) callconv(.c) vo
     ctx.pos.y = pos.y;
     ctx.zoom = zoom;
 }
-
 pub export fn SetTransform(id: u32, transform: Transform2D) callconv(.c) void {
-     const ctx = g_active_ctx;
-     ctx.entity_transforms[id] = transform;
-    
+    const ctx = g_active_ctx;
+    ctx.entity_transforms[id] = transform;
 
+    if (ctx.has_sprite.testBit(id)) {
+        const sprites = GetEntitySprites(ctx, id);
+
+        for (sprites) |*sprite| {
+            sprite.sprite_pos = .{
+                transform.position.x,
+                transform.position.y,
+            };
+            sprite.sprite_scale = .{
+                transform.scale.x,
+                transform.scale.y,
+            };
+            sprite.sprite_rotation = .{
+                transform.rotation.x,
+                transform.rotation.y,
+            };
+        }
+    }
 }
+
 pub export fn AddTransform2D(id: u32, delta: Transform2D) callconv(.c) void {
     const ctx = g_active_ctx;
     var t = &ctx.entity_transforms[id];
@@ -133,6 +157,7 @@ pub export fn AddPhysics(id: u32) callconv(.c) void {
     const ctx = g_active_ctx;
     ctx.static_dirty = true;
     ctx.physics.Set(id);
+    ctx.static_sprite_draws.clearRetainingCapacity();
 
 }
 
@@ -140,6 +165,7 @@ pub export fn RemovePhysics(id: u32) callconv(.c) void {
     const ctx = g_active_ctx;
     ctx.static_dirty = true;
     ctx.physics.Clear(id);
+    ctx.static_sprite_draws.clearRetainingCapacity();
 }
 pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32, atlas_id: u32) callconv(.c) void {
 
