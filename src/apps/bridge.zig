@@ -294,9 +294,17 @@ pub export fn GetEntitySpritesWorldPos(entity: u32) callconv(.c) Position2D {
 }
 
 pub export fn SetSpriteColor(entity: u32, id:u32 ,color: Color) void{
-    _ = entity;
-    _ = color;
-    _ = id;
+
+    const ctx = g_active_ctx;
+    if(!ctx.has_sprite.testBit(entity)) return;
+
+    const set = ctx.sprite_components[entity];
+
+    const sprite = &ctx.sprite_storage.items[@intCast(set.start + id)];
+
+    sprite.tint = .{color.r, color.g, color.b, color.a};
+    
+    //ctx.static_dirty = true;
 }
 
 pub export fn GetSpriteColor(entity: u32,id: u32) Color {
@@ -369,4 +377,10 @@ pub fn GetEntitySprites(ctx: *ProjectContext, id: u32) []helper.SpriteDraw {
     const start: usize = @intCast(set.start);
     const end: usize = start + @as(usize, @intCast(set.count));
     return ctx.sprite_storage.items[start..end];
+}
+
+pub export fn ResetStatic() void {
+    const ctx = g_active_ctx;
+    ctx.static_dirty = true;
+    ctx.static_sprite_draws.clearRetainingCapacity();
 }

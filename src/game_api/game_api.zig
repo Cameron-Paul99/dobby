@@ -447,6 +447,8 @@ pub const SpriteAPI = extern struct {
     get_entity_sprites_color: *const fn (u32) callconv(.c) Color,
     /// Spawns a sprite for the given entity using a sprite descriptor.
     spawn_sprite: *const fn (*const SpriteDesc, u32, u32) callconv(.c) void,
+
+    reset_static: *const fn () callconv(.c) void,
 };
 
 /// Physics-related functions exposed by the engine.

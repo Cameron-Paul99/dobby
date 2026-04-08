@@ -194,6 +194,7 @@ pub const ProjectContext = struct {
 
                 .set_entity_sprites_world_pos = Bridge.SetEntitySpritesWorldPos,
                 .get_entity_sprites_world_pos = Bridge.GetEntitySpritesWorldPos,
+                .reset_static = Bridge.ResetStatic,
                 
             },
             .game_init = lib.lookup(GameInitFn, "game_init"),
