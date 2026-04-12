@@ -159,6 +159,8 @@ pub const ProjectContext = struct {
                 .get_allocator = Bridge.GetAllocator,
                 .add_transform_2D = Bridge.AddTransform2D,
                 .set_transform = Bridge.SetTransform,
+                .alive = Bridge.Alive,
+                .unalive = Bridge.UnAlive,
             },
             .physics_api = g_api.PhysicsAPI{
                 .enable_gravity = Bridge.EnableGravity,
@@ -173,6 +175,9 @@ pub const ProjectContext = struct {
                 .move_camera_to_world_pos = Bridge.MoveCameraToWorldPosition,
                 .move_camera_vertical = Bridge.MoveCameraVertical,
                 .move_camera_horizontal = Bridge.MoveCameraHorizontal,
+                .get_camera_world_pos = Bridge.GetCameraWorldPosition,
+                .get_camera_zoom = Bridge.GetCameraZoom,
+                .get_screen_dimensions = Bridge.GetScreenDimensions,
             },
             .mouse_api = g_api.MouseAPI {
                 .set_mouse_world_pos = Bridge.SetMouseWorldPosition,

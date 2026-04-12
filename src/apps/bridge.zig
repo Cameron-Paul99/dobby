@@ -11,6 +11,7 @@ const Mouse = utils.mouse;
 const atlas_mod = utils.atlas;
 const Transform2D = g_api.Transform2D;
 const Position2D = g_api.Position2D;
+const ScreenD = g_api.ScreenD;
 const Scale2D = g_api.Scale2D;
 const Rotation2D = g_api.Rotation2D;
 const Color = g_api.Color;
@@ -35,6 +36,20 @@ pub export fn AddForce(id: u32, x: f32, y: f32) callconv(.c) void {
     ctx.AddForce(id, x, y);
 }
 
+pub export fn UnAlive(id: u32) callconv(.c) void {
+    const ctx = g_active_ctx;
+    ctx.alive.Clear(id);
+   // if (!ctx.physics.testBit(id)){
+  //      ResetStatic();
+   // }
+}
+pub export fn Alive(id: u32) callconv(.c) void {
+    const ctx = g_active_ctx;
+    ctx.alive.Set(id);
+   // if (!ctx.physics.testBit(id)){
+   //     ResetStatic();
+   // }
+}
 pub export fn AddForceX(id: u32, x:f32) callconv(.c) void {
     const ctx = physics_ctx;
     ctx.AddForceX(id, x);
@@ -52,9 +67,12 @@ pub export fn RemoveEntity(entity: u32) callconv(.c) void {
     ctx.alive.Clear(entity);
     std.log.info("removing chips", .{});
     ctx.has_sprite.Clear(entity);
-    ctx.physics.Clear(entity);
+    if (!ctx.physics.testBit(entity)){
+        ResetStatic();
+    }else{
+        ctx.physics.Clear(entity);
+    }
    
-    ctx.static_sprite_draws.clearRetainingCapacity();
 }
 
 pub export fn AddEntity() callconv(.c) u32 {
@@ -304,7 +322,6 @@ pub export fn SetSpriteColor(entity: u32, id:u32 ,color: Color) void{
 
     sprite.tint = .{color.r, color.g, color.b, color.a};
     
-    //ctx.static_dirty = true;
 }
 
 pub export fn GetSpriteColor(entity: u32,id: u32) Color {
@@ -383,4 +400,21 @@ pub export fn ResetStatic() void {
     const ctx = g_active_ctx;
     ctx.static_dirty = true;
     ctx.static_sprite_draws.clearRetainingCapacity();
+}
+
+pub export fn GetCameraWorldPosition() Position2D {
+    
+    const ctx = cam_ctx;
+    return .{.x = ctx.pos.x, .y = ctx.pos.y};
+}
+
+pub export fn GetCameraZoom() f32{
+    const ctx = cam_ctx;
+    return ctx.zoom;
+}
+
+pub export fn GetScreenDimensions() ScreenD {
+    const ctx = cam_ctx;
+    return .{ .w = ctx.screen_w, .h = ctx.screen_h}; 
+
 }

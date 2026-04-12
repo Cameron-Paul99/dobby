@@ -7,12 +7,16 @@ const Self = @This();
     pos: Vec2 = Vec2.ZERO,
     zoom: f32 = 1.0,
     view_proj: Mat4 = Mat4.IDENTITY,
+    screen_w : f32 = 0.0,
+    screen_h : f32 = 0.0,
 
     pub fn init(h: f32, w: f32) Self{
         var pos = Vec2.Make(w * 0.5, h * 0.5);
         pos = Vec2.Div(pos, 1.0);
         return .{  
             .pos = pos,
+            .screen_h = h,
+            .screen_w = w,
         };
     }
 
@@ -20,6 +24,9 @@ const Self = @This();
         self: *Self, 
         screen_w: f32, 
         screen_h: f32) void { 
+
+        self.screen_h = screen_h;
+        self.screen_w = screen_w;
 
         const half_w = ( screen_w * 0.5 ) / self.zoom; 
         const half_h = ( screen_h * 0.5 ) / self.zoom; 

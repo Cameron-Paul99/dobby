@@ -13,7 +13,7 @@ const Mat4 = math.Mat4;
 gravity_bits: two_bit,
 velocities: []Vec2,
 weights: []f32,
-const GRAVITY = 0.0001;
+const GRAVITY = 0.0006;
 const TERMINAL: f32 = 20.0;
 
 pub fn Step(self: *Self, entity: u32, transform: *Transform2D) void {
