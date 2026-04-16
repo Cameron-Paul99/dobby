@@ -1008,33 +1008,17 @@ pub const SpriteDraw = extern struct {
     atlas_id: u32,
 };
 
+
 pub fn UploadInstanceData(
     vma: c.VmaAllocator,
-    upload_ctx: *render.UploadContext,
-    core: *gpu_context.Core,
     dst: *AllocatedBuffer,
     instances: []const SpriteDraw,
 ) !void {
-    const size = render.MAX_SPRITES * @sizeOf(SpriteDraw);
-
-    var staging = try CreateBuffer(
-        vma,
-        size,
-        c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        c.VMA_MEMORY_USAGE_CPU_ONLY,
-        0,
-    );
-    defer DestroyBuffer(vma, &staging);
-
-    var mapped: ?*anyopaque = null;
-    try check_vk(c.vmaMapMemory(vma, staging.allocation, &mapped));
-    defer c.vmaUnmapMemory(vma, staging.allocation);
-
-    const dst_bytes: [*]u8 = @ptrCast(mapped.?);
+    var info: c.VmaAllocationInfo = undefined;
+    c.vmaGetAllocationInfo(vma, dst.allocation, &info);
+    const dst_bytes: [*]u8 = @ptrCast(info.pMappedData.?);
     const src_bytes = std.mem.sliceAsBytes(instances);
     @memcpy(dst_bytes[0..src_bytes.len], src_bytes);
-
-    try CopyBuffer(core, upload_ctx, staging.buffer, dst.buffer, size);
 }
 
 pub fn UploadToBuffer(

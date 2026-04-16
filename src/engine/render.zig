@@ -110,7 +110,7 @@ pub const Renderer = struct {
     static_instance_count: u32 = 0,
     sprite_draws: std.ArrayListUnmanaged(helper.SpriteDraw),
     static_sprite_draws: std.ArrayListUnmanaged(helper.SpriteDraw),
-    pending_atlas: bool = false,
+    pending_atlas: bool = true,
     atlas_textures: std.ArrayListUnmanaged(helper.AllocatedImage), // All Atlases
     cam: GPUCameraData,
     //batches: [MAX_ATLASES]std.ArrayList(SpriteDraw);
@@ -211,16 +211,16 @@ pub const Renderer = struct {
             renderer.vma,
             MAX_SPRITES * @sizeOf(helper.SpriteDraw),
             c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            c.VMA_MEMORY_USAGE_GPU_ONLY,
-            0,
+            c.VMA_MEMORY_USAGE_CPU_TO_GPU, 
+            c.VMA_ALLOCATION_CREATE_MAPPED_BIT,
         );
 
         renderer.static_instance_buffer = try helper.CreateBuffer(
             renderer.vma,
             MAX_SPRITES * @sizeOf(helper.SpriteDraw),
             c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            c.VMA_MEMORY_USAGE_GPU_ONLY,
-            0,
+            c.VMA_MEMORY_USAGE_CPU_TO_GPU,  
+            c.VMA_ALLOCATION_CREATE_MAPPED_BIT,
         ); 
         renderer.index_count = @intCast(inds.len);
         //renderer.instance_count = @intCast()
@@ -381,12 +381,14 @@ pub const Renderer = struct {
         
         //TODO: Bind Descriptor sets and also update shaders.
        const frame_set = frame.set_frame;
-
-       // Binding atlas Sampler
-       try BindAtlasSampler(self, core, frame.material_set);
-
-       // Binding atlas images
-       try BindAtlasImages(self, core, frame.material_set);
+        
+        if (self.pending_atlas) {
+            for (&self.frames) |*f| {
+                try BindAtlasSampler(self, core, f.material_set);
+                try BindAtlasImages(self, core, f.material_set);
+            }
+            self.pending_atlas = false;
+        } 
 
        const sets = [_]c.VkDescriptorSet {frame_set, frame.material_set };
 
@@ -421,8 +423,6 @@ pub const Renderer = struct {
             if (self.static_instance_count > 0) {
                 try helper.UploadInstanceData(
                     self.vma,
-                    &self.upload_context,
-                    core,
                     &self.static_instance_buffer,
                     self.static_sprite_draws.items,
                 );
@@ -436,8 +436,6 @@ pub const Renderer = struct {
         if (self.instance_count > 0) {
             try helper.UploadInstanceData(
                 self.vma,
-                &self.upload_context,
-                core,
                 &self.sprite_instance_buffer,
                 self.sprite_draws.items,
             );
@@ -1280,7 +1278,9 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
                     &material_alloc, 
                     &renderer.frames[i].material_set
                     )
-                );
+            );
+            try BindAtlasSampler(renderer, core, renderer.frames[i].material_set);
+            try BindAtlasImages(renderer, core, renderer.frames[i].material_set);
         }
 
     }
