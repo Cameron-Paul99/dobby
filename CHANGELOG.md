@@ -1,3 +1,28 @@
+## [0.0.10] - Quality of life, renderer performance/ static and dynamic entities, multiple sprites with color - Cameron Paul - 04/16/26
+- Base shader color and sprite changes
+- Remove projects
+- Basic audio with mini audio
+- Basic compute file
+- 50 sprites per entity
+- Remove gravity and entities functions for scripting
+- Set transform for all sprites of entities, 
+- Set sprite color for each entity
+- Bridge camera functions
+- Reset static array for front end
+- Static and dynamic storage for performance
+- Constant paths for cooker/ editor / setup for easy changes
+- Updated select buffer for layered sprites per entity changes
+- Updated Core file with new extensions and removal of hasmaps. 
+- Dynamic state for 
+- UploadInstanceData removal of copy buffer/wait issue when uploading to the GPU
+- Remove Bind Atlas from draw frame into descripts for each material set and frame
+- New Material system that removed hash maps and in a seperate file
+- Swapchain refactors with error defer for error handling
+- Gravity and physics changes
+- Slot ktx2 default file moved to zig-out file
+- Project setup refactors for with hardcoded needed functions in order for project to work
+
+
 ## [0.0.9] - TUI Refactor, Bridge file, Contiguous array sprites, Connect 4 refactor - Cameron Paul - 03/21/26
 - TUI additions: Selected entities and rename. Begin and flush UI. Engine FPS, frame time, and location information
 - Bridge file with all exported functions
