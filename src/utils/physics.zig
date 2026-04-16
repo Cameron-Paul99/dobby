@@ -13,7 +13,7 @@ const Mat4 = math.Mat4;
 gravity_bits: two_bit,
 velocities: []Vec2,
 weights: []f32,
-const GRAVITY = 0.0006;
+const GRAVITY = 0.005;
 const TERMINAL: f32 = 20.0;
 
 pub fn Step(self: *Self, entity: u32, transform: *Transform2D) void {
@@ -41,7 +41,8 @@ pub fn AddForceY(self: *Self, entity: u32, y: f32)  void {
 }
 
 pub fn Reset(self: *Self, entity: u32) void {
-    self.velocities[entity] = Vec2.zero;
+    self.velocities[entity] = Vec2.ZERO;
+    self.gravity_bits.Clear(entity);
 
 }
 
@@ -69,7 +70,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
 
 pub fn EnableGravity(self: *Self, entity: u32) void {
     self.gravity_bits.Set(entity);
-    self.velocities[entity] = Vec2.zero;
+    self.velocities[entity] = Vec2.ZERO;
 }
 
 pub fn Gravity(self: *Self, entity: u32) void {

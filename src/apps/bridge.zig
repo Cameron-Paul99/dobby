@@ -31,6 +31,11 @@ pub export fn EnableGravity(id: u32) callconv(.c) void {
     ctx.EnableGravity(id);
 }
 
+pub export fn RemoveGravity(id: u32) callconv(.c) void {
+    const ctx = physics_ctx;
+    ctx.Reset(id);
+}
+
 pub export fn AddForce(id: u32, x: f32, y: f32) callconv(.c) void {
     const ctx = physics_ctx;
     ctx.AddForce(id, x, y);

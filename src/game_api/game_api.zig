@@ -480,6 +480,8 @@ pub const PhysicsAPI = extern struct {
 
     /// Removes a physics component from an entity.
     remove_physics: *const fn (u32) callconv(.c) void,
+
+    remove_gravity: *const fn (u32) callconv(.c) void,
 };
 
 /// Camera controls exposed by the engine.
