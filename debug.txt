@@ -1,13 +1,22 @@
 === Engine ================================================
-FPS               : (1667.05)
-Frame             : (0.60 ms)
+FPS               : (1635.44)
+Frame             : (0.61 ms)
 Editor Time       : (0.00)
-Game Time         : (25.84)
+Game Time         : (1396.75)
 Mode              : (GAME)
 
 === CAMERA ================================================
 camera_loc        : (x: 4800.00, y: 18500.00, zoom: 1.50)
 
 === MOUSE =================================================
-world_pos         : (x: 4482.67, y: 18517.33)
+world_pos         : (x: 4482.67, y: 18378.67)
+
+=== Selected Entity ================================================
+Entity            : (479)
+Position          : (x: 4650.00, y: 19050.00)
+Scale             : (x: 150.00, y: 150.00)
+Rotation          : (x: 0.00, y: 0.00)
+Physics           : (DISABLED)
+Gravity           : (DISABLED)
+Has Sprite        : (Yes)
 

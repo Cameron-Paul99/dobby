@@ -29,6 +29,7 @@ pub fn build(b: *std.Build) !void {
     engine_mod.addImport("game_api", game_api_mod);
     engine_mod.addIncludePath(b.path("thirdparty/vma"));
     engine_mod.addIncludePath(b.path("thirdparty/sdl3/include"));
+    engine_mod.addIncludePath(b.path("thirdparty/miniaudio/"));
 
     const setup_exe = b.addExecutable(.{
         .name = "Setup",
@@ -98,9 +99,21 @@ pub fn build(b: *std.Build) !void {
         }
     );
     editor_sdl.addIncludePath(b.path("thirdparty/vma/"));
+    editor_sdl.addIncludePath(b.path("thirdparty/miniaudio/"));
+    editor_sdl.addCSourceFile(.{
+        .file = b.path("thirdparty/miniaudio/miniaudio.c"),
+        .flags = &.{
+            "-std=c99",
+        },
+    });
+    editor_sdl.linkSystemLibrary("pthread");
+    editor_sdl.linkSystemLibrary("m");
+    editor_sdl.linkSystemLibrary("dl");
+    editor_sdl.linkSystemLibrary("asound"); 
+    editor_sdl.linkSystemLibrary("pulse");
+
     editor_sdl.linkLibCpp();
     
-
     compile_all_shaders_mod(b, engine_mod);
 
     editor_sdl.addIncludePath(.{ .cwd_relative = "/usr/include/vulkan/vulkan.h" });
@@ -118,6 +131,7 @@ pub fn build(b: *std.Build) !void {
 
     game_exe.root_module.addImport("engine", engine_mod);
     game_exe.linkSystemLibrary(vk_lib_name);
+    game_exe.addIncludePath(b.path("thirdparty/miniaudio/"));
     game_exe.addIncludePath(.{ .cwd_relative = "thirdparty/sdl3/include" });
     game_exe.addCSourceFile(.{ .file = b.path("src/engine/vk_mem_alloc.cpp"), .flags = &.{ "" } });
     game_exe.addIncludePath(b.path("thirdparty/vma/"));

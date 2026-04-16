@@ -17,12 +17,10 @@ const GRAVITY = 0.0006;
 const TERMINAL: f32 = 20.0;
 
 pub fn Step(self: *Self, entity: u32, transform: *Transform2D) void {
-   
-    self.Gravity(entity, transform);
+    self.Gravity(entity);
     const vel = self.velocities[entity];
     transform.position.x += vel.x;
     transform.position.y += vel.y;
-
 }
 
 pub fn AddForce(self: *Self, entity: u32, x: f32, y: f32) void {
@@ -40,6 +38,11 @@ pub fn AddForceX(self: *Self, entity: u32, x: f32) void {
 pub fn AddForceY(self: *Self, entity: u32, y: f32)  void {
     var vel = &self.velocities[entity];
     vel.y += y;
+}
+
+pub fn Reset(self: *Self, entity: u32) void {
+    self.velocities[entity] = Vec2.zero;
+
 }
 
 pub fn init(max: u32, allocator: std.mem.Allocator) !Self {
@@ -66,20 +69,17 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
 
 pub fn EnableGravity(self: *Self, entity: u32) void {
     self.gravity_bits.Set(entity);
+    self.velocities[entity] = Vec2.zero;
 }
 
-pub fn Gravity(self: *Self, entity: u32, transform: *Transform2D) void {
-
-   if (!self.gravity_bits.testBit(entity)) return; 
-   var vel = &self.velocities[entity];
-   //const weight = &self.weights[entity];
-
-   vel.y += GRAVITY;
-
-   if (vel.y > TERMINAL){
+pub fn Gravity(self: *Self, entity: u32) void {
+    if (!self.gravity_bits.testBit(entity)){
+        return;
+    }
+    
+    var vel = &self.velocities[entity];
+    vel.y += GRAVITY;
+    if (vel.y > TERMINAL) {
         vel.y = TERMINAL;
-   }
-
-   transform.position.y += vel.y;
+    }
 }
-
