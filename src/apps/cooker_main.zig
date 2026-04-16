@@ -4,13 +4,12 @@ const utils = @import("utils");
 const notify = utils.notify;
 const atlas_mod = utils.atlas;
 
-//{
-//  "version": 1,
-//  "atlases": [
-//    { "id": 0, "path": "atlases/opaque_0.ktx2", "rev": 12 },
-//    { "id": 1, "path": "atlases/ui_0.ktx2",      "rev": 3 }
-//  ]
-//}
+const tmp_atlas_dir = "zig-out/tmp/atlas_{d}.png";
+const cooked_atlas_dir_tmp = "projects/{s}/cooked/atlases/.atlas_{d}.ktx2.tmp";
+const cooked_atlas_dir_ktx2 = "projects/{s}/cooked/atlases/atlas_{d}.ktx2";
+const src_textures_dir = "projects/{s}/src/textures";
+const manifest_dir = "projects/{s}/cooked/atlases/manifest.json";
+
 const DIR_MASK =
     std.linux.IN_CREATE |
     std.linux.IN_DELETE |
@@ -138,7 +137,7 @@ pub const Cooker = struct {
 
         const png_path = try std.fmt.allocPrint(
             allocator,
-            "zig-out/tmp/atlas_{d}.png",
+            tmp_atlas_dir,
             .{ id },
         );
         defer allocator.free(png_path);
@@ -147,14 +146,14 @@ pub const Cooker = struct {
 
        const ktx_tmp_path = try std.fmt.allocPrint(
             allocator,
-            "projects/{s}/assets/cooked/atlases/.atlas_{d}.ktx2.tmp",
+            cooked_atlas_dir_tmp,
             .{ proj.name, id },
         );
         defer allocator.free(ktx_tmp_path);
 
         const ktx_final_path = try std.fmt.allocPrint(
             allocator,
-            "projects/{s}/assets/cooked/atlases/atlas_{d}.ktx2",
+            cooked_atlas_dir_ktx2,
             .{proj.name , id },
         );
         defer allocator.free(ktx_final_path);
@@ -371,7 +370,7 @@ pub fn main() !void {
 
     const texture_path = try std.fmt.allocPrint(
         allocator,
-        "projects/{s}/assets/src/textures",
+        src_textures_dir,
         .{ proj.parsed.value.name},
     );
     defer allocator.free(texture_path);
@@ -389,7 +388,7 @@ pub fn main() !void {
 
     const atlas_manifest_path = try std.fmt.allocPrint(
         allocator,
-        "projects/{s}/assets/cooked/atlases/manifest.json",
+        manifest_dir,
         .{ proj.parsed.value.name},
     );
     defer allocator.free(atlas_manifest_path);

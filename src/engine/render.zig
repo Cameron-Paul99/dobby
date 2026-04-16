@@ -6,33 +6,15 @@ const core_mod = @import("core.zig");
 const text = @import("textures.zig");
 const utils = @import("utils");
 const sdl = @import("sdl.zig");
+const mat_sys = @import("mat_sys.zig");
 const log = std.log;
 const math = utils.math;
 const atlas_mod = utils.atlas;
-
-pub const MaterialTemplateId_u32 = u32;
-pub const MaterialInstanceId_u32 = u32;
-
-//const Vec2 = math.Vec2;
-//const Vec3 = math.Vec3;
-//const Vec4 = math.Vec4;
-//const Mat4 = math.Mat4;
-
-
-const MaterialTemplate = struct {
-    pipeline: c.VkPipeline,
-    pipeline_layout: c.VkPipelineLayout,
-    bind_point: c.VkPipelineBindPoint, 
-};
-
-const MaterialInstance = struct {
-    template_id: u32,
-    texture_set: c.VkDescriptorSet,
-};
+const MaterialSystem = mat_sys.MaterialSystem;
 
 const FRAME_OVERLAP = 4;
 
-pub const MAX_SPRITES = 8192;
+pub const MAX_SPRITES = 100_000;
 
 const MAX_ATLASES = 64;
 
@@ -53,6 +35,29 @@ const GPUCameraData = struct {
     view_proj: math.Mat4,
 };
 
+pub const GPUPushConstants = struct {
+    atlas_id: u32,      // which atlas texture to sample
+    pad: [3]u32 = .{0, 0, 0}, // keep 16 byte aligned
+};
+
+pub const GPULight = struct {
+    position: math.Vec4,
+    color: math.Vec4,       // rgb = color, a = intensity
+    radius: f32,
+    kind: u32,         // 0=point, 1=spot, 2=directional
+    _pad: [2]f32,
+};
+
+pub const GPUCluster = struct {
+    min: math.Vec4,
+    max: math.Vec4,
+};
+
+pub const GPUClusterLight = struct {
+    offset: u32,  // index into light_indices_buffer
+    count: u32,
+};
+
 pub const UploadContext = struct {
     upload_fence: c.VkFence = helper.VK_NULL_HANDLE,
     command_pool: c.VkCommandPool = helper.VK_NULL_HANDLE,
@@ -66,25 +71,47 @@ pub const Renderer = struct {
     default_tex: helper.AllocatedImage = .{},
     upload_context: UploadContext,
     vma: c.VmaAllocator,
- //   camera_pos: Vec3
     frame_number: i32 = 0,
     images_in_flight: []c.VkFence = &.{},
     vertex_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     index_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     dummy_ssbo: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     sprite_instance_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+    static_instance_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+    // Lights
+    light_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+    light_indices_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+    cluster_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+    cluster_light_grid: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+
+    // Shadows
+    shadow_map: helper.AllocatedImage = .{},
+
+    // IBR / Environment
+    irradiance_map: helper.AllocatedImage = .{},
+    prefilter_map: helper.AllocatedImage = .{},
+    brdf_lut: helper.AllocatedImage = .{},
+
+
     descriptor_pool: c.VkDescriptorPool = helper.VK_NULL_HANDLE,
     set_layout_frame: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
     set_layout_material: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
     set_layout_compute: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,
+
+    set_layout_lights: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,   // light list + cluster grid
+    set_layout_shadows: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE,  // shadow map sampler
+    set_layout_bindless: c.VkDescriptorSetLayout = helper.VK_NULL_HANDLE, // bindless texture array
+
     sampler_linear_repeat: c.VkSampler = helper.VK_NULL_HANDLE,
     request_swapchain_recreate: bool = false,
     renderer_init: bool = false,
     index_count: u32 = 0,
     instance_count: u32 = 0,
-    sprite_draws: std.ArrayList(helper.SpriteDraw),
-    pending_atlas: bool = false,
-    atlas_textures: std.ArrayList(helper.AllocatedImage), // All Atlases
+    static_instance_count: u32 = 0,
+    sprite_draws: std.ArrayListUnmanaged(helper.SpriteDraw),
+    static_sprite_draws: std.ArrayListUnmanaged(helper.SpriteDraw),
+    pending_atlas: bool = true,
+    atlas_textures: std.ArrayListUnmanaged(helper.AllocatedImage), // All Atlases
     cam: GPUCameraData,
     //batches: [MAX_ATLASES]std.ArrayList(SpriteDraw);
 
@@ -99,10 +126,10 @@ pub const Renderer = struct {
         const render_pass = try sc.CreateRenderPass(swapchain, core.device.handle, core.alloc_cb);
 
         // Create Framebuffers
-        sc.CreateFrameBuffers(core.device.handle, swapchain, render_pass, allocator, core.alloc_cb);
+        try sc.CreateFrameBuffers(core.device.handle, swapchain, render_pass, allocator, core.alloc_cb);
 
         // Pipeline Material Creation 
-        const material_system = try MaterialSystem.init(allocator);
+        const material_system = MaterialSystem.init();
 
         // VMA allocation
         const vma = try helper.CreateVMAAllocator(core);
@@ -113,8 +140,9 @@ pub const Renderer = struct {
             .material_system = material_system,
             .upload_context = .{},
             .vma = vma,
-            .sprite_draws = try std.ArrayList(helper.SpriteDraw).initCapacity(allocator, 0),
-            .atlas_textures = try std.ArrayList(helper.AllocatedImage).initCapacity(allocator, 0),
+            .sprite_draws = .{},
+            .static_sprite_draws = try std.ArrayListUnmanaged(helper.SpriteDraw).initCapacity(allocator, 0),
+            .atlas_textures = .{},
             .cam = GPUCameraData{
                 .view_proj = math.Ortho(
                     0.0, @floatFromInt(window.screen_width),
@@ -123,17 +151,15 @@ pub const Renderer = struct {
             },
         };
 
-        //renderer.cam.view_proj = renderer.cam.view_proj.TranslateWorld(math.Vec3.Make(0.0, 10.0, 0.0));
-
         try renderer.sprite_draws.ensureTotalCapacity(allocator , MAX_SPRITES);
-
+        
         errdefer renderer.deinit(allocator, core);
 
         // Create Descriptor Layouts
         try CreateDescriptorLayouts(&renderer, core);
         
         // Pipeline Creation
-        try CreatePipelines(core, swapchain, &renderer, allocator);
+        try CreatePipelines(core, &renderer, allocator);
 
         // Commands Creation
         try CreateCommands(&renderer, core.physical_device.graphics_queue_family, core);
@@ -184,11 +210,18 @@ pub const Renderer = struct {
         renderer.sprite_instance_buffer = try helper.CreateBuffer(
             renderer.vma,
             MAX_SPRITES * @sizeOf(helper.SpriteDraw),
-            c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            c.VMA_MEMORY_USAGE_GPU_ONLY,
-            0,
+            c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            c.VMA_MEMORY_USAGE_CPU_TO_GPU, 
+            c.VMA_ALLOCATION_CREATE_MAPPED_BIT,
         );
-        
+
+        renderer.static_instance_buffer = try helper.CreateBuffer(
+            renderer.vma,
+            MAX_SPRITES * @sizeOf(helper.SpriteDraw),
+            c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            c.VMA_MEMORY_USAGE_CPU_TO_GPU,  
+            c.VMA_ALLOCATION_CREATE_MAPPED_BIT,
+        ); 
         renderer.index_count = @intCast(inds.len);
         //renderer.instance_count = @intCast()
         
@@ -207,10 +240,12 @@ pub const Renderer = struct {
         win: *sdl.Window,
         allocator: std.mem.Allocator,
         sprites: []helper.SpriteDraw,
-        view_proj: math.Mat4, ) !void {
+        static_sprites: []helper.SpriteDraw,
+        view_proj: math.Mat4, 
+        dirty: *bool) !void {
 
         self.cam.view_proj = view_proj;
-
+        
         if (self.request_swapchain_recreate and self.renderer_init) {
           
         // Avoid zero-size swapchain
@@ -249,6 +284,19 @@ pub const Renderer = struct {
         );
 
         // Swapcahin
+        const viewport = c.VkViewport{
+            .x = 0.0,
+            .y = 0.0,
+            .width = @floatFromInt(swapchain.extent.width),
+            .height = @floatFromInt(swapchain.extent.height),
+            .minDepth = 0.0,
+            .maxDepth = 1.0,
+        };
+        const scissor = c.VkRect2D{
+            .offset = .{ .x = 0, .y = 0 },
+            .extent = swapchain.extent,
+        };
+
 
         var swapchain_image_index: u32 = undefined;
         const acquire = c.vkAcquireNextImageKHR(
@@ -323,18 +371,24 @@ pub const Renderer = struct {
         });
 
         c.vkCmdBeginRenderPass(cmd, &render_pass_begin_info, c.VK_SUBPASS_CONTENTS_INLINE);
+        
+        // Dynamic view port chaning
+        c.vkCmdSetViewport(cmd, 0, 1, &viewport);
+        c.vkCmdSetScissor(cmd, 0, 1, &scissor);
 
         // Bind pipeline and draw
         const tpl = try self.material_system.BindPipeline(cmd, "Triangle");
         
         //TODO: Bind Descriptor sets and also update shaders.
        const frame_set = frame.set_frame;
-
-       // Binding atlas Sampler
-       try BindAtlasSampler(self, core, frame.material_set);
-
-       // Binding atlas images
-       try BindAtlasImages(self, core, frame.material_set);
+        
+        if (self.pending_atlas) {
+            for (&self.frames) |*f| {
+                try BindAtlasSampler(self, core, f.material_set);
+                try BindAtlasImages(self, core, f.material_set);
+            }
+            self.pending_atlas = false;
+        } 
 
        const sets = [_]c.VkDescriptorSet {frame_set, frame.material_set };
 
@@ -350,30 +404,94 @@ pub const Renderer = struct {
        );
 
         const offsets = [_]c.VkDeviceSize{0, 0};
-        const buffers = [_]c.VkBuffer{ 
-            self.vertex_buffer.buffer, 
-            self.sprite_instance_buffer.buffer, 
-        };
-
+        
         self.sprite_draws.clearRetainingCapacity();
 
         for (sprites) |sprite| {
             try self.sprite_draws.append(allocator, sprite);
         }
 
+        if (dirty.*) {
+            self.static_sprite_draws.clearRetainingCapacity();
+
+            for (static_sprites) |sprite| {
+                try self.static_sprite_draws.append(allocator, sprite);
+            }
+
+            self.static_instance_count = @as(u32, @intCast(self.static_sprite_draws.items.len));
+
+            if (self.static_instance_count > 0) {
+                try helper.UploadInstanceData(
+                    self.vma,
+                    &self.static_instance_buffer,
+                    self.static_sprite_draws.items,
+                );
+            }
+            dirty.* = false;
+        } else {
+            self.static_instance_count = @as(u32, @intCast(self.static_sprite_draws.items.len));
+        }
+        
         self.instance_count = @as(u32, @intCast(self.sprite_draws.items.len));
         if (self.instance_count > 0) {
             try helper.UploadInstanceData(
                 self.vma,
-                &self.upload_context,
-                core,
                 &self.sprite_instance_buffer,
                 self.sprite_draws.items,
             );
-        }      
-        c.vkCmdBindVertexBuffers(cmd, 0, buffers.len, &buffers, &offsets);
+        } 
+
         c.vkCmdBindIndexBuffer(cmd, self.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT16);
-        c.vkCmdDrawIndexed(cmd, self.index_count, self.instance_count, 0, 0, 0);
+        if (self.static_instance_count > 0) {
+            const static_buffers = [_]c.VkBuffer{
+                self.vertex_buffer.buffer,
+                self.static_instance_buffer.buffer,
+            };
+
+            c.vkCmdBindVertexBuffers(
+                cmd,
+                0,
+                static_buffers.len,
+                &static_buffers,
+                &offsets,
+            );
+
+            c.vkCmdDrawIndexed(
+                cmd,
+                self.index_count,
+                self.static_instance_count,
+                0,
+                0,
+                0,
+            );
+        }
+
+        // --------------------
+        // Draw dynamic
+        // --------------------
+        if (self.instance_count > 0) {
+            const dynamic_buffers = [_]c.VkBuffer{
+                self.vertex_buffer.buffer,
+                self.sprite_instance_buffer.buffer,
+            };
+
+            c.vkCmdBindVertexBuffers(
+                cmd,
+                0,
+                dynamic_buffers.len,
+                &dynamic_buffers,
+                &offsets,
+            );
+
+            c.vkCmdDrawIndexed(
+                cmd,
+                self.index_count,
+                self.instance_count,
+                0,
+                0,
+                0,
+            );
+        }
 
         c.vkCmdEndRenderPass(cmd);
         try helper.check_vk(c.vkEndCommandBuffer(cmd));
@@ -417,8 +535,6 @@ pub const Renderer = struct {
 
     }
 
-
-
     pub fn OnSwapchainRecreated(
         self: *Renderer,
         core: *core_mod.Core,
@@ -449,9 +565,8 @@ pub const Renderer = struct {
 
         self.material_system.deinitGpu(core.device.handle, core.alloc_cb);
         self.material_system.templates.clearRetainingCapacity();
-        self.material_system.templates_by_name.clearRetainingCapacity();
 
-        try CreatePipelines(core, &new_swap, self, allocator);
+        try CreatePipelines(core, self, allocator);
 
         try CreateDescriptors(self, core);
 
@@ -468,7 +583,7 @@ pub const Renderer = struct {
         );
 
         // 5. Create framebuffers for NEW swapchain
-        sc.CreateFrameBuffers(
+        try sc.CreateFrameBuffers(
             core.device.handle,
             &new_swap,
             self.render_pass,
@@ -509,10 +624,12 @@ pub const Renderer = struct {
         }
 
         self.sprite_draws.deinit(allocator);
-        
+        self.static_sprite_draws.deinit(allocator);
+
         helper.DestroyBuffer(self.vma, &self.vertex_buffer);
         helper.DestroyBuffer(self.vma, &self.index_buffer);
         helper.DestroyBuffer(self.vma, &self.sprite_instance_buffer);
+        helper.DestroyBuffer(self.vma, &self.static_instance_buffer);
 
         for (self.atlas_textures.items) |*img| {
             helper.DestroyImage(core, self.vma, img);
@@ -607,156 +724,6 @@ pub const Renderer = struct {
 };
 
 
-// Add 2 more helper functions for instance and template
-pub const MaterialSystem = struct {
-
-    templates: std.ArrayList(MaterialTemplate),
-    templates_by_name: std.StringHashMap(MaterialTemplateId_u32),
-
-    instances: std.ArrayList(MaterialInstance),
-    instances_by_name: std.StringHashMap(MaterialInstanceId_u32),
-
-    pub fn AddTemplateAndInstance(
-        self: *MaterialSystem, 
-        template_name: []const u8, 
-        instance_name: []const u8, 
-        pipeline: c.VkPipeline, 
-        pipeline_layout: c.VkPipelineLayout, 
-        texture_set: c.VkDescriptorSet,
-        bind_point: c.VkPipelineBindPoint,
-        allocator: std.mem.Allocator
-        ) !MaterialInstanceId_u32 {
-
-           const template_id = try self.AddTemplate(
-                template_name, 
-                pipeline, 
-                pipeline_layout, 
-                allocator, 
-                bind_point
-            );
-
-           const instance_id = try self.AddInstance(
-                instance_name, 
-                texture_set,
-                template_id,
-                allocator
-            ); 
-
-            return instance_id;
-    }
-
-    pub fn AddInstance(
-        self: *MaterialSystem, 
-        instance_name: []const u8, 
-        texture_set: c.VkDescriptorSet,
-        template_id: MaterialTemplateId_u32,
-        allocator: std.mem.Allocator)  !MaterialInstanceId_u32 {
-
-        const instance_id: MaterialInstanceId_u32 = @intCast(self.instances.items.len);
-
-        try self.instances.append(allocator , .{
-            .template_id = template_id,
-            .texture_set = texture_set,
-        });
-
-        try self.instances_by_name.put(instance_name, instance_id);
-            
-        return instance_id;
-    }
-
-    pub fn AddTemplate(
-        self: *MaterialSystem, 
-        template_name: []const u8,
-        pipeline: c.VkPipeline, 
-        pipeline_layout: c.VkPipelineLayout,
-        allocator: std.mem.Allocator,
-        bind_point: c.VkPipelineBindPoint, 
-        ) !MaterialTemplateId_u32 {
-
-        const template_id: MaterialTemplateId_u32 = @intCast(self.templates.items.len);
-
-        try self.templates.append(allocator , .{
-            .pipeline = pipeline,
-            .pipeline_layout = pipeline_layout,
-            .bind_point = bind_point  
-        });
-
-        try self.templates_by_name.put(template_name, template_id);
-
-        return template_id;
-
-    }
-
-    pub fn GetTemplateByName(
-        self: *MaterialSystem,
-        name: []const u8,
-    ) ?*MaterialTemplate {
-        const id = self.templates_by_name.get(name) orelse return null;
-        return &self.templates.items[@intCast(id)];
-    }
-
-    pub fn BindPipeline(
-        self: *MaterialSystem,
-        cmd: c.VkCommandBuffer,
-        name: []const u8,
-        ) !*MaterialTemplate {
-            
-        const tpl = self.GetTemplateByName(name) orelse
-            @panic("Missing pipeline template");
-        c.vkCmdBindPipeline(cmd, tpl.bind_point, tpl.pipeline);
-        return tpl;
-        
-    }
-    pub fn ClearRetainingCapacity(self: *MaterialSystem) void {
-        self.templates.items.len = 0;
-        self.templates_by_name.clearRetainingCapacity();
-
-        // Only clear instances if you truly rebuild them
-        // Otherwise leave them intact
-        // self.instances.items.len = 0;
-        // self.instances_by_name.clearRetainingCapacity();
-    }
-
-    pub fn init(allocator: std.mem.Allocator) !MaterialSystem {
-        return .{
-
-            .templates = try std.ArrayList(MaterialTemplate).initCapacity(allocator, 0),
-            .templates_by_name = std.StringHashMap(MaterialTemplateId_u32).init(allocator),
-
-            .instances = try std.ArrayList(MaterialInstance).initCapacity(allocator, 0),
-            .instances_by_name = std.StringHashMap(MaterialInstanceId_u32).init(allocator),
-
-        };
-    }
-
-    pub fn deinit(self: *MaterialSystem, allocator: std.mem.Allocator) void {
-        self.templates.deinit(allocator);
-        self.templates_by_name.deinit();
-        self.instances.deinit(allocator);
-        self.instances_by_name.deinit();
-    }
-
-    pub fn deinitGpu(
-        self: *MaterialSystem,
-        device: c.VkDevice,
-        alloc_cb: ?*const c.VkAllocationCallbacks,
-    ) void {
-        // Destroy pipelines first (they reference layouts internally)
-        for (self.templates.items) |t| {
-            if (t.pipeline != null) { // if your VK_NULL_HANDLE is null
-                c.vkDestroyPipeline(device, t.pipeline, alloc_cb);
-            }
-        }
-
-        // Destroy pipeline layouts
-        for (self.templates.items) |t| {
-            if (t.pipeline_layout != null) {
-                c.vkDestroyPipelineLayout(device, t.pipeline_layout, alloc_cb);
-            }
-        }
-    }
-
-};
 
 
 // TODO: make a transfer queue, rather than submitting to the graphics queue
@@ -845,7 +812,6 @@ pub fn CreateSyncStructures(
 
 pub fn CreatePipelines(
     core: *core_mod.Core,
-    swapchain: *sc.Swapchain, 
     renderer: *Renderer ,
     allocator: std.mem.Allocator
     ) !void {
@@ -862,10 +828,19 @@ pub fn CreatePipelines(
         renderer.set_layout_material,  // set 1
     };
 
+    // Push Constants
+    const push_constant_range = c.VkPushConstantRange{
+        .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT,
+        .offset = 0,
+        .size = @sizeOf(GPUPushConstants),
+    };
+
     const pipeline_layout_ci = std.mem.zeroInit(c.VkPipelineLayoutCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = @as(u32, @intCast(set_layouts.len)),
         .pSetLayouts = &set_layouts[0],
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &push_constant_range,
     });
 
     // Pipeline Layout creation
@@ -1027,29 +1002,28 @@ pub fn CreatePipelines(
     });
 
 
-       var shader_stages = [_]c.VkPipelineShaderStageCreateInfo{
+    var shader_stages = [_]c.VkPipelineShaderStageCreateInfo{
         vert_stage_ci,
         frag_stage_ci,
     };
 
+    const dynamic_states = [_]c.VkDynamicState{
+        c.VK_DYNAMIC_STATE_VIEWPORT,
+        c.VK_DYNAMIC_STATE_SCISSOR,
+    };
+
+    const dynamic_state_ci = std.mem.zeroInit(c.VkPipelineDynamicStateCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = dynamic_states.len,
+        .pDynamicStates = &dynamic_states[0],
+    });
     // Pipeline building
     var pipeline_builder = helper.PipelineBuilder {
         .shader_stages = shader_stages[0..],
         .vertex_input_state = vertex_input_state_ci,
         .input_assembly_state = input_assembly_state_ci,
-        .viewport = .{
-            .x = 0.0,
-            .y = 0.0,
-            .width = @as(f32, @floatFromInt(swapchain.extent.width)),
-            .height = @as(f32, @floatFromInt(swapchain.extent.height)),
-            .minDepth = 0.0,
-            .maxDepth = 1.0,
-        },
-        .scissor = .{
-            .offset = .{.x = 0, .y = 0},
-            .extent = swapchain.extent,
-        },
         .rasterization_state = rasterization_state_ci,
+        .dynamic_state = dynamic_state_ci,
         .color_blend_attachment_state = color_blend_attachment_state,
         .multisample_state = multisample_state_ci,
         .pipeline_layout = triangle_pipeline_layout,
@@ -1064,13 +1038,10 @@ pub fn CreatePipelines(
          "Triangle_Instance", 
          triangle_pipeline, 
          triangle_pipeline_layout, 
-         helper.VK_NULL_HANDLE,
          c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+         helper.VK_NULL_HANDLE,
          allocator,
     );
-
-    std.debug.assert(renderer.material_system.templates_by_name.contains("Triangle"));
-
 }
 
 //TODO: Combined Image Sampler will be added outside Descriptors. Implement it after Sampler and Image Views.
@@ -1079,10 +1050,15 @@ pub fn CreateDescriptorLayouts(renderer: *Renderer, core: *core_mod.Core) !void 
 
     // Descriptor pool
     const pool_sizes = [_]c.VkDescriptorPoolSize{
+        // Camera, globals, cluster grid params
         .{ .type = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         .descriptorCount = 64 },
+        // Atlas textures, shadow maps, brdf lut, irradiance
         .{ .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1024 },
+        // Sprite instances, light list, light indices, cluster data
         .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         .descriptorCount = 128  },
+        // Compute Light culling writes to this
         .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          .descriptorCount = 64 },
+        // Bindless texture array
         .{ .type = c.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          .descriptorCount = 64 },
         .{ .type =  c.VK_DESCRIPTOR_TYPE_SAMPLER,               .descriptorCount = 64 },
     };
@@ -1302,7 +1278,9 @@ pub fn CreateDescriptors(renderer: *Renderer, core: *core_mod.Core) !void{
                     &material_alloc, 
                     &renderer.frames[i].material_set
                     )
-                );
+            );
+            try BindAtlasSampler(renderer, core, renderer.frames[i].material_set);
+            try BindAtlasImages(renderer, core, renderer.frames[i].material_set);
         }
 
     }

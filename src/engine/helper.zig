@@ -275,7 +275,6 @@ pub fn IsPhysicalDeviceSuitable(allocator: std.mem.Allocator, device: gpu_contex
 
         }
 
-
         const swapchain_support = try SwapchainSupportInfo.init(arena, device.handle, surface);
 
            if (swapchain_support.formats.len == 0 or swapchain_support.present_modes.len == 0) {
@@ -407,9 +406,8 @@ pub const PipelineBuilder = struct {
     shader_stages: []c.VkPipelineShaderStageCreateInfo,
     vertex_input_state: c.VkPipelineVertexInputStateCreateInfo,
     input_assembly_state: c.VkPipelineInputAssemblyStateCreateInfo,
-    viewport: c.VkViewport,
-    scissor: c.VkRect2D,
     rasterization_state: c.VkPipelineRasterizationStateCreateInfo,
+    dynamic_state: c.VkPipelineDynamicStateCreateInfo,
     color_blend_attachment_state: c.VkPipelineColorBlendAttachmentState,
     multisample_state: c.VkPipelineMultisampleStateCreateInfo,
     pipeline_layout: c.VkPipelineLayout,
@@ -420,9 +418,7 @@ pub const PipelineBuilder = struct {
         const viewport_state = std.mem.zeroInit(c.VkPipelineViewportStateCreateInfo, .{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
             .viewportCount = 1,
-            .pViewports = &self.viewport,
             .scissorCount = 1,
-            .pScissors = &self.scissor,
         });
 
         const color_blend_state = std.mem.zeroInit(c.VkPipelineColorBlendStateCreateInfo, .{
@@ -444,6 +440,7 @@ pub const PipelineBuilder = struct {
             .pMultisampleState = &self.multisample_state,
             .pColorBlendState = &color_blend_state,
             .pDepthStencilState = &self.depth_stencil_state,
+            .pDynamicState = &self.dynamic_state,
             .layout = self.pipeline_layout,
             .renderPass = render_pass,
             .subpass = 0,
@@ -506,6 +503,21 @@ pub fn MakeShaderModules(device: c.VkDevice, alloc_cb: ?*c.VkAllocationCallbacks
         return .{.vert_mod = vert_mod , .frag_mod = frag_mod};
 
 }
+pub fn MakeComputeShaderModule(
+    device: c.VkDevice, 
+    alloc_cb: ?*c.VkAllocationCallbacks ,
+    comptime shader_path: []const u8) !c.VkShaderModule{
+        
+        const shader_code align(4) = @embedFile(shader_path).*;
+
+        const shader_mod = CreateShaderModule(device, &shader_code, alloc_cb) orelse VK_NULL_HANDLE;
+        
+        if (shader_mod != VK_NULL_HANDLE) log.info("Vert module loaded successfully", .{});
+
+        return shader_mod;
+
+}
+
 
 pub const Vertex = extern struct {
     pos: [2]f32,
@@ -977,7 +989,6 @@ pub fn CreateVMAAllocator(core: *gpu_context.Core) !c.VmaAllocator {
 
     return allocator;
 
-
 }
 
 pub const SpriteSet = struct {
@@ -997,33 +1008,17 @@ pub const SpriteDraw = extern struct {
     atlas_id: u32,
 };
 
+
 pub fn UploadInstanceData(
     vma: c.VmaAllocator,
-    upload_ctx: *render.UploadContext,
-    core: *gpu_context.Core,
     dst: *AllocatedBuffer,
     instances: []const SpriteDraw,
 ) !void {
-    const size = render.MAX_SPRITES * @sizeOf(SpriteDraw);
-
-    var staging = try CreateBuffer(
-        vma,
-        size,
-        c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        c.VMA_MEMORY_USAGE_CPU_ONLY,
-        0,
-    );
-    defer DestroyBuffer(vma, &staging);
-
-    var mapped: ?*anyopaque = null;
-    try check_vk(c.vmaMapMemory(vma, staging.allocation, &mapped));
-    defer c.vmaUnmapMemory(vma, staging.allocation);
-
-    const dst_bytes: [*]u8 = @ptrCast(mapped.?);
+    var info: c.VmaAllocationInfo = undefined;
+    c.vmaGetAllocationInfo(vma, dst.allocation, &info);
+    const dst_bytes: [*]u8 = @ptrCast(info.pMappedData.?);
     const src_bytes = std.mem.sliceAsBytes(instances);
     @memcpy(dst_bytes[0..src_bytes.len], src_bytes);
-
-    try CopyBuffer(core, upload_ctx, staging.buffer, dst.buffer, size);
 }
 
 pub fn UploadToBuffer(

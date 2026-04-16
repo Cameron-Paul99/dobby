@@ -11,6 +11,7 @@ const Mouse = utils.mouse;
 const atlas_mod = utils.atlas;
 const Transform2D = g_api.Transform2D;
 const Position2D = g_api.Position2D;
+const ScreenD = g_api.ScreenD;
 const Scale2D = g_api.Scale2D;
 const Rotation2D = g_api.Rotation2D;
 const Color = g_api.Color;
@@ -23,11 +24,16 @@ pub var physics_ctx: *Physics = undefined;
 pub var cam_ctx: *Camera = undefined;
 pub var mouse_ctx: *Mouse = undefined;
 
-const MAX_SPRITES_PER_ENTITY = 5;
+const MAX_SPRITES_PER_ENTITY = 50;
 
 pub export fn EnableGravity(id: u32) callconv(.c) void {
     const ctx = physics_ctx;
     ctx.EnableGravity(id);
+}
+
+pub export fn RemoveGravity(id: u32) callconv(.c) void {
+    const ctx = physics_ctx;
+    ctx.Reset(id);
 }
 
 pub export fn AddForce(id: u32, x: f32, y: f32) callconv(.c) void {
@@ -35,6 +41,20 @@ pub export fn AddForce(id: u32, x: f32, y: f32) callconv(.c) void {
     ctx.AddForce(id, x, y);
 }
 
+pub export fn UnAlive(id: u32) callconv(.c) void {
+    const ctx = g_active_ctx;
+    ctx.alive.Clear(id);
+   // if (!ctx.physics.testBit(id)){
+  //      ResetStatic();
+   // }
+}
+pub export fn Alive(id: u32) callconv(.c) void {
+    const ctx = g_active_ctx;
+    ctx.alive.Set(id);
+   // if (!ctx.physics.testBit(id)){
+   //     ResetStatic();
+   // }
+}
 pub export fn AddForceX(id: u32, x:f32) callconv(.c) void {
     const ctx = physics_ctx;
     ctx.AddForceX(id, x);
@@ -45,9 +65,19 @@ pub export fn AddForceY(id: u32, y:f32) callconv(.c) void {
     ctx.AddForceY(id, y);
 }
 
-pub export fn RemoveEntity(id: u32) callconv(.c) void {
+pub export fn RemoveEntity(entity: u32) callconv(.c) void {
     const ctx = g_active_ctx;
-    ctx.alive.Clear(id);
+
+    if (!ctx.alive.testBit(entity)) return;
+    ctx.alive.Clear(entity);
+    std.log.info("removing chips", .{});
+    ctx.has_sprite.Clear(entity);
+    if (!ctx.physics.testBit(entity)){
+        ResetStatic();
+    }else{
+        ctx.physics.Clear(entity);
+    }
+   
 }
 
 pub export fn AddEntity() callconv(.c) u32 {
@@ -81,13 +111,30 @@ pub export fn SetCameraWorldPosition(pos: Position2D, zoom: f32) callconv(.c) vo
     ctx.pos.y = pos.y;
     ctx.zoom = zoom;
 }
-
 pub export fn SetTransform(id: u32, transform: Transform2D) callconv(.c) void {
-     const ctx = g_active_ctx;
-     ctx.entity_transforms[id] = transform;
-    
+    const ctx = g_active_ctx;
+    ctx.entity_transforms[id] = transform;
 
+    if (ctx.has_sprite.testBit(id)) {
+        const sprites = GetEntitySprites(ctx, id);
+
+        for (sprites) |*sprite| {
+            sprite.sprite_pos = .{
+                transform.position.x,
+                transform.position.y,
+            };
+            sprite.sprite_scale = .{
+                transform.scale.x,
+                transform.scale.y,
+            };
+            sprite.sprite_rotation = .{
+                transform.rotation.x,
+                transform.rotation.y,
+            };
+        }
+    }
 }
+
 pub export fn AddTransform2D(id: u32, delta: Transform2D) callconv(.c) void {
     const ctx = g_active_ctx;
     var t = &ctx.entity_transforms[id];
@@ -133,6 +180,7 @@ pub export fn AddPhysics(id: u32) callconv(.c) void {
     const ctx = g_active_ctx;
     ctx.static_dirty = true;
     ctx.physics.Set(id);
+    ctx.static_sprite_draws.clearRetainingCapacity();
 
 }
 
@@ -140,11 +188,12 @@ pub export fn RemovePhysics(id: u32) callconv(.c) void {
     const ctx = g_active_ctx;
     ctx.static_dirty = true;
     ctx.physics.Clear(id);
+    ctx.static_sprite_draws.clearRetainingCapacity();
 }
-pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) void {
+pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32, atlas_id: u32) callconv(.c) void {
 
     const ctx = g_active_ctx;
-    const slot_uv = atlas_mod.GetImageFromAtlas(0, std.mem.span(desc.name), ctx.proj, ctx.allocator) catch |err| {
+    const slot_uv = atlas_mod.GetImageFromAtlas(@intCast(atlas_id), std.mem.span(desc.name), ctx.proj, ctx.allocator) catch |err| {
         std.log.err("GetImageFromAtlas failed: {}", .{err});
         return;
     };
@@ -157,7 +206,9 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32) callconv(.c) v
         .sprite_pos = .{
             transform.position.x + desc.position.x, 
             transform.position.y + desc.position.y},
-        .sprite_scale = .{transform.scale.x, transform.scale.y},
+        .sprite_scale = .{
+            transform.scale.x + desc.scale.x, 
+            transform.scale.y + desc.scale.x},
         .sprite_rotation = .{transform.rotation.x, transform.rotation.y},
         .uv_min = slot_uv.?.uv_min,
         .uv_max = slot_uv.?.uv_max,
@@ -266,9 +317,16 @@ pub export fn GetEntitySpritesWorldPos(entity: u32) callconv(.c) Position2D {
 }
 
 pub export fn SetSpriteColor(entity: u32, id:u32 ,color: Color) void{
-    _ = entity;
-    _ = color;
-    _ = id;
+
+    const ctx = g_active_ctx;
+    if(!ctx.has_sprite.testBit(entity)) return;
+
+    const set = ctx.sprite_components[entity];
+
+    const sprite = &ctx.sprite_storage.items[@intCast(set.start + id)];
+
+    sprite.tint = .{color.r, color.g, color.b, color.a};
+    
 }
 
 pub export fn GetSpriteColor(entity: u32,id: u32) Color {
@@ -341,4 +399,27 @@ pub fn GetEntitySprites(ctx: *ProjectContext, id: u32) []helper.SpriteDraw {
     const start: usize = @intCast(set.start);
     const end: usize = start + @as(usize, @intCast(set.count));
     return ctx.sprite_storage.items[start..end];
+}
+
+pub export fn ResetStatic() void {
+    const ctx = g_active_ctx;
+    ctx.static_dirty = true;
+    ctx.static_sprite_draws.clearRetainingCapacity();
+}
+
+pub export fn GetCameraWorldPosition() Position2D {
+    
+    const ctx = cam_ctx;
+    return .{.x = ctx.pos.x, .y = ctx.pos.y};
+}
+
+pub export fn GetCameraZoom() f32{
+    const ctx = cam_ctx;
+    return ctx.zoom;
+}
+
+pub export fn GetScreenDimensions() ScreenD {
+    const ctx = cam_ctx;
+    return .{ .w = ctx.screen_w, .h = ctx.screen_h}; 
+
 }

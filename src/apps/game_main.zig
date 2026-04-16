@@ -10,7 +10,7 @@ pub fn main() !void {
     var game_window = try engine.sdl.Window.init(800, 600);
     defer game_window.deinit();
 
-    var core = try engine.core.Core.init(true, allocator, &game_window);
+    var core = try engine.core.Core.init(false, allocator, &game_window);
     defer core.deinit(allocator);
 
     var swapchain = try engine.swapchain.Swapchain.init(allocator, &core, &game_window, .{.vsync = false}, null);

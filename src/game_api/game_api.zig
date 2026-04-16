@@ -97,6 +97,12 @@ pub const Rotation2D = extern struct {
     y: f32 = 0,
 };
 
+pub const ScreenD = extern struct {
+
+    h: f32 = 0,
+    w: f32 = 0,
+
+};
 
 /// RGBA color with float components in the range `[0, 1]`.
 pub const Color = extern struct {
@@ -406,14 +412,21 @@ pub const GameAPI = extern struct {
     /// Creates a new entity and returns its ID.
     add_entity: *const fn () callconv(.c) u32,
 
+    alive: *const fn (u32) callconv(.c) void,
+
+    unalive: *const fn (u32) callconv(.c) void,
+
     /// Removes an entity and its associated components.
-    remove_enity: *const fn (u32) callconv(.c) void,
+    remove_entity: *const fn (u32) callconv(.c) void,
 
     /// Returns the engine allocator as an opaque pointer.
     get_allocator: *const fn () callconv(.c) *anyopaque,
 
     /// Adds or replaces a 2D transform for an entity.
     add_transform_2D: *const fn (u32, Transform2D) callconv(.c) void,
+
+    set_transform: *const fn (u32, Transform2D) callconv(.c) void,
+
 };
 
 /// Sprite-related API exposed by the engine.
@@ -443,7 +456,9 @@ pub const SpriteAPI = extern struct {
     
     get_entity_sprites_color: *const fn (u32) callconv(.c) Color,
     /// Spawns a sprite for the given entity using a sprite descriptor.
-    spawn_sprite: *const fn (*const SpriteDesc, u32) callconv(.c) void,
+    spawn_sprite: *const fn (*const SpriteDesc, u32, u32) callconv(.c) void,
+
+    reset_static: *const fn () callconv(.c) void,
 };
 
 /// Physics-related functions exposed by the engine.
@@ -465,6 +480,8 @@ pub const PhysicsAPI = extern struct {
 
     /// Removes a physics component from an entity.
     remove_physics: *const fn (u32) callconv(.c) void,
+
+    remove_gravity: *const fn (u32) callconv(.c) void,
 };
 
 /// Camera controls exposed by the engine.
@@ -473,6 +490,8 @@ pub const Camera2DAPI = extern struct {
     /// Sets the camera position and zoom immediately.
     set_camera_world_pos: *const fn (Position2D, f32) callconv(.c) void,
 
+    get_camera_world_pos: *const fn () callconv(.c) Position2D,
+    get_camera_zoom: *const fn () callconv(.c) f32,
     /// Smoothly moves the camera toward a target position and zoom.
     move_camera_to_world_pos: *const fn (Position2D, f32) callconv(.c) void,
 
@@ -481,6 +500,8 @@ pub const Camera2DAPI = extern struct {
 
     /// Moves the camera horizontally over time.
     move_camera_horizontal: *const fn (f32, f32) callconv(.c) void,
+
+    get_screen_dimensions: *const fn () callconv(.c) ScreenD,
 };
 
 /// Mouse helpers exposed by the engine.

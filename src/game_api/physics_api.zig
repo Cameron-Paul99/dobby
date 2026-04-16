@@ -3,20 +3,33 @@ const std = @import("std");
 pub export fn AddPhysics(id: u32) callconv(.c) void {
 
     const ctx = g_active_ctx;
-    ctx.static_dirty = true;
-    ctx.physics.Set(id);
+    if (!ctx.physics.testBit(id){
+        ctx.static_dirty = true;
+        ctx.physics.Set(id);
+    }
+    ctx.Reset(id);
 
 }
 
 pub export fn RemovePhysics(id: u32) callconv(.c) void {
     const ctx = g_active_ctx;
-    ctx.static_dirty = true;
-    ctx.physics.Clear(id);
+    ctx.Reset(id);
+    if (ctx.physics.testBit(id)){
+        ctx.physics.Clear(id);
+        ctx.static_dirty = true;
+    }
+   
 }
 
 pub export fn EnableGravity(id: u32) callconv(.c) void {
     const ctx = physics_ctx;
     ctx.EnableGravity(id);
+   // ctx.Reset(id);
+}
+
+pub export fn RemoveGravity(id: u32) callconv(.c) void {
+    const ctx = physics_ctx; 
+    ctx.Reset(id);
 }
 
 pub export fn AddForce(id: u32, x: f32, y: f32) callconv(.c) void {

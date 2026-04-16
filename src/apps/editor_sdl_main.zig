@@ -46,34 +46,37 @@ const GameInputUpFn = *const fn (u8) callconv(.c) void;
 const GameStartFn = *const fn () callconv(.c) void;
 const GameDeinitFn = *const fn () callconv(.c) void;
 
+const cooked_shaders_path = "projects/{s}/cooked/shaders";
+const cooked_atlases_path = "projects/{s}/cooked/atlases/";
+const src_textures_path = "projects/{s}/src/textures";
+const src_shaders_path = "projects/{s}/src/shaders";
+const src_scripts_path = "projects/{s}/src/scripts/";
+const src_scripts_build_zig = "projects/{s}/src/scripts/build.zig";
+const src_scripts_game_zig = "projects/{s}/src/scripts/game.zig";
+const scripts_lib_path ="projects/{s}/src/scripts/zig-out/lib/lib{s}_game.so"; 
+
 fn EditorMoveEntity(
     editor_input: input.RawInput,
     select_buffer: *std.ArrayList(u32),
     camera: *Camera,
-) void {
+) bool {
+    const move_down =
+        (editor_input.buttons_down & input.Bit(.mouse_left)) != 0 and
+        (editor_input.buttons_pressed & input.Bit(.mouse_left)) == 0;
 
-    const move_down = (editor_input.buttons_down & input.Bit(.mouse_left)) != 0;
+    if (!(move_down and select_buffer.items.len > 0)) return false;
 
+    var delta = editor_input.mouse_delta;
+    delta = math.Vec2.Mul(delta, 1.0 / camera.zoom);
 
-    if (move_down and select_buffer.items.len > 0) {
+    if (delta.x == 0 and delta.y == 0) return false;
 
-        var delta = editor_input.mouse_delta;
-
-        delta = math.Vec2.Mul(delta, 1.0 / camera.zoom);
-
-        //std.log.info(
-        //    "Raw mouse delta: {d}, {d}",
-        //    .{ delta.x, delta.y }
-        //);
-
-        for (select_buffer.items) |entity_id| {
-
-            Bridge.AddTransform2DPos(entity_id, delta.x, delta.y);
-        }
+    for (select_buffer.items) |entity_id| {
+        Bridge.AddTransform2DPos(entity_id, delta.x, delta.y);
     }
+
+    return true;
 }
-
-
 // ****************************************** PROCJECT CONTEXT *******************************************
 pub const ProjectContext = struct {
     proj_name: []const u8,
@@ -101,6 +104,7 @@ pub const ProjectContext = struct {
     game_input: GameInput,
     game_deinit: ?*const fn () callconv(.c) void,
     sprite_draws: std.ArrayList(helper.SpriteDraw),
+    static_sprite_draws: std.ArrayList(helper.SpriteDraw), 
     sprite_storage: std.ArrayList(helper.SpriteDraw),
     paused: bool = true,
     alive: two_bit,
@@ -118,7 +122,7 @@ pub const ProjectContext = struct {
 
         const path = try std.fmt.allocPrint(
             allocator,
-            "projects/{s}/assets/src/scripts/zig-out/lib/lib{s}_game.so",
+            scripts_lib_path,
             .{name, name},
         );
         defer allocator.free(path);
@@ -151,9 +155,12 @@ pub const ProjectContext = struct {
             .game_api = g_api.GameAPI {
                 .user_data = null,
                 .add_entity = Bridge.AddEntity,
-                .remove_enity = Bridge.RemoveEntity,
+                .remove_entity = Bridge.RemoveEntity,
                 .get_allocator = Bridge.GetAllocator,
                 .add_transform_2D = Bridge.AddTransform2D,
+                .set_transform = Bridge.SetTransform,
+                .alive = Bridge.Alive,
+                .unalive = Bridge.UnAlive,
             },
             .physics_api = g_api.PhysicsAPI{
                 .enable_gravity = Bridge.EnableGravity,
@@ -162,12 +169,16 @@ pub const ProjectContext = struct {
                 .add_force_y = Bridge.AddForceY,
                 .add_physics = Bridge.AddPhysics,
                 .remove_physics = Bridge.RemovePhysics,
+                .remove_gravity = Bridge.RemoveGravity,
             },
             .camera_api = g_api.Camera2DAPI {
                 .set_camera_world_pos = Bridge.SetCameraWorldPosition,
                 .move_camera_to_world_pos = Bridge.MoveCameraToWorldPosition,
                 .move_camera_vertical = Bridge.MoveCameraVertical,
                 .move_camera_horizontal = Bridge.MoveCameraHorizontal,
+                .get_camera_world_pos = Bridge.GetCameraWorldPosition,
+                .get_camera_zoom = Bridge.GetCameraZoom,
+                .get_screen_dimensions = Bridge.GetScreenDimensions,
             },
             .mouse_api = g_api.MouseAPI {
                 .set_mouse_world_pos = Bridge.SetMouseWorldPosition,
@@ -189,6 +200,7 @@ pub const ProjectContext = struct {
 
                 .set_entity_sprites_world_pos = Bridge.SetEntitySpritesWorldPos,
                 .get_entity_sprites_world_pos = Bridge.GetEntitySpritesWorldPos,
+                .reset_static = Bridge.ResetStatic,
                 
             },
             .game_init = lib.lookup(GameInitFn, "game_init"),
@@ -207,6 +219,8 @@ pub const ProjectContext = struct {
             },
             .game_deinit = lib.lookup(GameDeinitFn, "game_deinit"),
             .sprite_draws = try std.ArrayList(helper.SpriteDraw)
+                .initCapacity(allocator, 0),
+            .static_sprite_draws = try std.ArrayList(helper.SpriteDraw)
                 .initCapacity(allocator, 0),
             .sprite_storage = try std.ArrayList(helper.SpriteDraw)
                 .initCapacity(allocator, 0),
@@ -229,13 +243,13 @@ pub const ProjectContext = struct {
 
         self.sprite_storage.clearRetainingCapacity();
         self.sprite_draws.clearRetainingCapacity();
-
+        self.static_sprite_draws.clearRetainingCapacity();
         for (self.sprite_components) |*set| {
             set.* = .{};
         }
         const path = try std.fmt.allocPrint(
             self.allocator,
-            "projects/{s}/assets/src/scripts/zig-out/lib/lib{s}_game.so",
+            scripts_lib_path,
             .{self.proj_name, self.proj_name},
         );
         defer self.allocator.free(path);
@@ -286,6 +300,7 @@ pub const ProjectContext = struct {
         self.game_deinit.?();
         self.atlas_manager.deinit(self.allocator);
         self.sprite_draws.deinit(self.allocator);
+        self.static_sprite_draws.deinit(self.allocator);
         self.sprite_storage.deinit(self.allocator);
         self.allocator.free(self.sprite_components);
         self.allocator.free(self.entity_transforms);
@@ -478,7 +493,7 @@ pub fn main() !void {
     // Atlas Path Creation
     const atlas_path = try std.fmt.allocPrint(
         allocator,
-        "projects/{s}/assets/cooked/atlases/",
+        cooked_atlases_path,
         .{ proj.parsed.value.name},
     );
     defer allocator.free(atlas_path); 
@@ -493,7 +508,7 @@ pub fn main() !void {
     // Scripts path
     const scripts_path = try std.fmt.allocPrint(
         allocator,
-        "projects/{s}/assets/src/scripts/",
+        src_scripts_path,
         .{ proj.parsed.value.name },
     );
     defer allocator.free(scripts_path);
@@ -622,6 +637,9 @@ pub fn main() !void {
         const atlas_bytes = try atlas_notifier.poll();
         if (atlas_bytes > 0) {
             project_context.atlas_manager.metadata_dirty = true;
+            if (project_context.atlas_manager.manifest) |*m| {
+                m.deinit(allocator);
+            }
         }
 
         if (project_context.atlas_manager.metadata_dirty){
@@ -660,39 +678,63 @@ pub fn main() !void {
                 allocator,
             );
 
-            EditorMoveEntity(
+            const moved = EditorMoveEntity(
                 game_window.raw_input,
                 &select_buffer,
                 &cam,
             );
-        }
 
+            if (moved) {
+                project_context.static_sprite_draws.clearRetainingCapacity();
+                project_context.static_dirty = true;
+            }
+        }
+        
         project_context.sprite_draws.clearRetainingCapacity();
 
         project_context.has_sprite.forEachBitSet(
             struct {
                 list: *std.ArrayList(helper.SpriteDraw),
+                static_list: *std.ArrayList(helper.SpriteDraw),
                 storage: *const std.ArrayList(helper.SpriteDraw),
                 comps: []helper.SpriteSet,
                 alive: *const two_bit,
+                physics: *const two_bit,
                 allocator: std.mem.Allocator,
+                dirty: bool,
 
                 pub fn call(f: @This(), entity: u32) void {
                     if (!f.alive.testBit(entity)) return;
 
-                    const set = f.comps[entity];
-                    const sprites = f.storage.items[set.start .. set.start + set.count];
+                    if (f.dirty and !f.physics.testBit(entity)){
+                        const set = f.comps[entity];
+                        const sprites = f.storage.items[set.start .. set.start + set.count];
 
-                    for (sprites) |*sprite| {
-                        f.list.append(f.allocator, sprite.*) catch unreachable;
+                        for (sprites) |*sprite| {
+                            f.static_list.append(f.allocator, sprite.*) catch unreachable;
+                        }
+                        return;
+                    }
+
+                    if (f.physics.testBit(entity)){
+                    
+                        const set = f.comps[entity];
+                        const sprites = f.storage.items[set.start .. set.start + set.count];
+
+                        for (sprites) |*sprite| {
+                            f.list.append(f.allocator, sprite.*) catch unreachable;
+                        }
                     }
                 }
             }{
                 .list = &project_context.sprite_draws,
+                .static_list = &project_context.static_sprite_draws,
                 .storage = &project_context.sprite_storage,
                 .comps = project_context.sprite_components,
                 .alive = &project_context.alive,
+                .physics = &project_context.physics,
                 .allocator = allocator,
+                .dirty = project_context.static_dirty,
             }
         );
 
@@ -781,7 +823,9 @@ pub fn main() !void {
             &game_window, 
             allocator,
             project_context.sprite_draws.items,
+            project_context.static_sprite_draws.items,
             cam.view_proj,
+            &project_context.static_dirty,
         );
 
         t.FrameCounter();

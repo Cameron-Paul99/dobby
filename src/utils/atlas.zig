@@ -2,6 +2,8 @@ const std = @import("std");
 const utils = @import("utils.zig");
 
 pub const AtlasAliasId_u32 = u32;
+pub const atlas_path = "projects/{s}/cooked/atlases/manifest.json";
+pub const atlas_tmp = "projects/{s}/cooked/atlases/manifest.tmp"; 
 
 pub const Atlas = struct {
     width: u32 = 0,
@@ -51,7 +53,7 @@ pub fn ReadManifest(proj: utils.Project, allocator: std.mem.Allocator) !ParsedMa
 
     const manifest_path = try std.fmt.allocPrint(
         allocator,
-        "projects/{s}/assets/cooked/atlases/manifest.json",
+        atlas_path,
         .{ proj.name },
     );
     defer allocator.free(manifest_path); 
@@ -61,6 +63,7 @@ pub fn ReadManifest(proj: utils.Project, allocator: std.mem.Allocator) !ParsedMa
 
     const file_size = try file.getEndPos();
     const bytes = try allocator.alloc(u8, file_size);
+    errdefer allocator.free(bytes);  
 
     _ = try file.readAll(bytes);
 
@@ -70,7 +73,7 @@ pub fn ReadManifest(proj: utils.Project, allocator: std.mem.Allocator) !ParsedMa
         bytes,
         .{ .ignore_unknown_fields = true },
     );
-errdefer parsed.deinit(); 
+
     return .{
         .parsed = parsed,
         .buffer = bytes,
@@ -82,14 +85,14 @@ pub fn WriteManifest(proj: utils.Project , manifest: Manifest, allocator: std.me
 
     const manifest_path = try std.fmt.allocPrint(
         allocator,
-        "projects/{s}/assets/cooked/atlases/manifest.json",
+        atlas_path,
         .{ proj.name },
     );
     defer allocator.free(manifest_path); 
     //_ = allocator;
     const tmp_path = try std.fmt.allocPrint(
         allocator,
-        "projects/{s}/assets/cooked/atlases/manifest.tmp",
+        atlas_tmp,
         .{ proj.name },
     );
     defer allocator.free(tmp_path);

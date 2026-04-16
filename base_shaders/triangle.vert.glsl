@@ -12,7 +12,7 @@ layout(location = 7) in vec2 uv_max;
 layout(location = 8) in vec4 tint;
 layout(location = 9) in uint atlas_id; 
 
-layout(location = 0) out vec3 frag_color;
+layout(location = 0) out vec4 frag_color;
 layout(location = 1) out vec2 frag_tex_coord;
 layout(location = 2) flat out uint frag_atlas_id;
 
@@ -27,7 +27,7 @@ void main() {
     gl_Position = camera.view_proj * vec4(world, 0.0, 1.0);
 
     //gl_Position = vec4(in_pos, 0.0, 1.0);
-    frag_color = in_color;
+    frag_color =  tint; 
     frag_tex_coord = mix(uv_min, uv_max, in_tex_coord);
     frag_atlas_id = atlas_id;
 }
