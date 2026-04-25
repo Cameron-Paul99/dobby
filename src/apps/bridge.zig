@@ -67,17 +67,15 @@ pub export fn AddForceY(id: u32, y:f32) callconv(.c) void {
 
 pub export fn RemoveEntity(entity: u32) callconv(.c) void {
     const ctx = g_active_ctx;
-
     if (!ctx.alive.testBit(entity)) return;
     ctx.alive.Clear(entity);
-    std.log.info("removing chips", .{});
     ctx.has_sprite.Clear(entity);
+    ctx.sprite_components[entity] = .{};  // ← reset start and count
     if (!ctx.physics.testBit(entity)){
         ResetStatic();
     }else{
         ctx.physics.Clear(entity);
     }
-   
 }
 
 pub export fn AddEntity() callconv(.c) u32 {
@@ -261,7 +259,7 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32, atlas_id: u32)
 }
 
 pub export fn GetAllocator() callconv(.c) *anyopaque {
-    return &g_active_ctx.allocator;
+    return @ptrCast(&editor.g_allocator);
 }
 
 pub export fn SetSpriteWorldPos(entity: u32, index:u32, pos: Position2D) callconv(.c) void {
@@ -422,4 +420,17 @@ pub export fn GetScreenDimensions() ScreenD {
     const ctx = cam_ctx;
     return .{ .w = ctx.screen_w, .h = ctx.screen_h}; 
 
+}
+pub export fn HostLog(msg: [*:0]const u8) callconv(.c) void {
+    std.log.info("{s}", .{msg});
+}
+
+pub export fn HostAlloc(len: usize, log2_align: u8) callconv(.c) ?[*]u8 {
+    const alignment: std.mem.Alignment = @enumFromInt(log2_align);
+    return editor.g_allocator.rawAlloc(len, alignment, @returnAddress());
+}
+
+pub export fn HostFree(ptr: [*]u8, len: usize, log2_align: u8) callconv(.c) void {
+    const alignment: std.mem.Alignment = @enumFromInt(log2_align);
+    editor.g_allocator.rawFree(ptr[0..len], alignment, @returnAddress());
 }

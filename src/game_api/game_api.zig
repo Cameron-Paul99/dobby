@@ -419,14 +419,16 @@ pub const GameAPI = extern struct {
     /// Removes an entity and its associated components.
     remove_entity: *const fn (u32) callconv(.c) void,
 
-    /// Returns the engine allocator as an opaque pointer.
-    get_allocator: *const fn () callconv(.c) *anyopaque,
-
     /// Adds or replaces a 2D transform for an entity.
     add_transform_2D: *const fn (u32, Transform2D) callconv(.c) void,
 
     set_transform: *const fn (u32, Transform2D) callconv(.c) void,
+    
+    log: *const fn ([*:0]const u8) callconv(.c) void,
+    
+    alloc: *const fn (usize, u8) callconv(.c) ?[*]u8,
 
+    free: *const fn ([*]u8, usize, u8) callconv(.c) void,
 };
 
 /// Sprite-related API exposed by the engine.

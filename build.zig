@@ -82,7 +82,8 @@ pub fn build(b: *std.Build) !void {
                 .optimize = optimize,
         }),
     });
-
+    editor_sdl.use_llvm = true;
+    editor_sdl.use_lld = true;
     editor_sdl.root_module.addImport("game_api", game_api_mod);
     editor_sdl.root_module.addImport("engine", engine_mod);
     editor_sdl.root_module.addImport("utils", utils_mod);
@@ -128,7 +129,8 @@ pub fn build(b: *std.Build) !void {
                 .optimize = optimize,
         }),
     });
-
+    game_exe.use_llvm = true;
+    game_exe.use_lld = true;
     game_exe.root_module.addImport("engine", engine_mod);
     game_exe.linkSystemLibrary(vk_lib_name);
     game_exe.addIncludePath(b.path("thirdparty/miniaudio/"));

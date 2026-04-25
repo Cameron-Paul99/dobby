@@ -55,6 +55,9 @@ const src_scripts_build_zig = "projects/{s}/src/scripts/build.zig";
 const src_scripts_game_zig = "projects/{s}/src/scripts/game.zig";
 const scripts_lib_path ="projects/{s}/src/scripts/zig-out/lib/lib{s}_game.so"; 
 
+var g_gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub var g_allocator: std.mem.Allocator = undefined;
+
 fn EditorMoveEntity(
     editor_input: input.RawInput,
     select_buffer: *std.ArrayList(u32),
@@ -156,11 +159,14 @@ pub const ProjectContext = struct {
                 .user_data = null,
                 .add_entity = Bridge.AddEntity,
                 .remove_entity = Bridge.RemoveEntity,
-                .get_allocator = Bridge.GetAllocator,
+               // .get_allocator = Bridge.GetAllocator,
                 .add_transform_2D = Bridge.AddTransform2D,
                 .set_transform = Bridge.SetTransform,
                 .alive = Bridge.Alive,
                 .unalive = Bridge.UnAlive,
+                .log = Bridge.HostLog,
+                .alloc = Bridge.HostAlloc,
+                .free = Bridge.HostFree,
             },
             .physics_api = g_api.PhysicsAPI{
                 .enable_gravity = Bridge.EnableGravity,
@@ -438,9 +444,9 @@ pub fn main() !void {
     var g_t = time.Start();
 
     // Allocator
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    g_allocator = g_gpa.allocator();
+    defer _ = g_gpa.deinit();
+    const allocator = g_allocator;
 
     // Window Creation
     var game_window = try sdl.Window.init(1920, 1080);
