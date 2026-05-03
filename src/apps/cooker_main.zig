@@ -5,6 +5,7 @@ const notify = utils.notify;
 const atlas_mod = utils.atlas;
 
 const tmp_atlas_dir = "zig-out/tmp/atlas_{d}.png";
+const tmp_atlas_dir_sur = "zig-out/tmp";
 const cooked_atlas_dir_tmp = "projects/{s}/cooked/atlases/.atlas_{d}.ktx2.tmp";
 const cooked_atlas_dir_ktx2 = "projects/{s}/cooked/atlases/atlas_{d}.ktx2";
 const src_textures_dir = "projects/{s}/src/textures";
@@ -424,6 +425,9 @@ pub fn main() !void {
 
     var dir = try std.fs.cwd().openDir(texture_path, .{ .iterate = true });
     defer dir.close();
+
+    const tmp_dir_path = std.fs.path.dirname(tmp_atlas_dir_sur) orelse ".";
+    try std.fs.cwd().makePath(tmp_dir_path);
 
     var it = dir.iterate();
 
