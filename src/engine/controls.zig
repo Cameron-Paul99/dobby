@@ -243,6 +243,7 @@ pub fn BuildEditorIntent(
     time: *utils.time,
     game_time: *utils.time,
     reload: *bool,
+    io: std.Io,
 ) void {
 
     const prev_zoom = intent.zoom;
@@ -257,19 +258,19 @@ pub fn BuildEditorIntent(
     if (!gameMode.*){
     if ((input.buttons_pressed & Bit(.p) != 0) and 
         (input.buttons_down & Bit(.ctrl) != 0)){
-            time.PauseCal();
+            time.PauseCal(io);
     }
     
     // Restart
     if ((input.buttons_pressed & Bit(.r) != 0) and 
         (input.buttons_down & Bit(.ctrl) != 0)){
-            time.Restart();
+            time.Restart(io);
     }
     // Hard Restart
     if ((input.buttons_pressed & Bit(.r) != 0) and 
         (input.buttons_down & Bit(.ctrl) != 0) and
         (input.buttons_down & Bit(.alt) != 0)){
-            time.HardRestart();
+            time.HardRestart(io);
             reload.* = true;
     }
     }
@@ -294,12 +295,12 @@ pub fn BuildEditorIntent(
         // Game Pause
         if ((input.buttons_pressed & Bit(.p) != 0) and 
             (input.buttons_down & Bit(.ctrl) != 0)){
-                game_time.PauseCal();
+                game_time.PauseCal(io);
         }
 
         if ((input.buttons_pressed & Bit(.r) != 0) and 
             (input.buttons_down & Bit(.ctrl) != 0)){
-                game_time.Restart();
+                game_time.Restart(io);
         }
 
     }

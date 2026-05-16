@@ -23,8 +23,8 @@ pub const MaterialSystem = struct {
 
     pub fn init() MaterialSystem {
         return .{
-            .templates = .{},
-            .instances = .{},
+            .templates = .empty,
+            .instances = .empty,
         };
     }
 

@@ -28,6 +28,7 @@ const RadiusRender = helper.RadiusRender;
 const SceneManager = utils.scene_manager;
 const Physics = utils.physics;
 const GameInput = input.KeyBoardGameInput;
+const Io = std.Io;
 
 const MAX_ENTITIES: u32 = 100_000;
 const MAX_GAME_MEMORY = 1 * 1024 * 1024; // 1 MB
@@ -55,7 +56,7 @@ const src_scripts_build_zig = "projects/{s}/src/scripts/build.zig";
 const src_scripts_game_zig = "projects/{s}/src/scripts/game.zig";
 const scripts_lib_path ="projects/{s}/src/scripts/zig-out/lib/lib{s}_game.so"; 
 
-var g_gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var g_gpa = std.heap.DebugAllocator(.{}){};
 pub var g_allocator: std.mem.Allocator = undefined;
 
 fn EditorMoveEntity(
@@ -408,7 +409,7 @@ pub const AtlasManager = struct {
 };
 
 fn RebuildScripts(
-    allocator: std.mem.Allocator, 
+    io: Io,
     cwd: []const u8,
     proj_ctx: *ProjectContext) !void {
 
@@ -417,15 +418,17 @@ fn RebuildScripts(
         "build",
     };
 
-    var child = std.process.Child.init(&argv, allocator);
-    child.cwd = cwd;
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
+    var child = try std.process.spawn(io, .{
+        .argv = &argv,
+        .stdin = .ignore,
+        .stdout = .inherit,
+        .stderr = .inherit,
+        .cwd = .{ .path = cwd },
+    });
 
-    const term = try child.spawnAndWait();
+    const term = try child.wait(io);
 
-    if (term != .Exited or term.Exited != 0) {
+    if (term != .exited or term.exited != 0) {
         return error.BuildFailed;
     }
 
@@ -438,10 +441,12 @@ fn RebuildScripts(
 // ****************************************** MAIN *******************************************
 
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
 
-    var t = time.Start();
-    var g_t = time.Start();
+    const io = init.io;
+
+    var t = time.Start(io);
+    var g_t = time.Start(io);
 
     // Allocator
     g_allocator = g_gpa.allocator();
@@ -479,7 +484,7 @@ pub fn main() !void {
     defer select_buffer.deinit(allocator);
 
     // Project
-    var proj = try utils.LoadProject(allocator);
+    var proj = try utils.LoadProject(io , allocator);
     defer proj.deinit(allocator);
 
     std.log.info("Opening project {s}", .{proj.parsed.value.name});
@@ -547,14 +552,14 @@ pub fn main() !void {
     project_context.physics.clearAll();
     project_context.has_sprite.clearAll();
 
-    RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
+    RebuildScripts(io, proj_scripts_path, &project_context) catch |err| {
         std.log.err("Script rebuild failed: {}", .{err});
     };
 
     var reload: bool = false;
 
-    t.HardRestart();
-    g_t.HardRestart();
+    t.HardRestart(io);
+    g_t.HardRestart(io);
 // ****************************************** Rendering START *******************************************
 
     while (!game_window.should_close){
@@ -568,17 +573,18 @@ pub fn main() !void {
             &t,
             &g_t,
             &reload,
+            io,
         );
         if (reload){
             reload = false;
-            RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
+            RebuildScripts(io,proj_scripts_path, &project_context) catch |err| {
                 std.log.err("Script rebuild failed: {}", .{err});
             };
         }
 
-        t.Runnin();
+        t.Runnin(io);
         if (gameMode){
-            g_t.Runnin();
+            g_t.Runnin(io);
             if (!game_window.gameMode) {
                 if (project_context.game_start) |game_start| {
                     game_start();
@@ -635,7 +641,7 @@ pub fn main() !void {
         if (scripts_bytes > 0){
             std.log.info("Rebuilding scripts", .{});
             project_context.sprite_draws.clearRetainingCapacity();
-            RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
+            RebuildScripts(io, proj_scripts_path, &project_context) catch |err| {
                 std.log.err("Script rebuild failed: {}", .{err});
             };
         }

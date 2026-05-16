@@ -9,6 +9,7 @@ pub const mouse = @import("mouse.zig");
 pub const scene_manager = @import("scene.zig");
 pub const physics = @import("physics.zig");
 const std = @import("std");
+const Io = std.Io;
 
 pub const Project = struct {
     name: []const u8,
@@ -25,15 +26,15 @@ pub const ParsedProject = struct {
     }
 };
 
-pub fn LoadProject(allocator: std.mem.Allocator) !ParsedProject{
+pub fn LoadProject(io: Io, allocator: std.mem.Allocator) !ParsedProject{
 
-    const file = try std.fs.cwd().openFile(".active_project.json", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(io ,".active_project.json", .{});
+    defer file.close(io);
 
-    const file_size = try file.getEndPos();
+    const file_size = try file.length(io);
     const bytes = try allocator.alloc(u8, file_size);
 
-    _ = try file.readAll(bytes);
+    _ = file.reader(io, bytes);
 
     const parsed = try std.json.parseFromSlice(
         Project,

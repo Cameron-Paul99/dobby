@@ -3,6 +3,7 @@ const zigimg = @import("zigimg");
 const utils = @import("utils");
 const notify = utils.notify;
 const atlas_mod = utils.atlas;
+const Io = std.Io;
 
 const tmp_atlas_dir = "zig-out/tmp/atlas_{d}.png";
 const tmp_atlas_dir_sur = "zig-out/tmp";
@@ -356,15 +357,16 @@ pub fn AddImageToAtlas(
 //
 // ********************************* SHADERS *****************************************
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+    const io = init.io;
 
     std.log.info("asset cooker has started", .{});
 
-    var proj = try utils.LoadProject(allocator);
+    var proj = try utils.LoadProject(io, allocator);
     defer proj.deinit(allocator);
 
     std.log.info("Cooker in project: {s}", .{proj.parsed.value.name});

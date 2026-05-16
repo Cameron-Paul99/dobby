@@ -88,36 +88,43 @@ pub fn build(b: *std.Build) !void {
     editor_sdl.root_module.addImport("engine", engine_mod);
     editor_sdl.root_module.addImport("utils", utils_mod);
     editor_sdl.root_module.addAnonymousImport("zigimg", .{ .root_source_file = b.path("thirdparty/zigimg/zigimg.zig") }); 
-    editor_sdl.linkSystemLibrary("SDL3");
-    editor_sdl.linkSystemLibrary("ktx");
-    editor_sdl.linkSystemLibrary("z");
+   // editor_sdl.linkSystemLibrary("ktx");
+   // editor_sdl.linkSystemLibrary("z");
+    editor_sdl.root_module.linkSystemLibrary("SDL3", .{});
+    editor_sdl.root_module.linkSystemLibrary("ktx", .{});
+    editor_sdl.root_module.linkSystemLibrary("z", .{});
 
-    editor_sdl.linkSystemLibrary(vk_lib_name);
-    editor_sdl.addIncludePath(.{ .cwd_relative = "thirdparty/sdl3/include" });
-    editor_sdl.addCSourceFile(.{ 
-            .file = b.path("src/engine/vk_mem_alloc.cpp"), 
-            .flags = &[_][]const u8{},
-        }
-    );
-    editor_sdl.addIncludePath(b.path("thirdparty/vma/"));
-    editor_sdl.addIncludePath(b.path("thirdparty/miniaudio/"));
-    editor_sdl.addCSourceFile(.{
+   // editor_sdl.linkSystemLibrary(vk_lib_name);
+    editor_sdl.root_module.linkSystemLibrary(vk_lib_name, .{});
+    editor_sdl.root_module.addIncludePath(.{
+        .cwd_relative = "thirdparty/sdl3/include",
+    });
+
+    editor_sdl.root_module.addCSourceFile(.{
+        .file = b.path("src/engine/vk_mem_alloc.cpp"),
+        .flags = &.{},
+    });
+
+    editor_sdl.root_module.addIncludePath(b.path("thirdparty/vma/"));
+    editor_sdl.root_module.addIncludePath(b.path("thirdparty/miniaudio/"));
+
+    editor_sdl.root_module.addCSourceFile(.{
         .file = b.path("thirdparty/miniaudio/miniaudio.c"),
         .flags = &.{
             "-std=c99",
         },
     });
-    editor_sdl.linkSystemLibrary("pthread");
-    editor_sdl.linkSystemLibrary("m");
-    editor_sdl.linkSystemLibrary("dl");
-    editor_sdl.linkSystemLibrary("asound"); 
-    editor_sdl.linkSystemLibrary("pulse");
+    editor_sdl.root_module.linkSystemLibrary("pthread", .{});
+    editor_sdl.root_module.linkSystemLibrary("m", .{});
+    editor_sdl.root_module.linkSystemLibrary("dl", .{});
+    editor_sdl.root_module.linkSystemLibrary("asound", .{});
+    editor_sdl.root_module.linkSystemLibrary("pulse", .{});
 
-    editor_sdl.linkLibCpp();
+    editor_sdl.root_module.link_libcpp = true;
     
     compile_all_shaders_mod(b, engine_mod);
 
-    editor_sdl.addIncludePath(.{ .cwd_relative = "/usr/include/vulkan/vulkan.h" });
+   // editor_sdl.addIncludePath(.{ .cwd_relative = "/usr/include/vulkan/vulkan.h" });
 
     const game_exe = b.addExecutable(.{
         .name = "Game_Exe",
@@ -132,15 +139,17 @@ pub fn build(b: *std.Build) !void {
     game_exe.use_llvm = true;
     game_exe.use_lld = true;
     game_exe.root_module.addImport("engine", engine_mod);
-    game_exe.linkSystemLibrary(vk_lib_name);
-    game_exe.addIncludePath(b.path("thirdparty/miniaudio/"));
-    game_exe.addIncludePath(.{ .cwd_relative = "thirdparty/sdl3/include" });
-    game_exe.addCSourceFile(.{ .file = b.path("src/engine/vk_mem_alloc.cpp"), .flags = &.{ "" } });
-    game_exe.addIncludePath(b.path("thirdparty/vma/"));
-    game_exe.addIncludePath(.{ .cwd_relative = "/usr/include/vulkan/vulkan.h" });
-    game_exe.linkLibCpp();
-    game_exe.linkSystemLibrary("SDL3");
-    game_exe.linkSystemLibrary("ktx");
+    game_exe.root_module.linkSystemLibrary(vk_lib_name, .{});
+    game_exe.root_module.addIncludePath(b.path("thirdparty/miniaudio/"));
+    game_exe.root_module.addIncludePath(.{
+        .cwd_relative = "thirdparty/sdl3/include",
+    });
+    game_exe.root_module.addIncludePath(b.path("thirdparty/vma/"));
+   // game_exe.addIncludePath(.{ .cwd_relative = "/usr/include/vulkan/vulkan.h" });
+    game_exe.root_module.link_libcpp = true;
+    //game_exe.linkLibCpp();
+    game_exe.root_module.linkSystemLibrary("ktx", .{});
+    game_exe.root_module.linkSystemLibrary("SDL3", .{});
 
     // ---- Install both ----
     b.installArtifact(editor_sdl);
@@ -187,11 +196,11 @@ pub fn build(b: *std.Build) !void {
 }
 
 fn compile_all_shaders_mod(b: *std.Build, mod: *std.Build.Module) void {
-    const shaders_dir = b.build_root.handle.openDir("base_shaders", .{ .iterate = true })
+    const shaders_dir = b.build_root.handle.openDir(b.graph.io, "base_shaders", .{ .iterate = true })
         catch @panic("Failed to open shaders directory");
 
     var it = shaders_dir.iterate();
-    while (it.next() catch @panic("Failed to iterate")) |entry| {
+    while (it.next(b.graph.io) catch @panic("Failed to iterate")) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".glsl")) continue;
 
