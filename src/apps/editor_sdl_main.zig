@@ -85,6 +85,7 @@ fn EditorMoveEntity(
 pub const ProjectContext = struct {
     proj_name: []const u8,
     proj: utils.Project,
+    io: Io,
     game_memory_buffer: []u8,
     game_memory: g_api.GameMemory = undefined,
     allocator: std.mem.Allocator,
@@ -122,6 +123,7 @@ pub const ProjectContext = struct {
     pub fn init(
         allocator: std.mem.Allocator,
         name: []const u8,
+        io: Io,
     ) !ProjectContext{
 
         const path = try std.fmt.allocPrint(
@@ -140,6 +142,7 @@ pub const ProjectContext = struct {
             set.* = .{};
         }
         return .{
+            .io = io,
             .proj_name = name,
             .proj = .{
               .name = "",
@@ -473,7 +476,10 @@ pub fn main(init: std.process.Init) !void {
     var gameMode = false;
     
     // Camera 
-    var cam = Camera.init(@floatFromInt(game_window.screen_width),@floatFromInt(game_window.screen_height)); 
+    var cam = Camera.init(
+        @floatFromInt(game_window.screen_width),
+        @floatFromInt(game_window.screen_height)
+    ); 
 
     // Mouse
     var mouse = Mouse{};
@@ -494,7 +500,13 @@ pub fn main(init: std.process.Init) !void {
     defer core.deinit(allocator);
     
     // Swapchain creation
-    var sc = try swapchain_mod.Swapchain.init(allocator, &core , &game_window, .{.vsync = false}, null);
+    var sc = try swapchain_mod.Swapchain.init(
+        allocator, 
+        &core , 
+        &game_window, 
+        .{.vsync = false}, 
+        null
+    );
     defer sc.deinit(&core, allocator, core.alloc_cb);
     
     // Renderer creation
@@ -538,7 +550,11 @@ pub fn main(init: std.process.Init) !void {
     defer scripts_notifier.deinit(allocator);
 
     // Project context
-    var project_context = try ProjectContext.init(allocator, proj.parsed.value.name);
+    var project_context = try ProjectContext.init(
+        allocator, 
+        proj.parsed.value.name,
+        io,
+    );
     defer project_context.deinit();
 
     Bridge.g_active_ctx = &project_context;
@@ -547,6 +563,7 @@ pub fn main(init: std.process.Init) !void {
     Bridge.mouse_ctx = &mouse;
 
     project_context.proj = proj.parsed.value;
+    project_context.io = io;
 
     project_context.alive.clearAll();
     project_context.physics.clearAll();
@@ -659,7 +676,11 @@ pub fn main(init: std.process.Init) !void {
 
             project_context.atlas_manager.metadata_dirty = false;
 
-            project_context.atlas_manager.manifest = try atlas_mod.ReadManifest(proj.parsed.value, allocator);
+            project_context.atlas_manager.manifest = try atlas_mod.ReadManifest(
+                io,
+                proj.parsed.value, 
+                allocator
+            );
 
             try project_context.atlas_manager.ApplyMetadata(
                 &renderer,
@@ -840,8 +861,8 @@ pub fn main(init: std.process.Init) !void {
             &project_context.static_dirty,
         );
 
-        t.FrameCounter();
-        g_t.FrameCounter();
+        t.FrameCounter(io);
+        g_t.FrameCounter(io);
 
 // ****************************************** Terminal UI *******************************************
         tui.BeginUI();
@@ -853,6 +874,7 @@ pub fn main(init: std.process.Init) !void {
         try tui.UpdateCameraUI(cam.pos.x, cam.pos.y, cam.zoom);
         try tui.UpdateMouseUI(mouse.world_pos.x, mouse.world_pos.y);
         for (select_buffer.items) |selected| {
+           // _ = selected;
             try tui.Selected(
                 selected, 
                 &physics, 
@@ -861,7 +883,7 @@ pub fn main(init: std.process.Init) !void {
                 project_context.entity_transforms[selected]
             );
         }
-        try tui.FlushUI();
+        try tui.FlushUI(io);
 
 
     }

@@ -191,7 +191,13 @@ pub export fn RemovePhysics(id: u32) callconv(.c) void {
 pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32, atlas_id: u32) callconv(.c) void {
 
     const ctx = g_active_ctx;
-    const slot_uv = atlas_mod.GetImageFromAtlas(@intCast(atlas_id), std.mem.span(desc.name), ctx.proj, ctx.allocator) catch |err| {
+    const slot_uv = atlas_mod.GetImageFromAtlas(
+        ctx.io,
+        @intCast(atlas_id), 
+        std.mem.span(desc.name), 
+        ctx.proj, 
+        ctx.allocator,
+    ) catch |err| {
         std.log.err("GetImageFromAtlas failed: {}", .{err});
         return;
     };

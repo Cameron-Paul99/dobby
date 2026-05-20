@@ -52,13 +52,14 @@ pub const Cooker = struct {
     // TODO: Make an Atlas from PNG files 
     pub fn CookTextures(
         self: *Cooker,
+        io: Io,
         proj: utils.Project,
         cooking_packet: CookingPacket,
         new_atlas: bool,
         allocator: std.mem.Allocator) !void {
         
         _ = self;
-        var parsed = try atlas_mod.ReadManifest(proj, allocator);
+        var parsed = try atlas_mod.ReadManifest(io, proj, allocator);
         defer parsed.deinit(allocator);
 
         var maybe_id: ?usize = null;
@@ -88,14 +89,14 @@ pub const Cooker = struct {
 
        @memset(atlas.pixels.?, 0);
 
-       var dir = try std.fs.cwd().openDir(cooking_packet.parent_dir, .{ .iterate = true });
-       defer dir.close();
+       var dir = try std.Io.Dir.cwd().openDir(io, cooking_packet.parent_dir, .{ .iterate = true });
+       defer dir.close(io);
 
        var atlas_imgs: std.ArrayList(atlas_mod.AtlasImage) = try std.ArrayList(atlas_mod.AtlasImage).initCapacity(allocator, 0);
        defer atlas_imgs.deinit(allocator);
 
        var it = dir.iterate();
-       while (try it.next()) |entry| {
+       while (try it.next(io)) |entry| {
             if (entry.kind != .file) continue;
 
             if (std.mem.endsWith(u8, entry.name, ".png")) {
@@ -107,7 +108,7 @@ pub const Cooker = struct {
                 );
                 defer allocator.free(full_png_path);
 
-                const atlas_img = try AddImageToAtlas(&atlas, allocator, full_png_path);
+                const atlas_img = try AddImageToAtlas(io, &atlas, allocator, full_png_path);
 
                 try atlas_imgs.append(allocator , atlas_img);
 
@@ -195,7 +196,7 @@ pub const Cooker = struct {
             id,
         );
 
-         try atlas_mod.WriteManifest(proj, parsed.parsed.value, allocator);
+         try atlas_mod.WriteManifest(io, proj, parsed.parsed.value, allocator);
 
          std.log.info("Manifest is updated", .{});
 
@@ -203,12 +204,13 @@ pub const Cooker = struct {
 };
 
 pub fn RemoveAtlas(
+    io: Io,
     proj: utils.Project,
     allocator: std.mem.Allocator,
     cooking_packet: CookingPacket,
 ) !void {
 
-    var parsed = try atlas_mod.ReadManifest(proj , allocator);
+    var parsed = try atlas_mod.ReadManifest(io , proj , allocator);
     defer parsed.deinit(allocator);
 
     var remove_index: ?usize = null;
@@ -238,7 +240,7 @@ pub fn RemoveAtlas(
     const atlas_path = parsed.parsed.value.atlases[idx].path;
 
     std.log.info("Removing atlas file: {s}", .{atlas_path});
-    std.fs.cwd().deleteFile(atlas_path) catch |err| switch (err) {
+    std.Io.Dir.cwd().deleteFile(io, atlas_path) catch |err| switch (err) {
         error.FileNotFound => {},
         else => return err,
     };
@@ -250,7 +252,7 @@ pub fn RemoveAtlas(
 
     std.log.info("Removing atlas file: {s}", .{ removed.path });
 
-    std.fs.cwd().deleteFile(removed.path) catch |err| switch (err) {
+    std.Io.Dir.cwd().deleteFile(io,removed.path) catch |err| switch (err) {
         error.FileNotFound => {},
         else => return err,
     };
@@ -263,7 +265,7 @@ pub fn RemoveAtlas(
     // shrink slice
     atlases.* = atlases.*[0..last];
 
-    try atlas_mod.WriteManifest(proj, parsed.parsed.value, allocator);
+    try atlas_mod.WriteManifest(io, proj, parsed.parsed.value, allocator);
 
     std.log.info("Atlas id {d} removed", .{id});
 }
@@ -271,29 +273,31 @@ pub fn RemoveAtlas(
 
 
 pub fn AddImageToAtlas(
+    io: std.Io,
     atlas: *atlas_mod.Atlas,
     allocator: std.mem.Allocator,
     path: []const u8,
 ) !atlas_mod.AtlasImage {
 
 
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
 
-    const file_size = try file.getEndPos();
+    const file_size = try file.length(io);
 
     const read_buf = try allocator.alloc(u8, file_size);
     defer allocator.free(read_buf);
 
-    _ = try file.readAll(read_buf);
+    _ = file.reader(io, read_buf);
 
-    const filename = std.fs.path.basename(path); 
-    const stem = std.fs.path.stem(filename);
+    const filename = std.Io.Dir.path.basename(path); 
+    const stem = std.Io.Dir.path.stem(filename);
     const name = try allocator.dupe(u8, stem);
 
     //// ---- load image ----
     var img = try zigimg.Image.fromFilePath(
         allocator,
+        io,
         path,
         read_buf,
     );
@@ -387,7 +391,7 @@ pub fn main(init: std.process.Init) !void {
     //defer shader_notifier.deinit(allocator);
 
     var cooker = Cooker{};
-    var file: std.fs.File = undefined;
+    var file: std.Io.File = undefined;
 
     const atlas_manifest_path = try std.fmt.allocPrint(
         allocator,
@@ -397,13 +401,19 @@ pub fn main(init: std.process.Init) !void {
     defer allocator.free(atlas_manifest_path);
     
     //const proj_name = proj.parsed.value.name;
-     file = std.fs.cwd().openFile(atlas_manifest_path, .{}) catch |err| switch (err){
+     file = std.Io.Dir.cwd().openFile(
+         io,
+         atlas_manifest_path, 
+         .{}
+      ) catch |err| switch (err){
         error.FileNotFound => blk: {
-            try std.fs.cwd().makePath(
+            try std.Io.Dir.cwd().createDirPath(
+                io,
                 std.fs.path.dirname(atlas_manifest_path).?
             );
 
-            var new_file = try std.fs.cwd().createFile(
+            var new_file = try std.Io.Dir.cwd().createFile(
+                io,
                 atlas_manifest_path,
                 .{ .truncate = true },
             );
@@ -415,7 +425,7 @@ pub fn main(init: std.process.Init) !void {
                 \\}
             ;
 
-            try new_file.writeAll(json_text);
+            try new_file.writeStreamingAll(io, json_text);
             break :blk new_file;
         },
         else => return err,
@@ -423,17 +433,21 @@ pub fn main(init: std.process.Init) !void {
     };
 
 
-    defer file.close();
+    defer file.close(io);
 
-    var dir = try std.fs.cwd().openDir(texture_path, .{ .iterate = true });
-    defer dir.close();
+    var dir = try std.Io.Dir.cwd().openDir(
+        io,
+        texture_path, 
+        .{ .iterate = true }
+    );
+    defer dir.close(io);
 
     const tmp_dir_path = std.fs.path.dirname(tmp_atlas_dir_sur) orelse ".";
-    try std.fs.cwd().makePath(tmp_dir_path);
+    try std.Io.Dir.cwd().createDirPath(io, tmp_dir_path);
 
     var it = dir.iterate();
 
-    while(try it.next()) |entry| {
+    while(try it.next(io)) |entry| {
 
         if (entry.kind != .directory) continue;
 
@@ -513,7 +527,7 @@ pub fn main(init: std.process.Init) !void {
                         const cooking_packet = try FileUpdated( allocator, &texture_notifier, ev, );
                         defer allocator.free(cooking_packet.file_path);
 
-                        try RemoveAtlas(proj.parsed.value , allocator, cooking_packet);
+                        try RemoveAtlas(io, proj.parsed.value , allocator, cooking_packet);
 
 
                     },
@@ -524,7 +538,7 @@ pub fn main(init: std.process.Init) !void {
                         defer allocator.free(cooking_packet.file_path);
 
                         std.log.info("File written: {s}", .{cooking_packet.file_path});
-                        try cooker.CookTextures(proj.parsed.value, cooking_packet, false ,allocator);
+                        try cooker.CookTextures(io , proj.parsed.value, cooking_packet, false ,allocator);
                     },
 
                     .FileDeleted => {

@@ -95,7 +95,7 @@ pub const Inotify = struct {
             if (maybe_path) |p| allocator.free(p);
         }
         self.wd_paths.deinit(allocator);
-        _ = std.posix.close(self.fd);
+        //std.posix.close(self.fd.handle);
     }
 
 };

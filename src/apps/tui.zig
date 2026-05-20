@@ -8,39 +8,48 @@ const Physics = utils.physics;
 var child: ?std.process.Child = undefined;
 
 fn writeLine(
-    writer: anytype,
+    w: *std.Io.Writer,
     key: []const u8,
     comptime fmt: []const u8,
     args: anytype,
 ) !void {
-    try writer.print("{s:<18}: ", .{key});
-    try writer.print(fmt, args);
-    try writer.writeByte('\n');
+    try w.print("{s:<18}: ", .{key});
+    try w.print(fmt, args);
+    try w.writeByte('\n');
 }
 
 var ui_buffer: [8192]u8 = undefined;
-var ui_stream = std.io.fixedBufferStream(&ui_buffer);
+var writer : std.Io.Writer = .fixed(&ui_buffer); 
 
 pub fn BeginUI() void {
-    ui_stream.reset();
+   // ui_stream.reset();
+ //  writer.undo
+    writer = .fixed(&ui_buffer);
 }
 
-pub fn main() !void {
-    var file = std.fs.cwd().openFile("debug.txt", .{ .mode = .read_write }) catch |err| switch (err) {
+pub fn main(init: std.process.Init) !void {
+
+    const io = init.io;
+
+    var file = std.Io.Dir.cwd().openFile(
+        io,
+        "debug.txt", 
+        .{ .mode = .read_write }
+        ) catch |err| switch (err) {
         error.FileNotFound => blk: {
-            var new_file = try std.fs.cwd().createFile("debug.txt", .{
+            var new_file = try std.Io.Dir.cwd().createFile(io, "debug.txt", .{
                 .read = true,
                 .truncate = true,
             });
-            try new_file.writeAll("Editor\n");
+            try new_file.writeStreamingAll(io,"Editor\n");
             break :blk new_file;
         },
         else => return err,
     };
-    defer file.close();
+    defer file.close(io);
 
-    child = std.process.Child.init(
-        &[_][]const u8{
+    child = try std.process.spawn(io, .{
+        .argv = &[_][]const u8{
             "ghostty",
             "-e",
             "watch",
@@ -49,41 +58,42 @@ pub fn main() !void {
             "cat",
             "debug.txt",
         },
-        std.heap.page_allocator,
-    ); 
-
-    child.?.stdin_behavior = .Inherit;
-    child.?.stdout_behavior = .Inherit;
-    child.?.stderr_behavior = .Inherit;
-
-    try child.?.spawn();
-    try file.setEndPos(0);
-    try file.seekTo(0);
+        .stdin = .inherit,
+        .stdout = .inherit,
+        .stderr = .inherit
+    }); 
+    var file_reader = file.reader(io, &ui_buffer);
+    //_ = file_reader;
+    try file.setLength(io, 0);
+    try file_reader.seekTo(0);
 
 }
 
 pub fn UpdateMouseUI(x: f32, y: f32) !void {
-    const writer = ui_stream.writer();
     try writer.writeAll("=== MOUSE =================================================\n");
-    try writeLine(writer, "world_pos", "(x: {d:.2}, y: {d:.2})", .{ x, y });
+    try writeLine(&writer, "world_pos", "(x: {d:.2}, y: {d:.2})", .{ x, y });
     try writer.writeByte('\n');
 }
 
 pub fn UpdateCameraUI(x: f32, y: f32, zoom: f32) !void {
-    const writer = ui_stream.writer();
     try writer.writeAll("=== CAMERA ================================================\n");
-    try writeLine(writer, "camera_loc", "(x: {d:.2}, y: {d:.2}, zoom: {d:.2})", .{ x, y, zoom });
+    try writeLine(&writer, "camera_loc", "(x: {d:.2}, y: {d:.2}, zoom: {d:.2})", .{ x, y, zoom });
     try writer.writeByte('\n');
 }
 
-pub fn FlushUI() !void {
-    var file = try std.fs.cwd().openFile("debug.txt", .{ .mode = .read_write });
-    defer file.close();
+pub fn FlushUI(io: std.Io) !void {
+    var file = try std.Io.Dir.cwd().openFile(
+        io,
+        "debug.txt", 
+        .{ .mode = .read_write }
+    );
+    defer file.close(io);
 
-    try file.setEndPos(0);
-    try file.seekTo(0);
-    try file.writeAll(ui_stream.getWritten());
-    try file.sync();
+    try file.setLength(io , 0);
+    var file_reader = file.reader(io, &ui_buffer);
+    try file_reader.seekTo(0);
+    try file.writeStreamingAll(io, &ui_buffer);
+    try file.sync(io);
 }
 
 pub fn UpdateEngineUI(
@@ -93,13 +103,12 @@ pub fn UpdateEngineUI(
     game_mode: bool) !void {
     
     // FPS
-    const writer = ui_stream.writer();
     try writer.writeAll("=== Engine ================================================\n");
-    try writeLine(writer, "FPS", "({d:.2})", .{ fps });
-    try writeLine(writer, "Frame", "({d:.2} ms)", .{1000.0 / fps});
-    try writeLine(writer, "Editor Time", "({d:.2})", .{ editor_time });
-    try writeLine(writer, "Game Time", "({d:.2})", .{ game_time });
-    try writeLine(writer, "Mode", "({s})", .{
+    try writeLine(&writer, "FPS", "({d:.2})", .{ fps });
+    try writeLine(&writer, "Frame", "({d:.2} ms)", .{1000.0 / fps});
+    try writeLine(&writer, "Editor Time", "({d:.2})", .{ editor_time });
+    try writeLine(&writer, "Game Time", "({d:.2})", .{ game_time });
+    try writeLine(&writer, "Mode", "({s})", .{
         if (game_mode) "GAME" else "EDITOR"
     }); 
     try writer.writeByte('\n');
@@ -112,21 +121,20 @@ pub fn Selected(
     sprite: *two_bit,
     transform: Transform2D,
     ) !void{
-    const writer = ui_stream.writer();
     try writer.writeAll("=== Selected Entity ================================================\n");
-    try writeLine(writer, "Entity", "({d})", .{ entity });
-    try writeLine(writer, "Position", "(x: {d:.2}, y: {d:.2})", .{transform.position.x, transform.position.y});
-    try writeLine(writer, "Scale", "(x: {d:.2}, y: {d:.2})", .{transform.scale.x, transform.scale.y});
-    try writeLine(writer, "Rotation", "(x: {d:.2}, y: {d:.2})", .{transform.rotation.x, transform.rotation.y});
-    try writeLine(writer, "Physics", "({s})", .{ 
+    try writeLine(&writer, "Entity", "({d})", .{ entity });
+    try writeLine(&writer, "Position", "(x: {d:.2}, y: {d:.2})", .{transform.position.x, transform.position.y});
+    try writeLine(&writer, "Scale", "(x: {d:.2}, y: {d:.2})", .{transform.scale.x, transform.scale.y});
+    try writeLine(&writer, "Rotation", "(x: {d:.2}, y: {d:.2})", .{transform.rotation.x, transform.rotation.y});
+    try writeLine(&writer, "Physics", "({s})", .{ 
         if (has_physics.testBit(entity)) "ENABLED" else "DISABLED" 
     });  
     
-    try writeLine(writer, "Gravity", "({s})", .{ 
+    try writeLine(&writer, "Gravity", "({s})", .{ 
         if (physics.gravity_bits.testBit(entity)) "ENABLED" else "DISABLED" 
     }); 
 
-    try writeLine(writer, "Has Sprite", "({s})", .{ 
+    try writeLine(&writer, "Has Sprite", "({s})", .{ 
         if (sprite.testBit(entity)) "Yes" else "No" 
     }); 
 

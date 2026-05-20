@@ -82,8 +82,8 @@ pub fn build(b: *std.Build) !void {
                 .optimize = optimize,
         }),
     });
-    editor_sdl.use_llvm = true;
-    editor_sdl.use_lld = true;
+  //  editor_sdl.use_llvm = true;
+ //   editor_sdl.use_lld = true;
     editor_sdl.root_module.addImport("game_api", game_api_mod);
     editor_sdl.root_module.addImport("engine", engine_mod);
     editor_sdl.root_module.addImport("utils", utils_mod);
@@ -124,37 +124,13 @@ pub fn build(b: *std.Build) !void {
     
     compile_all_shaders_mod(b, engine_mod);
 
-   // editor_sdl.addIncludePath(.{ .cwd_relative = "/usr/include/vulkan/vulkan.h" });
-
-    const game_exe = b.addExecutable(.{
-        .name = "Game_Exe",
-        .root_module = b.addModule(
-            "Game_Exe",
-            .{
-                .root_source_file = b.path("src/apps/game_main.zig"),
-                .target = target,
-                .optimize = optimize,
-        }),
-    });
-    game_exe.use_llvm = true;
-    game_exe.use_lld = true;
-    game_exe.root_module.addImport("engine", engine_mod);
-    game_exe.root_module.linkSystemLibrary(vk_lib_name, .{});
-    game_exe.root_module.addIncludePath(b.path("thirdparty/miniaudio/"));
-    game_exe.root_module.addIncludePath(.{
-        .cwd_relative = "thirdparty/sdl3/include",
-    });
-    game_exe.root_module.addIncludePath(b.path("thirdparty/vma/"));
-   // game_exe.addIncludePath(.{ .cwd_relative = "/usr/include/vulkan/vulkan.h" });
-    game_exe.root_module.link_libcpp = true;
-    //game_exe.linkLibCpp();
-    game_exe.root_module.linkSystemLibrary("ktx", .{});
-    game_exe.root_module.linkSystemLibrary("SDL3", .{});
+    editor_sdl.root_module.addIncludePath(.{ .cwd_relative = "/usr/include/vulkan/vulkan.h" });
+  //  _ = asset_cooker;
 
     // ---- Install both ----
     b.installArtifact(editor_sdl);
-    b.installArtifact(asset_cooker);
-    b.installArtifact(game_exe);
+  //  b.installArtifact(asset_cooker);
+ //   b.installArtifact(game_exe);
     b.installFile("Slot.ktx2", "Slot.ktx2");
 
     // ---- Run steps (stand-alone) ----
@@ -163,10 +139,10 @@ pub fn build(b: *std.Build) !void {
     const run_editor_step = b.step("run_editor", "Run the SDL editor");
     run_editor_step.dependOn(&run_editor_cmd.step);
 
-    const run_cooker_cmd = b.addRunArtifact(asset_cooker);
-    run_cooker_cmd.step.dependOn(b.getInstallStep());
-    const run_cooker_step = b.step("run_cooker", "Run the asset cooker");
-    run_cooker_step.dependOn(&run_cooker_cmd.step);
+  //  const run_cooker_cmd = b.addRunArtifact(asset_cooker);
+ //   run_cooker_cmd.step.dependOn(b.getInstallStep());
+ //   const run_cooker_step = b.step("run_cooker", "Run the asset cooker");
+  //  run_cooker_step.dependOn(&run_cooker_cmd.step);
 
     const setup_cmd = b.addRunArtifact(setup_exe);
     setup_cmd.step.dependOn(b.getInstallStep());
@@ -181,17 +157,17 @@ pub fn build(b: *std.Build) !void {
     // Run All
     const run_all_bg = b.addSystemCommand(&.{
         "bash", "-c",
-        "trap 'kill 0' EXIT; zig build run_cooker & PID1=$!; zig build run_editor & PID2=$!; zig build tui & PID3=$!; wait $PID1 $PID2 $PID3",
+        "trap 'kill 0' EXIT; zig build run_editor & PID2=$!; zig build tui & PID3=$!; wait $PID2 $PID3",
     }); 
 
     const run_dev = b.step("run_dev", "Run cooker + editor concurrently");
     run_dev.dependOn(&run_all_bg.step); 
 
     // Run the game
-    const game_cmd = b.addRunArtifact(game_exe);
-    game_cmd.step.dependOn(b.getInstallStep());
-    const game_step = b.step("game", "build game");
-    game_step.dependOn(&game_cmd.step);
+//    const game_cmd = b.addRunArtifact(game_exe);
+//    game_cmd.step.dependOn(b.getInstallStep());
+//    const game_step = b.step("game", "build game");
+//    game_step.dependOn(&game_cmd.step);
 
 }
 

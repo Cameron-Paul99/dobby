@@ -34,7 +34,7 @@ pub fn LoadProject(io: Io, allocator: std.mem.Allocator) !ParsedProject{
     const file_size = try file.length(io);
     const bytes = try allocator.alloc(u8, file_size);
 
-    _ = file.reader(io, bytes);
+    _ = try file.readPositionalAll(io, bytes, 0);
 
     const parsed = try std.json.parseFromSlice(
         Project,
