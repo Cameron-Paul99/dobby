@@ -44,6 +44,7 @@ const GameUpdateFn = *const fn (f64) callconv(.c) void;
 const GameInputPressedFn = *const fn (u8) callconv(.c) void;
 const GameInputDownFn = *const fn (u8) callconv(.c) void;
 const GameInputUpFn = *const fn (u8) callconv(.c) void;
+const GameInputHeldFn = *const fn (u8) callconv(.c) void;
 const GameStartFn = *const fn () callconv(.c) void;
 const GameDeinitFn = *const fn () callconv(.c) void;
 
@@ -189,6 +190,11 @@ pub const ProjectContext = struct {
                 .get_camera_world_pos = Bridge.GetCameraWorldPosition,
                 .get_camera_zoom = Bridge.GetCameraZoom,
                 .get_screen_dimensions = Bridge.GetScreenDimensions,
+                .zoom = Bridge.Zoom,
+                .get_raw_mouse_location = Bridge.GetRawMouseLocation,
+                .move_screen_2D = Bridge.MoveScreen2D,
+                .get_drag_start = Bridge.GetDragStart,
+                .set_drag_start = Bridge.SetDragStart,
             },
             .mouse_api = g_api.MouseAPI {
                 .set_mouse_world_pos = Bridge.SetMouseWorldPosition,
@@ -226,6 +232,10 @@ pub const ProjectContext = struct {
                  .game_input_up = lib.lookup(
                     GameInputDownFn,
                     "game_input_up"),
+                 .game_input_held = lib.lookup(
+                    GameInputHeldFn,
+                    "game_input_held"
+                 ),
             },
             .game_deinit = lib.lookup(GameDeinitFn, "game_deinit"),
             .sprite_draws = try std.ArrayList(helper.SpriteDraw)
@@ -288,12 +298,17 @@ pub const ProjectContext = struct {
             GameInputUpFn,
             "game_input_up");
 
+        self.game_input.game_input_held = self.lib.?.lookup(
+            GameInputUpFn,
+            "game_input_held");
+
         if (self.game_init == null) return error.MissingGameInit;
         if (self.game_update == null) return error.MissingGameUpdate;
         if (self.game_start == null) return error.MissingGameStart;
         if (self.game_input.game_input_down == null) return error.MissingGameInputDown;
         if (self.game_input.game_input_pressed == null) return error.MissingGameInputPressed;
         if (self.game_input.game_input_up == null) return error.MissingGameInputUp;
+        if (self.game_input.game_input_held == null) return error.MissingGameInputHeld;
 
         self.game_init.?(
             &self.game_api, 
@@ -577,11 +592,23 @@ pub fn main(init: std.process.Init) !void {
 
     t.HardRestart(io);
     g_t.HardRestart(io);
-// ****************************************** Rendering START *******************************************
+
+// ****************************************** Rendering START *************************************
 
     while (!game_window.should_close){
         
         game_window.pollEvents(&renderer, &project_context.game_input);
+
+        if (gameMode) {
+            if (project_context.game_input.game_input_held) |held_fn| {
+                var bits = game_window.raw_input.buttons_down;
+                while (bits != 0) {
+                    const bit_index = @ctz(bits);
+                    held_fn(bit_index);
+                    bits &= bits - 1; // clear lowest set bit
+                }
+            }
+        }
 
         input.BuildEditorIntent( 
             &editor_input,
@@ -614,7 +641,7 @@ pub fn main(init: std.process.Init) !void {
             }
         }
 
-// ****************************************** CAMERA UPDATING *******************************************
+// ****************************************** CAMERA UPDATING **************************************
         if (!gameMode){
 
             cam.UpdateCameraAttributes(
@@ -626,7 +653,7 @@ pub fn main(init: std.process.Init) !void {
 
             cam.UpdateCameraAttributes(
                 cam.zoom, 
-                editor_input.drag_delta
+                cam.delta,
             );
         }
 
@@ -635,7 +662,7 @@ pub fn main(init: std.process.Init) !void {
             @floatFromInt(game_window.screen_height),
         );
 
-// ****************************************** MOUSE UPDATING *******************************************
+// ****************************************** MOUSE UPDATING ***************************************
         mouse.Update(
             game_window.raw_input.mouse_pos,
             &cam,
@@ -643,7 +670,7 @@ pub fn main(init: std.process.Init) !void {
             @floatFromInt(game_window.screen_height),
         );
 
-// ****************************************** PROJECT UPDATING *******************************************
+// ****************************************** PROJECT UPDATING *************************************
         if (project_context.game_update) |game_update| {
 
             if (!t.pause and !gameMode) {

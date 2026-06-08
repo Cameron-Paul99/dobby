@@ -8,6 +8,7 @@ const ProjectContext = editor.ProjectContext;
 const Physics = utils.physics;
 const Camera = utils.camera;
 const Mouse = utils.mouse;
+const Math = utils.math;
 const atlas_mod = utils.atlas;
 const Transform2D = g_api.Transform2D;
 const Position2D = g_api.Position2D;
@@ -439,4 +440,28 @@ pub export fn HostAlloc(len: usize, log2_align: u8) callconv(.c) ?[*]u8 {
 pub export fn HostFree(ptr: [*]u8, len: usize, log2_align: u8) callconv(.c) void {
     const alignment: std.mem.Alignment = @enumFromInt(log2_align);
     editor.g_allocator.rawFree(ptr[0..len], alignment, @returnAddress());
+}
+
+pub export fn MoveScreen2D(pos: Position2D, speed: f32) callconv(.c) void {
+    cam_ctx.delta = Math.Vec2.Make(
+        -pos.x,
+        -pos.y,
+    ).Mul(speed);
+}
+
+pub export fn Zoom(delta: f32, speed: f32) callconv(.c) void { 
+    cam_ctx.zoom *= std.math.pow(f32, speed, delta);
+    cam_ctx.zoom = std.math.clamp(cam_ctx.zoom, 0.13, 5.0);
+}
+
+pub export fn GetRawMouseLocation() callconv(.c) Position2D{
+    return .{ .x = mouse_ctx.sdl_pos.x, .y = mouse_ctx.sdl_pos.y};
+}
+
+pub export fn SetDragStart(pos: Position2D) callconv(.c) void {
+    cam_ctx.drag_start = Math.Vec2.Make( pos.x, pos.y); 
+}
+
+pub export fn GetDragStart() callconv(.c) Position2D{
+    return .{.x = cam_ctx.drag_start.x, .y = cam_ctx.drag_start.y};
 }

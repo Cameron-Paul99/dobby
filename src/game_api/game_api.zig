@@ -504,6 +504,16 @@ pub const Camera2DAPI = extern struct {
     move_camera_horizontal: *const fn (f32, f32) callconv(.c) void,
 
     get_screen_dimensions: *const fn () callconv(.c) ScreenD,
+
+    zoom: *const fn (f32, f32) callconv(.c) void,
+
+    get_raw_mouse_location: *const fn () callconv(.c) Position2D, // TODO: move to mouse api
+
+    move_screen_2D: *const fn (Position2D, f32) callconv(.c) void,
+
+    get_drag_start: *const fn () callconv(.c) Position2D,
+
+    set_drag_start: *const fn (Position2D) callconv(.c) void,
 };
 
 /// Mouse helpers exposed by the engine.

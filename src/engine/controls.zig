@@ -19,6 +19,7 @@ pub const KeyBoardGameInput = struct {
     game_input_pressed: ?*const fn (u8) callconv(.c) void,
     game_input_down: ?*const fn (u8) callconv(.c) void,
     game_input_up: ?*const fn (u8) callconv(.c) void,
+    game_input_held: ?*const fn (u8) callconv(.c) void, 
 };
 
 pub const EditorIntent = struct {
