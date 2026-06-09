@@ -59,6 +59,7 @@ const scripts_lib_path ="projects/{s}/src/scripts/zig-out/lib/lib{s}_game.so";
 
 var g_gpa = std.heap.DebugAllocator(.{}){};
 pub var g_allocator: std.mem.Allocator = undefined;
+//pub const global_io: Io = undefined;
 
 fn EditorMoveEntity(
     editor_input: input.RawInput,
@@ -172,6 +173,8 @@ pub const ProjectContext = struct {
                 .log = Bridge.HostLog,
                 .alloc = Bridge.HostAlloc,
                 .free = Bridge.HostFree,
+                .save_game = Bridge.SaveGame,
+                .load_game = Bridge.LoadGame,
             },
             .physics_api = g_api.PhysicsAPI{
                 .enable_gravity = Bridge.EnableGravity,
@@ -462,7 +465,7 @@ fn RebuildScripts(
 pub fn main(init: std.process.Init) !void {
 
     const io = init.io;
-
+    //global_io = io;
     var t = time.Start(io);
     var g_t = time.Start(io);
 

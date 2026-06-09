@@ -465,3 +465,46 @@ pub export fn SetDragStart(pos: Position2D) callconv(.c) void {
 pub export fn GetDragStart() callconv(.c) Position2D{
     return .{.x = cam_ctx.drag_start.x, .y = cam_ctx.drag_start.y};
 }
+
+pub export fn SaveGame(
+    bytes: [*]const u8,
+    len: usize,
+    path: [*:0]const u8,
+) callconv(.c) void {
+
+    const p = std.mem.span(path);
+    const data = bytes[0..len];
+
+    const file = std.Io.Dir.cwd().createFile(g_active_ctx.io, p, .{ .truncate = true }) catch |err| {
+        std.log.err("SaveGame failed: {}", .{err});
+        return;
+    };
+
+    defer file.close(g_active_ctx.io);
+    file.writeStreamingAll(g_active_ctx.io, data) catch |err| {
+        std.log.err("SaveGame write failed: {}", .{err});
+    };
+}
+
+pub export fn LoadGame(
+    path: [*:0]const u8,
+    out_len: *usize,
+    max_size: usize,
+) callconv(.c) ?[*]u8 {
+
+    const p = std.mem.span(path);
+    const file = std.Io.Dir.cwd().openFile(g_active_ctx.io, p, .{}) catch |err| {
+        std.log.err("LoadGame open failed: {}", .{err});
+        return null;
+    };
+
+    defer file.close(g_active_ctx.io);
+    var file_reader = file.reader(g_active_ctx.io, &.{});
+    const contents = file_reader.interface.allocRemaining(editor.g_allocator, .limited(max_size)) catch |err| {
+        std.log.err("LoadGame read failed: {}", .{err});
+        return null;
+    };
+
+    out_len.* = contents.len;
+    return contents.ptr;
+}

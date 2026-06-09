@@ -429,6 +429,10 @@ pub const GameAPI = extern struct {
     alloc: *const fn (usize, u8) callconv(.c) ?[*]u8,
 
     free: *const fn ([*]u8, usize, u8) callconv(.c) void,
+
+    save_game: *const fn ([*]const u8, usize, [*:0]const u8) callconv(.c) void,
+
+    load_game: *const fn ([*:0]const u8, *usize, usize) callconv(.c) ?[*]u8,
 };
 
 /// Sprite-related API exposed by the engine.
