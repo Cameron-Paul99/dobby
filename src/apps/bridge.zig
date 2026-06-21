@@ -2,9 +2,10 @@ const std = @import("std");
 const g_api = @import("game_api");
 const utils = @import("utils");
 const editor = @import("editor_sdl_main.zig");
+const game = @import("game_main.zig");
 const engine = @import("engine");
 const ProjectContext = editor.ProjectContext;
-
+const time = utils.time;
 const Physics = utils.physics;
 const Camera = utils.camera;
 const Mouse = utils.mouse;
@@ -24,6 +25,7 @@ pub var g_active_ctx: *ProjectContext = undefined;
 pub var physics_ctx: *Physics = undefined;
 pub var cam_ctx: *Camera = undefined;
 pub var mouse_ctx: *Mouse = undefined;
+pub var g_t: *time = undefined;
 
 const MAX_SPRITES_PER_ENTITY = 50;
 
@@ -265,10 +267,6 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32, atlas_id: u32)
     });
 }
 
-pub export fn GetAllocator() callconv(.c) *anyopaque {
-    return @ptrCast(&editor.g_allocator);
-}
-
 pub export fn SetSpriteWorldPos(entity: u32, index:u32, pos: Position2D) callconv(.c) void {
     _ = entity;
     _ = pos;
@@ -434,12 +432,14 @@ pub export fn HostLog(msg: [*:0]const u8) callconv(.c) void {
 
 pub export fn HostAlloc(len: usize, log2_align: u8) callconv(.c) ?[*]u8 {
     const alignment: std.mem.Alignment = @enumFromInt(log2_align);
-    return editor.g_allocator.rawAlloc(len, alignment, @returnAddress());
+    const allocator = if (game.is_active) game.g_allocator else editor.g_allocator;
+    return allocator.rawAlloc(len, alignment, @returnAddress());
 }
 
 pub export fn HostFree(ptr: [*]u8, len: usize, log2_align: u8) callconv(.c) void {
     const alignment: std.mem.Alignment = @enumFromInt(log2_align);
-    editor.g_allocator.rawFree(ptr[0..len], alignment, @returnAddress());
+    const allocator = if (game.is_active) game.g_allocator else editor.g_allocator;
+    allocator.rawFree(ptr[0..len], alignment, @returnAddress());
 }
 
 pub export fn MoveScreen2D(pos: Position2D, speed: f32) callconv(.c) void {
@@ -500,7 +500,7 @@ pub export fn LoadGame(
 
     defer file.close(g_active_ctx.io);
     var file_reader = file.reader(g_active_ctx.io, &.{});
-    const contents = file_reader.interface.allocRemaining(editor.g_allocator, .limited(max_size)) catch |err| {
+    const contents = file_reader.interface.allocRemaining( if (game.is_active) game.g_allocator else editor.g_allocator, .limited(max_size)) catch |err| {
         std.log.err("LoadGame read failed: {}", .{err});
         return null;
     };
@@ -508,3 +508,10 @@ pub export fn LoadGame(
     out_len.* = contents.len;
     return contents.ptr;
 }
+
+pub export fn PlayPause() callconv(.c) bool {
+   g_t.*.PauseCal(g_active_ctx.io);
+   return g_t.*.pause;
+}
+
+

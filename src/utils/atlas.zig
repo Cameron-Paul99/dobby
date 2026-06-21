@@ -88,7 +88,45 @@ pub fn ReadManifest(
     };
 
 }
+pub fn ReadManifestGame(
+    io: std.Io,
+    proj: []const u8, 
+    allocator: std.mem.Allocator
+) !ParsedManifest{
 
+    const manifest_path = try std.fmt.allocPrint(
+        allocator,
+        atlas_path,
+        .{ proj },
+    );
+    defer allocator.free(manifest_path); 
+
+    const file = try std.Io.Dir.cwd().openFile(
+        io, 
+        manifest_path, 
+        .{}
+    );
+    defer file.close(io);
+
+    const file_size = try file.length(io); 
+    const bytes = try allocator.alloc(u8, file_size);
+    errdefer allocator.free(bytes);  
+
+    _ = try file.readPositionalAll(io, bytes, 0); 
+
+    const parsed = try std.json.parseFromSlice(
+        Manifest,
+        allocator,
+        bytes,
+        .{ .ignore_unknown_fields = true },
+    );
+
+    return .{
+        .parsed = parsed,
+        .buffer = bytes,
+    };
+
+}
 pub fn WriteManifest(
     io: std.Io,
     proj: utils.Project , 

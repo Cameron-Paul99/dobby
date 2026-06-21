@@ -5,6 +5,7 @@ const zigimg = @import("zigimg");
 const g_api = @import("game_api");
 const tui = @import("tui.zig");
 const Bridge = @import("bridge.zig");
+const game = @import("game_main.zig");
 const core_mod = engine.core;
 const swapchain_mod = engine.swapchain;
 const render = engine.renderer;
@@ -59,6 +60,7 @@ const scripts_lib_path ="projects/{s}/src/scripts/zig-out/lib/lib{s}_game.so";
 
 var g_gpa = std.heap.DebugAllocator(.{}){};
 pub var g_allocator: std.mem.Allocator = undefined;
+
 //pub const global_io: Io = undefined;
 
 fn EditorMoveEntity(
@@ -170,6 +172,7 @@ pub const ProjectContext = struct {
                 .set_transform = Bridge.SetTransform,
                 .alive = Bridge.Alive,
                 .unalive = Bridge.UnAlive,
+                .pause_play = Bridge.PlayPause,
                 .log = Bridge.HostLog,
                 .alloc = Bridge.HostAlloc,
                 .free = Bridge.HostFree,
@@ -421,7 +424,10 @@ pub const AtlasManager = struct {
     }
 
     pub fn deinit(self: *AtlasManager, allocator: std.mem.Allocator) void{
-        self.manifest.?.deinit(allocator);
+        if (self.manifest) |*man| {
+            man.deinit(allocator);
+        }
+       // self.manifest.?.deinit(allocator);
         self.manifest = null;
         self.atlas_list.deinit(allocator);
 
@@ -429,7 +435,7 @@ pub const AtlasManager = struct {
 
 };
 
-fn RebuildScripts(
+pub fn RebuildScripts(
     io: Io,
     cwd: []const u8,
     proj_ctx: *ProjectContext) !void {
@@ -579,6 +585,7 @@ pub fn main(init: std.process.Init) !void {
     project_context.game_api.user_data = Bridge.g_active_ctx;
     Bridge.cam_ctx = &cam;
     Bridge.mouse_ctx = &mouse;
+    Bridge.g_t = &g_t;
 
     project_context.proj = proj.parsed.value;
     project_context.io = io;

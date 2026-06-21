@@ -82,19 +82,27 @@ pub fn build(b: *std.Build) !void {
                 .optimize = optimize,
         }),
     });
-  //  editor_sdl.use_llvm = true;
- //   editor_sdl.use_lld = true;
+    const game_exe = b.addExecutable(.{
+        .name = "Game",
+        .root_module = b.addModule(
+            "Game",
+            .{
+                .root_source_file = b.path("src/apps/game_main.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+    });
+
+
+
     editor_sdl.root_module.addImport("game_api", game_api_mod);
     editor_sdl.root_module.addImport("engine", engine_mod);
     editor_sdl.root_module.addImport("utils", utils_mod);
     editor_sdl.root_module.addAnonymousImport("zigimg", .{ .root_source_file = b.path("thirdparty/zigimg/zigimg.zig") }); 
-   // editor_sdl.linkSystemLibrary("ktx");
-   // editor_sdl.linkSystemLibrary("z");
     editor_sdl.root_module.linkSystemLibrary("SDL3", .{});
     editor_sdl.root_module.linkSystemLibrary("ktx", .{});
     editor_sdl.root_module.linkSystemLibrary("z", .{});
 
-   // editor_sdl.linkSystemLibrary(vk_lib_name);
     editor_sdl.root_module.linkSystemLibrary(vk_lib_name, .{});
     editor_sdl.root_module.addIncludePath(.{
         .cwd_relative = "thirdparty/sdl3/include",
@@ -125,12 +133,46 @@ pub fn build(b: *std.Build) !void {
     compile_all_shaders_mod(b, engine_mod);
 
     editor_sdl.root_module.addIncludePath(.{ .cwd_relative = "/usr/include/vulkan/vulkan.h" });
+
+
+    game_exe.root_module.addImport("game_api", game_api_mod);
+    game_exe.root_module.addImport("engine", engine_mod);
+    game_exe.root_module.addImport("utils", utils_mod);
+    game_exe.root_module.addAnonymousImport("zigimg", .{ .root_source_file = b.path("thirdparty/zigimg/zigimg.zig") }); 
+    game_exe.root_module.linkSystemLibrary("SDL3", .{});
+    game_exe.root_module.linkSystemLibrary("ktx", .{});
+    game_exe.root_module.linkSystemLibrary("z", .{});
+    game_exe.root_module.linkSystemLibrary(vk_lib_name, .{});
+    game_exe.root_module.addIncludePath(.{
+        .cwd_relative = "thirdparty/sdl3/include",
+    });
+    game_exe.root_module.addCSourceFile(.{
+        .file = b.path("src/engine/vk_mem_alloc.cpp"),
+        .flags = &.{},
+    });
+    game_exe.root_module.addIncludePath(b.path("thirdparty/vma/"));
+    game_exe.root_module.addIncludePath(b.path("thirdparty/miniaudio/"));
+    game_exe.root_module.addCSourceFile(.{
+        .file = b.path("thirdparty/miniaudio/miniaudio.c"),
+        .flags = &.{
+            "-std=c99",
+        },
+    });
+    game_exe.root_module.linkSystemLibrary("pthread", .{});
+    game_exe.root_module.linkSystemLibrary("m", .{});
+    game_exe.root_module.linkSystemLibrary("dl", .{});
+    game_exe.root_module.linkSystemLibrary("asound", .{});
+    game_exe.root_module.linkSystemLibrary("pulse", .{});
+    game_exe.root_module.link_libcpp = true;
+
+
+
   //  _ = asset_cooker;
 
     // ---- Install both ----
     b.installArtifact(editor_sdl);
   //  b.installArtifact(asset_cooker);
- //   b.installArtifact(game_exe);
+    b.installArtifact(game_exe);
     b.installFile("Slot.ktx2", "Slot.ktx2");
 
     // ---- Run steps (stand-alone) ----
@@ -163,11 +205,25 @@ pub fn build(b: *std.Build) !void {
     const run_dev = b.step("run_dev", "Run cooker + editor concurrently");
     run_dev.dependOn(&run_all_bg.step); 
 
-    // Run the game
-//    const game_cmd = b.addRunArtifact(game_exe);
-//    game_cmd.step.dependOn(b.getInstallStep());
-//    const game_step = b.step("game", "build game");
-//    game_step.dependOn(&game_cmd.step);
+const project_name = b.option([]const u8, "project", "Project name") orelse "loa";
+
+const options = b.addOptions();
+options.addOption([]const u8, "project_name", project_name);
+game_exe.root_module.addOptions("build_options", options);
+
+const install_assets = b.addInstallDirectory(.{
+    .source_dir = b.path(b.fmt("projects/{s}/cooked/atlases", .{project_name})),
+    .install_dir = .bin,
+    .install_subdir = "atlases",
+});
+
+game_exe.step.dependOn(&install_assets.step);
+
+const game_cmd = b.addRunArtifact(game_exe);
+game_cmd.step.dependOn(b.getInstallStep());
+
+const game_step = b.step("game", "build and run game");
+game_step.dependOn(&game_cmd.step);
 
 }
 

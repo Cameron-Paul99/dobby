@@ -416,6 +416,8 @@ pub const GameAPI = extern struct {
 
     unalive: *const fn (u32) callconv(.c) void,
 
+    pause_play: *const fn () callconv(.c) bool,
+
     /// Removes an entity and its associated components.
     remove_entity: *const fn (u32) callconv(.c) void,
 

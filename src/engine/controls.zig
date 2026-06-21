@@ -259,7 +259,7 @@ pub fn BuildEditorIntent(
     if (!gameMode.*){
     if ((input.buttons_pressed & Bit(.p) != 0) and 
         (input.buttons_down & Bit(.ctrl) != 0)){
-            time.PauseCal(io);
+           _ = time.PauseCal(io);
     }
     
     // Restart
@@ -296,7 +296,7 @@ pub fn BuildEditorIntent(
         // Game Pause
         if ((input.buttons_pressed & Bit(.p) != 0) and 
             (input.buttons_down & Bit(.ctrl) != 0)){
-                game_time.PauseCal(io);
+               _ = game_time.PauseCal(io);
         }
 
         if ((input.buttons_pressed & Bit(.r) != 0) and 
