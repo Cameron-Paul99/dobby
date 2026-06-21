@@ -31,8 +31,9 @@ const Physics = utils.physics;
 const GameInput = input.KeyBoardGameInput;
 const Io = std.Io;
 
-const MAX_ENTITIES: u32 = 100_000;
+const MAX_ENTITIES: u32 = 40_000;
 const MAX_GAME_MEMORY = 1 * 1024 * 1024; // 1 MB
+pub var is_active = false; 
                                          
 const GameInitFn   = *const fn (
     *g_api.GameAPI, 
@@ -586,6 +587,7 @@ pub fn main(init: std.process.Init) !void {
     Bridge.cam_ctx = &cam;
     Bridge.mouse_ctx = &mouse;
     Bridge.g_t = &g_t;
+    Bridge.game_active = false;
 
     project_context.proj = proj.parsed.value;
     project_context.io = io;

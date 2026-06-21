@@ -127,6 +127,7 @@ pub fn main(init: std.process.Init) !void {
     Bridge.cam_ctx = &cam;
     Bridge.mouse_ctx = &mouse;
     Bridge.g_t = &g_t;
+    Bridge.game_active = true;
 
     project_context.io = io;
 

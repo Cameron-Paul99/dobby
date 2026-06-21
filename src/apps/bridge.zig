@@ -26,6 +26,7 @@ pub var physics_ctx: *Physics = undefined;
 pub var cam_ctx: *Camera = undefined;
 pub var mouse_ctx: *Mouse = undefined;
 pub var g_t: *time = undefined;
+pub var game_active = false;
 
 const MAX_SPRITES_PER_ENTITY = 50;
 
@@ -194,16 +195,33 @@ pub export fn RemovePhysics(id: u32) callconv(.c) void {
 pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32, atlas_id: u32) callconv(.c) void {
 
     const ctx = g_active_ctx;
-    const slot_uv = atlas_mod.GetImageFromAtlas(
-        ctx.io,
-        @intCast(atlas_id), 
-        std.mem.span(desc.name), 
-        ctx.proj, 
-        ctx.allocator,
-    ) catch |err| {
-        std.log.err("GetImageFromAtlas failed: {}", .{err});
-        return;
-    };
+    
+    var slot_uv: ?atlas_mod.AtlasImage = null;
+
+    if (!game_active){
+        slot_uv = atlas_mod.GetImageFromAtlas(
+            ctx.io,
+            @intCast(atlas_id), 
+            std.mem.span(desc.name), 
+            ctx.proj, 
+            ctx.allocator,
+        ) catch |err| {
+            std.log.err("GetImageFromAtlas failed: {}", .{err});
+            return;
+        };
+    }else{
+        slot_uv = atlas_mod.GetImageFromAtlasGame(
+            ctx.io,
+            @intCast(atlas_id), 
+            std.mem.span(desc.name), 
+            ctx.proj_name, 
+            ctx.allocator,
+        ) catch |err| {
+            std.log.err("GetImageFromAtlas failed: {}", .{err});
+            return;
+        };
+    }
+
     if (slot_uv != null) {
         ctx.allocator.free(slot_uv.?.name);
     }
@@ -432,13 +450,13 @@ pub export fn HostLog(msg: [*:0]const u8) callconv(.c) void {
 
 pub export fn HostAlloc(len: usize, log2_align: u8) callconv(.c) ?[*]u8 {
     const alignment: std.mem.Alignment = @enumFromInt(log2_align);
-    const allocator = if (game.is_active) game.g_allocator else editor.g_allocator;
+    const allocator = if (game_active) game.g_allocator else editor.g_allocator;
     return allocator.rawAlloc(len, alignment, @returnAddress());
 }
 
 pub export fn HostFree(ptr: [*]u8, len: usize, log2_align: u8) callconv(.c) void {
     const alignment: std.mem.Alignment = @enumFromInt(log2_align);
-    const allocator = if (game.is_active) game.g_allocator else editor.g_allocator;
+    const allocator = if (game_active) game.g_allocator else editor.g_allocator;
     allocator.rawFree(ptr[0..len], alignment, @returnAddress());
 }
 
@@ -500,7 +518,7 @@ pub export fn LoadGame(
 
     defer file.close(g_active_ctx.io);
     var file_reader = file.reader(g_active_ctx.io, &.{});
-    const contents = file_reader.interface.allocRemaining( if (game.is_active) game.g_allocator else editor.g_allocator, .limited(max_size)) catch |err| {
+    const contents = file_reader.interface.allocRemaining( if (game_active) game.g_allocator else editor.g_allocator, .limited(max_size)) catch |err| {
         std.log.err("LoadGame read failed: {}", .{err});
         return null;
     };

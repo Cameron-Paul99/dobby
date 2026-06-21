@@ -94,7 +94,6 @@ pub fn build(b: *std.Build) !void {
     });
 
 
-
     editor_sdl.root_module.addImport("game_api", game_api_mod);
     editor_sdl.root_module.addImport("engine", engine_mod);
     editor_sdl.root_module.addImport("utils", utils_mod);
@@ -134,7 +133,7 @@ pub fn build(b: *std.Build) !void {
 
     editor_sdl.root_module.addIncludePath(.{ .cwd_relative = "/usr/include/vulkan/vulkan.h" });
 
-
+    game_exe.root_module.strip = true;
     game_exe.root_module.addImport("game_api", game_api_mod);
     game_exe.root_module.addImport("engine", engine_mod);
     game_exe.root_module.addImport("utils", utils_mod);
@@ -205,25 +204,97 @@ pub fn build(b: *std.Build) !void {
     const run_dev = b.step("run_dev", "Run cooker + editor concurrently");
     run_dev.dependOn(&run_all_bg.step); 
 
-const project_name = b.option([]const u8, "project", "Project name") orelse "loa";
+    const project_name = b.option([]const u8, "project", "Project name") orelse "loa";
 
-const options = b.addOptions();
-options.addOption([]const u8, "project_name", project_name);
-game_exe.root_module.addOptions("build_options", options);
+    const options = b.addOptions();
+    options.addOption([]const u8, "project_name", project_name);
+    game_exe.root_module.addOptions("build_options", options);
 
-const install_assets = b.addInstallDirectory(.{
-    .source_dir = b.path(b.fmt("projects/{s}/cooked/atlases", .{project_name})),
-    .install_dir = .bin,
-    .install_subdir = "atlases",
-});
 
-game_exe.step.dependOn(&install_assets.step);
+   // const install_dir = std.Build.InstallDir{ .custom = project_name };
+    const version = b.option([]const u8, "version", "Build version") orelse "1";
+    const release_dir = b.fmt("{s}_v{s}", .{project_name, version});
 
-const game_cmd = b.addRunArtifact(game_exe);
-game_cmd.step.dependOn(b.getInstallStep());
+    const install_exe = b.addInstallArtifact(game_exe, .{
+        .dest_dir = .{ 
+            .override = .{
+                .custom = release_dir,
+            },
+        },
+    });
 
-const game_step = b.step("game", "build and run game");
-game_step.dependOn(&game_cmd.step);
+
+    const install_assets = b.addInstallDirectory(.{
+        .source_dir = b.path(b.fmt("projects/{s}/cooked/atlases", .{project_name})),
+        .install_dir = .{ .custom = release_dir },
+        .install_subdir = b.fmt("projects/{s}/cooked/atlases", .{project_name}),
+    });
+
+ //   const install_lib_dir = b.addInstallDirectory(.{
+ //       .source_dir = b.path(b.fmt("projects/{s}/src/scripts/zig-out/lib", .{project_name})),
+ //       .install_dir = .{ .custom = release_dir },
+ //      .install_subdir = b.fmt("projects/{s}/src/scripts/zig-out/lib", .{project_name}),
+ //   });
+
+  // const stripped_so = b.fmt("{s}/lib/lib{s}_game.so", .{release_dir, project_name});
+  // const lib_path = b.path(b.fmt("projects/{s}/src/scripts/zig-out/lib/lib{s}_game.so", .{project_name, project_name})); 
+ //  const strip_lib = b.addSystemCommand(&.{
+  //      "strip",
+ //       "--strip-all",
+ //       "-o",
+ //       b.fmt("zig-out/{s}/{s}", .{release_dir , lib_path}),
+ //       b.fmt("projects/{s}/src/scripts/zig-out/lib/lib{s}_game.so", .{project_name, project_name}),
+ //   });
+
+ //  const install_lib = b.addInstallFile(
+ //       .{ .cwd_relative = b.fmt("zig-out/{s}/{s}", .{release_dir}, lib_path) },
+ //       stripped_so,
+//    ); 
+
+//    install_lib.step.dependOn(&strip_lib.step);
+//
+
+    const so_name = b.fmt("lib{s}_game.so", .{project_name});
+    const so_src = b.fmt("projects/{s}/src/scripts/zig-out/lib/lib{s}_game.so", .{project_name, project_name});
+    const so_dst = b.fmt("zig-out/{s}/projects/{s}/src/scripts/zig-out/lib/lib{s}_game.so", .{release_dir, project_name, project_name});
+
+    const mkdir = b.addSystemCommand(&.{
+        "mkdir", "-p",
+        b.fmt("zig-out/{s}/projects/{s}/src/scripts/zig-out/lib", .{release_dir, project_name}),
+    });
+
+    const strip_lib = b.addSystemCommand(&.{
+        "strip",
+        "--strip-all",
+        "-o",
+        so_dst,
+        so_src,
+    });
+    strip_lib.step.dependOn(&mkdir.step);
+
+    const install_lib = b.addInstallFile(
+        .{ .cwd_relative = so_dst },
+        b.fmt("{s}/projects/{s}/src/scripts/zig-out/lib/{s}", .{release_dir, project_name, so_name}),
+    );
+install_lib.step.dependOn(&strip_lib.step);
+
+    const install_slot_ktx = b.addInstallFile(
+        b.path("Slot.ktx2"),
+        b.fmt("{s}/Slot.ktx2", .{release_dir}),
+    );
+
+    const game_cmd = b.addRunArtifact(game_exe);
+    game_cmd.step.dependOn(b.getInstallStep());
+
+    game_cmd.step.dependOn(&install_exe.step);
+    game_cmd.step.dependOn(&install_assets.step);
+    game_cmd.step.dependOn(&install_lib.step);
+    //game_cmd.step.dependOn(&install_lib_dir.step);
+    game_cmd.step.dependOn(&install_slot_ktx.step);
+
+
+    const game_step = b.step("game", "build and run game");
+    game_step.dependOn(&game_cmd.step);
 
 }
 

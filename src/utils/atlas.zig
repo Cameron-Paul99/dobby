@@ -260,3 +260,29 @@ pub fn GetImageFromAtlas(
 
     return null;
 }
+
+pub fn GetImageFromAtlasGame(
+    io: std.Io,
+    atlas_id: usize,
+    name: []const u8,
+    proj: []const u8,
+    allocator: std.mem.Allocator,
+) !?AtlasImage {
+
+    var manifest = try ReadManifestGame(io, proj, allocator);
+    defer manifest.deinit(allocator);
+
+    const atlas = &manifest.parsed.value.atlases[atlas_id];
+
+    for (atlas.atlas_imgs) |entry| {
+        if (std.mem.eql(u8, name, entry.name)) {
+            return AtlasImage{
+                .name = try allocator.dupe(u8, entry.name),
+                .uv_min = entry.uv_min,
+                .uv_max = entry.uv_max,
+            };
+        }
+    }
+
+    return null;
+}

@@ -173,7 +173,7 @@ pub const Renderer = struct {
             core,
             allocator,
             helper.KtxColorSpace.srgb,
-            "zig-out/Slot.ktx2",
+            "Slot.ktx2",
         );
 
         try text.CreateTextureImageView(core, &renderer.default_tex);
