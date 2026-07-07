@@ -164,7 +164,12 @@ pub fn build(b: *std.Build) !void {
     game_exe.root_module.linkSystemLibrary("pulse", .{});
     game_exe.root_module.link_libcpp = true;
 
-
+    if (target.result.os.tag == .macos) {
+        game_exe.root_module.linkSystemLibrary("MoltenVK", .{});
+        game_exe.root_module.addRPath(.{ .cwd_relative = "/usr/local/lib" });
+        editor_sdl.root_module.linkSystemLibrary("MoltenVK", .{});
+        editor_sdl.root_module.addRPath(.{ .cwd_relative = "/usr/local/lib" });
+    }
 
   //  _ = asset_cooker;
 
