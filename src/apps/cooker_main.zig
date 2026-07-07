@@ -176,7 +176,6 @@ pub const Cooker = struct {
             .stdin = .inherit,
             .stdout = .inherit,
             .stderr = .inherit,
-            //.cwd = .{ .path = cwd },
         });
 
         const term = try child.wait(io);
