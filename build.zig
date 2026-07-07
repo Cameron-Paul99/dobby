@@ -170,7 +170,7 @@ pub fn build(b: *std.Build) !void {
 
     // ---- Install both ----
     b.installArtifact(editor_sdl);
-  //  b.installArtifact(asset_cooker);
+    b.installArtifact(asset_cooker);
     b.installArtifact(game_exe);
     b.installFile("Slot.ktx2", "Slot.ktx2");
 
@@ -180,10 +180,10 @@ pub fn build(b: *std.Build) !void {
     const run_editor_step = b.step("run_editor", "Run the SDL editor");
     run_editor_step.dependOn(&run_editor_cmd.step);
 
-  //  const run_cooker_cmd = b.addRunArtifact(asset_cooker);
- //   run_cooker_cmd.step.dependOn(b.getInstallStep());
- //   const run_cooker_step = b.step("run_cooker", "Run the asset cooker");
-  //  run_cooker_step.dependOn(&run_cooker_cmd.step);
+    const run_cooker_cmd = b.addRunArtifact(asset_cooker);
+    run_cooker_cmd.step.dependOn(b.getInstallStep());
+    const run_cooker_step = b.step("run_cooker", "Run the asset cooker");
+    run_cooker_step.dependOn(&run_cooker_cmd.step);
 
     const setup_cmd = b.addRunArtifact(setup_exe);
     setup_cmd.step.dependOn(b.getInstallStep());

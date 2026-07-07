@@ -145,7 +145,7 @@ pub const Cooker = struct {
         );
         defer allocator.free(png_path);
 
-       try img.writeToFilePath(allocator , png_path, write_buffer, .{ .png = .{} });
+       try img.writeToFilePath(allocator ,io ,png_path, write_buffer, .{ .png = .{} });
 
        const ktx_tmp_path = try std.fmt.allocPrint(
             allocator,
@@ -170,19 +170,22 @@ pub const Cooker = struct {
             png_path,
         };
 
-        var child = std.process.Child.init(&argv, allocator);
-        child.stdin_behavior = .Inherit;
-        child.stdout_behavior = .Inherit;
-        child.stderr_behavior = .Inherit;
 
-        const term = try child.spawnAndWait();
+        var child = try std.process.spawn(io, .{
+            .argv = &argv,
+            .stdin = .inherit,
+            .stdout = .inherit,
+            .stderr = .inherit,
+            //.cwd = .{ .path = cwd },
+        });
 
-        try std.fs.cwd().rename(ktx_tmp_path, ktx_final_path);
-
-       switch (term) {
-            .Exited => |code| if (code != 0) return error.ToktxFailed,
-            else => return error.ToktxCrashed,
-        } 
+        const term = try child.wait(io);
+       // try std.Io.Dir.rename
+        try std.Io.Dir.renameAbsolute( ktx_tmp_path ,ktx_final_path, io);
+        if (term != .exited or term.exited != 0) {
+             return error.BuildFailed;
+         }
+   
         std.log.info("Finished adding atlas to atlas file", .{});
 
         std.log.info("Updating texture manifest", .{});
