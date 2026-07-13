@@ -114,6 +114,13 @@ pub const Core = struct {
             ext_names[ext_count] =  "VK_EXT_debug_utils";
             ext_count += 1;
         }
+        
+        if (is_macos) {
+            ext_names[ext_count] = "VK_KHR_portability_enumeration";
+            ext_count += 1;
+            ext_names[ext_count] = "VK_KHR_get_physical_device_properties2";
+            ext_count += 1;
+        }
 
         // Create App info and Instance info
         const app_info = c.VkApplicationInfo{
@@ -155,10 +162,15 @@ pub const Core = struct {
         // Creating Physical Device
         var physical_device_count: u32 = undefined;
 
-        const required_device_extensions: []const [*c]const u8 = &.{
+        const required_device_extensions: []const [*c]const u8 = if (is_macos) &.{
             "VK_KHR_swapchain",
-            "VK_KHR_synchronization2",      // cleaner pipeline barriers
-            "VK_KHR_timeline_semaphore",    // compute/graphics synchronization
+            "VK_KHR_synchronization2",
+            "VK_KHR_timeline_semaphore",
+            "VK_KHR_portability_subset", // required for MoltenVK
+        } else &.{
+            "VK_KHR_swapchain",
+            "VK_KHR_synchronization2",
+            "VK_KHR_timeline_semaphore",
         };
 
         self.physical_device.required_extensions = required_device_extensions;

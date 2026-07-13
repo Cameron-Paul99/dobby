@@ -140,9 +140,9 @@ pub const Renderer = struct {
             .material_system = material_system,
             .upload_context = .{},
             .vma = vma,
-            .sprite_draws = .{},
+            .sprite_draws = .empty,
             .static_sprite_draws = try std.ArrayListUnmanaged(helper.SpriteDraw).initCapacity(allocator, 0),
-            .atlas_textures = .{},
+            .atlas_textures = .empty,
             .cam = GPUCameraData{
                 .view_proj = math.Ortho(
                     0.0, @floatFromInt(window.screen_width),
@@ -173,7 +173,7 @@ pub const Renderer = struct {
             core,
             allocator,
             helper.KtxColorSpace.srgb,
-            "zig-out/Slot.ktx2",
+            "Slot.ktx2",
         );
 
         try text.CreateTextureImageView(core, &renderer.default_tex);

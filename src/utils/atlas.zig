@@ -49,7 +49,11 @@ pub const ParsedManifest = struct {
     }
 };
 
-pub fn ReadManifest(proj: utils.Project, allocator: std.mem.Allocator) !ParsedManifest{
+pub fn ReadManifest(
+    io: std.Io,
+    proj: utils.Project, 
+    allocator: std.mem.Allocator
+) !ParsedManifest{
 
     const manifest_path = try std.fmt.allocPrint(
         allocator,
@@ -58,14 +62,18 @@ pub fn ReadManifest(proj: utils.Project, allocator: std.mem.Allocator) !ParsedMa
     );
     defer allocator.free(manifest_path); 
 
-    const file = try std.fs.cwd().openFile(manifest_path, .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(
+        io, 
+        manifest_path, 
+        .{}
+    );
+    defer file.close(io);
 
-    const file_size = try file.getEndPos();
+    const file_size = try file.length(io); 
     const bytes = try allocator.alloc(u8, file_size);
     errdefer allocator.free(bytes);  
 
-    _ = try file.readAll(bytes);
+    _ = try file.readPositionalAll(io, bytes, 0); 
 
     const parsed = try std.json.parseFromSlice(
         Manifest,
@@ -80,8 +88,51 @@ pub fn ReadManifest(proj: utils.Project, allocator: std.mem.Allocator) !ParsedMa
     };
 
 }
+pub fn ReadManifestGame(
+    io: std.Io,
+    proj: []const u8, 
+    allocator: std.mem.Allocator
+) !ParsedManifest{
 
-pub fn WriteManifest(proj: utils.Project , manifest: Manifest, allocator: std.mem.Allocator) !void {
+    const manifest_path = try std.fmt.allocPrint(
+        allocator,
+        atlas_path,
+        .{ proj },
+    );
+    defer allocator.free(manifest_path); 
+
+    const file = try std.Io.Dir.cwd().openFile(
+        io, 
+        manifest_path, 
+        .{}
+    );
+    defer file.close(io);
+
+    const file_size = try file.length(io); 
+    const bytes = try allocator.alloc(u8, file_size);
+    errdefer allocator.free(bytes);  
+
+    _ = try file.readPositionalAll(io, bytes, 0); 
+
+    const parsed = try std.json.parseFromSlice(
+        Manifest,
+        allocator,
+        bytes,
+        .{ .ignore_unknown_fields = true },
+    );
+
+    return .{
+        .parsed = parsed,
+        .buffer = bytes,
+    };
+
+}
+pub fn WriteManifest(
+    io: std.Io,
+    proj: utils.Project , 
+    manifest: Manifest, 
+    allocator: std.mem.Allocator
+) !void {
 
     const manifest_path = try std.fmt.allocPrint(
         allocator,
@@ -104,12 +155,13 @@ pub fn WriteManifest(proj: utils.Project , manifest: Manifest, allocator: std.me
     );
     defer allocator.free(json_text);
 
-    var tmp_file = try std.fs.cwd().createFile(tmp_path, .{ .truncate = true });
-    defer tmp_file.close();
+    var tmp_file = try std.Io.Dir.cwd().createFile(io, tmp_path, .{ .truncate = true });
+    defer tmp_file.close(io);
 
-    try tmp_file.writeAll(json_text);
-    try tmp_file.sync();
-    try std.fs.cwd().rename(tmp_path, manifest_path); 
+    try tmp_file.writeStreamingAll(io, json_text);
+    try tmp_file.sync(io);
+    const cwd = std.Io.Dir.cwd();
+    try std.Io.Dir.rename(cwd, tmp_path, cwd, manifest_path, io); 
 }
 
 pub fn AddAtlasToManifest(
@@ -184,13 +236,40 @@ pub fn ComputeUVs(
 }
 
 pub fn GetImageFromAtlas(
+    io: std.Io,
     atlas_id: usize,
     name: []const u8,
     proj: utils.Project,
     allocator: std.mem.Allocator,
 ) !?AtlasImage {
 
-    var manifest = try ReadManifest(proj, allocator);
+    var manifest = try ReadManifest(io, proj, allocator);
+    defer manifest.deinit(allocator);
+
+    const atlas = &manifest.parsed.value.atlases[atlas_id];
+
+    for (atlas.atlas_imgs) |entry| {
+        if (std.mem.eql(u8, name, entry.name)) {
+            return AtlasImage{
+                .name = try allocator.dupe(u8, entry.name),
+                .uv_min = entry.uv_min,
+                .uv_max = entry.uv_max,
+            };
+        }
+    }
+
+    return null;
+}
+
+pub fn GetImageFromAtlasGame(
+    io: std.Io,
+    atlas_id: usize,
+    name: []const u8,
+    proj: []const u8,
+    allocator: std.mem.Allocator,
+) !?AtlasImage {
+
+    var manifest = try ReadManifestGame(io, proj, allocator);
     defer manifest.deinit(allocator);
 
     const atlas = &manifest.parsed.value.atlases[atlas_id];

@@ -5,6 +5,7 @@ const zigimg = @import("zigimg");
 const g_api = @import("game_api");
 const tui = @import("tui.zig");
 const Bridge = @import("bridge.zig");
+const game = @import("game_main.zig");
 const core_mod = engine.core;
 const swapchain_mod = engine.swapchain;
 const render = engine.renderer;
@@ -28,9 +29,11 @@ const RadiusRender = helper.RadiusRender;
 const SceneManager = utils.scene_manager;
 const Physics = utils.physics;
 const GameInput = input.KeyBoardGameInput;
+const Io = std.Io;
 
-const MAX_ENTITIES: u32 = 100_000;
+const MAX_ENTITIES: u32 = 40_000;
 const MAX_GAME_MEMORY = 1 * 1024 * 1024; // 1 MB
+pub var is_active = false; 
                                          
 const GameInitFn   = *const fn (
     *g_api.GameAPI, 
@@ -43,6 +46,7 @@ const GameUpdateFn = *const fn (f64) callconv(.c) void;
 const GameInputPressedFn = *const fn (u8) callconv(.c) void;
 const GameInputDownFn = *const fn (u8) callconv(.c) void;
 const GameInputUpFn = *const fn (u8) callconv(.c) void;
+const GameInputHeldFn = *const fn (u8) callconv(.c) void;
 const GameStartFn = *const fn () callconv(.c) void;
 const GameDeinitFn = *const fn () callconv(.c) void;
 
@@ -54,6 +58,11 @@ const src_scripts_path = "projects/{s}/src/scripts/";
 const src_scripts_build_zig = "projects/{s}/src/scripts/build.zig";
 const src_scripts_game_zig = "projects/{s}/src/scripts/game.zig";
 const scripts_lib_path ="projects/{s}/src/scripts/zig-out/lib/lib{s}_game.so"; 
+
+var g_gpa = std.heap.DebugAllocator(.{}){};
+pub var g_allocator: std.mem.Allocator = undefined;
+
+//pub const global_io: Io = undefined;
 
 fn EditorMoveEntity(
     editor_input: input.RawInput,
@@ -81,6 +90,7 @@ fn EditorMoveEntity(
 pub const ProjectContext = struct {
     proj_name: []const u8,
     proj: utils.Project,
+    io: Io,
     game_memory_buffer: []u8,
     game_memory: g_api.GameMemory = undefined,
     allocator: std.mem.Allocator,
@@ -118,6 +128,7 @@ pub const ProjectContext = struct {
     pub fn init(
         allocator: std.mem.Allocator,
         name: []const u8,
+        io: Io,
     ) !ProjectContext{
 
         const path = try std.fmt.allocPrint(
@@ -136,6 +147,7 @@ pub const ProjectContext = struct {
             set.* = .{};
         }
         return .{
+            .io = io,
             .proj_name = name,
             .proj = .{
               .name = "",
@@ -156,11 +168,17 @@ pub const ProjectContext = struct {
                 .user_data = null,
                 .add_entity = Bridge.AddEntity,
                 .remove_entity = Bridge.RemoveEntity,
-                .get_allocator = Bridge.GetAllocator,
+               // .get_allocator = Bridge.GetAllocator,
                 .add_transform_2D = Bridge.AddTransform2D,
                 .set_transform = Bridge.SetTransform,
                 .alive = Bridge.Alive,
                 .unalive = Bridge.UnAlive,
+                .pause_play = Bridge.PlayPause,
+                .log = Bridge.HostLog,
+                .alloc = Bridge.HostAlloc,
+                .free = Bridge.HostFree,
+                .save_game = Bridge.SaveGame,
+                .load_game = Bridge.LoadGame,
             },
             .physics_api = g_api.PhysicsAPI{
                 .enable_gravity = Bridge.EnableGravity,
@@ -179,6 +197,11 @@ pub const ProjectContext = struct {
                 .get_camera_world_pos = Bridge.GetCameraWorldPosition,
                 .get_camera_zoom = Bridge.GetCameraZoom,
                 .get_screen_dimensions = Bridge.GetScreenDimensions,
+                .zoom = Bridge.Zoom,
+                .get_raw_mouse_location = Bridge.GetRawMouseLocation,
+                .move_screen_2D = Bridge.MoveScreen2D,
+                .get_drag_start = Bridge.GetDragStart,
+                .set_drag_start = Bridge.SetDragStart,
             },
             .mouse_api = g_api.MouseAPI {
                 .set_mouse_world_pos = Bridge.SetMouseWorldPosition,
@@ -216,6 +239,10 @@ pub const ProjectContext = struct {
                  .game_input_up = lib.lookup(
                     GameInputDownFn,
                     "game_input_up"),
+                 .game_input_held = lib.lookup(
+                    GameInputHeldFn,
+                    "game_input_held"
+                 ),
             },
             .game_deinit = lib.lookup(GameDeinitFn, "game_deinit"),
             .sprite_draws = try std.ArrayList(helper.SpriteDraw)
@@ -278,12 +305,17 @@ pub const ProjectContext = struct {
             GameInputUpFn,
             "game_input_up");
 
+        self.game_input.game_input_held = self.lib.?.lookup(
+            GameInputUpFn,
+            "game_input_held");
+
         if (self.game_init == null) return error.MissingGameInit;
         if (self.game_update == null) return error.MissingGameUpdate;
         if (self.game_start == null) return error.MissingGameStart;
         if (self.game_input.game_input_down == null) return error.MissingGameInputDown;
         if (self.game_input.game_input_pressed == null) return error.MissingGameInputPressed;
         if (self.game_input.game_input_up == null) return error.MissingGameInputUp;
+        if (self.game_input.game_input_held == null) return error.MissingGameInputHeld;
 
         self.game_init.?(
             &self.game_api, 
@@ -393,7 +425,10 @@ pub const AtlasManager = struct {
     }
 
     pub fn deinit(self: *AtlasManager, allocator: std.mem.Allocator) void{
-        self.manifest.?.deinit(allocator);
+        if (self.manifest) |*man| {
+            man.deinit(allocator);
+        }
+       // self.manifest.?.deinit(allocator);
         self.manifest = null;
         self.atlas_list.deinit(allocator);
 
@@ -401,8 +436,8 @@ pub const AtlasManager = struct {
 
 };
 
-fn RebuildScripts(
-    allocator: std.mem.Allocator, 
+pub fn RebuildScripts(
+    io: Io,
     cwd: []const u8,
     proj_ctx: *ProjectContext) !void {
 
@@ -411,15 +446,17 @@ fn RebuildScripts(
         "build",
     };
 
-    var child = std.process.Child.init(&argv, allocator);
-    child.cwd = cwd;
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
+    var child = try std.process.spawn(io, .{
+        .argv = &argv,
+        .stdin = .ignore,
+        .stdout = .inherit,
+        .stderr = .inherit,
+        .cwd = .{ .path = cwd },
+    });
 
-    const term = try child.spawnAndWait();
+    const term = try child.wait(io);
 
-    if (term != .Exited or term.Exited != 0) {
+    if (term != .exited or term.exited != 0) {
         return error.BuildFailed;
     }
 
@@ -432,15 +469,17 @@ fn RebuildScripts(
 // ****************************************** MAIN *******************************************
 
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
 
-    var t = time.Start();
-    var g_t = time.Start();
+    const io = init.io;
+    //global_io = io;
+    var t = time.Start(io);
+    var g_t = time.Start(io);
 
     // Allocator
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    g_allocator = g_gpa.allocator();
+    defer _ = g_gpa.deinit();
+    const allocator = g_allocator;
 
     // Window Creation
     var game_window = try sdl.Window.init(1920, 1080);
@@ -462,7 +501,10 @@ pub fn main() !void {
     var gameMode = false;
     
     // Camera 
-    var cam = Camera.init(@floatFromInt(game_window.screen_width),@floatFromInt(game_window.screen_height)); 
+    var cam = Camera.init(
+        @floatFromInt(game_window.screen_width),
+        @floatFromInt(game_window.screen_height)
+    ); 
 
     // Mouse
     var mouse = Mouse{};
@@ -473,7 +515,7 @@ pub fn main() !void {
     defer select_buffer.deinit(allocator);
 
     // Project
-    var proj = try utils.LoadProject(allocator);
+    var proj = try utils.LoadProject(io , allocator);
     defer proj.deinit(allocator);
 
     std.log.info("Opening project {s}", .{proj.parsed.value.name});
@@ -483,7 +525,13 @@ pub fn main() !void {
     defer core.deinit(allocator);
     
     // Swapchain creation
-    var sc = try swapchain_mod.Swapchain.init(allocator, &core , &game_window, .{.vsync = false}, null);
+    var sc = try swapchain_mod.Swapchain.init(
+        allocator, 
+        &core , 
+        &game_window, 
+        .{.vsync = false}, 
+        null
+    );
     defer sc.deinit(&core, allocator, core.alloc_cb);
     
     // Renderer creation
@@ -527,33 +575,52 @@ pub fn main() !void {
     defer scripts_notifier.deinit(allocator);
 
     // Project context
-    var project_context = try ProjectContext.init(allocator, proj.parsed.value.name);
+    var project_context = try ProjectContext.init(
+        allocator, 
+        proj.parsed.value.name,
+        io,
+    );
     defer project_context.deinit();
 
     Bridge.g_active_ctx = &project_context;
     project_context.game_api.user_data = Bridge.g_active_ctx;
     Bridge.cam_ctx = &cam;
     Bridge.mouse_ctx = &mouse;
+    Bridge.g_t = &g_t;
+    Bridge.game_active = false;
 
     project_context.proj = proj.parsed.value;
+    project_context.io = io;
 
     project_context.alive.clearAll();
     project_context.physics.clearAll();
     project_context.has_sprite.clearAll();
 
-    RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
+    RebuildScripts(io, proj_scripts_path, &project_context) catch |err| {
         std.log.err("Script rebuild failed: {}", .{err});
     };
 
     var reload: bool = false;
 
-    t.HardRestart();
-    g_t.HardRestart();
-// ****************************************** Rendering START *******************************************
+    t.HardRestart(io);
+    g_t.HardRestart(io);
+
+// ****************************************** Rendering START *************************************
 
     while (!game_window.should_close){
         
         game_window.pollEvents(&renderer, &project_context.game_input);
+
+        if (gameMode) {
+            if (project_context.game_input.game_input_held) |held_fn| {
+                var bits = game_window.raw_input.buttons_down;
+                while (bits != 0) {
+                    const bit_index = @ctz(bits);
+                    held_fn(bit_index);
+                    bits &= bits - 1; // clear lowest set bit
+                }
+            }
+        }
 
         input.BuildEditorIntent( 
             &editor_input,
@@ -562,17 +629,18 @@ pub fn main() !void {
             &t,
             &g_t,
             &reload,
+            io,
         );
         if (reload){
             reload = false;
-            RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
+            RebuildScripts(io,proj_scripts_path, &project_context) catch |err| {
                 std.log.err("Script rebuild failed: {}", .{err});
             };
         }
 
-        t.Runnin();
+        t.Runnin(io);
         if (gameMode){
-            g_t.Runnin();
+            g_t.Runnin(io);
             if (!game_window.gameMode) {
                 if (project_context.game_start) |game_start| {
                     game_start();
@@ -585,7 +653,7 @@ pub fn main() !void {
             }
         }
 
-// ****************************************** CAMERA UPDATING *******************************************
+// ****************************************** CAMERA UPDATING **************************************
         if (!gameMode){
 
             cam.UpdateCameraAttributes(
@@ -597,7 +665,7 @@ pub fn main() !void {
 
             cam.UpdateCameraAttributes(
                 cam.zoom, 
-                editor_input.drag_delta
+                cam.delta,
             );
         }
 
@@ -606,7 +674,7 @@ pub fn main() !void {
             @floatFromInt(game_window.screen_height),
         );
 
-// ****************************************** MOUSE UPDATING *******************************************
+// ****************************************** MOUSE UPDATING ***************************************
         mouse.Update(
             game_window.raw_input.mouse_pos,
             &cam,
@@ -614,7 +682,7 @@ pub fn main() !void {
             @floatFromInt(game_window.screen_height),
         );
 
-// ****************************************** PROJECT UPDATING *******************************************
+// ****************************************** PROJECT UPDATING *************************************
         if (project_context.game_update) |game_update| {
 
             if (!t.pause and !gameMode) {
@@ -629,7 +697,7 @@ pub fn main() !void {
         if (scripts_bytes > 0){
             std.log.info("Rebuilding scripts", .{});
             project_context.sprite_draws.clearRetainingCapacity();
-            RebuildScripts(allocator, proj_scripts_path, &project_context) catch |err| {
+            RebuildScripts(io, proj_scripts_path, &project_context) catch |err| {
                 std.log.err("Script rebuild failed: {}", .{err});
             };
         }
@@ -647,7 +715,11 @@ pub fn main() !void {
 
             project_context.atlas_manager.metadata_dirty = false;
 
-            project_context.atlas_manager.manifest = try atlas_mod.ReadManifest(proj.parsed.value, allocator);
+            project_context.atlas_manager.manifest = try atlas_mod.ReadManifest(
+                io,
+                proj.parsed.value, 
+                allocator
+            );
 
             try project_context.atlas_manager.ApplyMetadata(
                 &renderer,
@@ -828,8 +900,8 @@ pub fn main() !void {
             &project_context.static_dirty,
         );
 
-        t.FrameCounter();
-        g_t.FrameCounter();
+        t.FrameCounter(io);
+        g_t.FrameCounter(io);
 
 // ****************************************** Terminal UI *******************************************
         tui.BeginUI();
@@ -841,6 +913,7 @@ pub fn main() !void {
         try tui.UpdateCameraUI(cam.pos.x, cam.pos.y, cam.zoom);
         try tui.UpdateMouseUI(mouse.world_pos.x, mouse.world_pos.y);
         for (select_buffer.items) |selected| {
+           // _ = selected;
             try tui.Selected(
                 selected, 
                 &physics, 
@@ -849,7 +922,7 @@ pub fn main() !void {
                 project_context.entity_transforms[selected]
             );
         }
-        try tui.FlushUI();
+        try tui.FlushUI(io);
 
 
     }

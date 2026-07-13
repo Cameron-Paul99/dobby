@@ -2,12 +2,14 @@ const std = @import("std");
 const g_api = @import("game_api");
 const utils = @import("utils");
 const editor = @import("editor_sdl_main.zig");
+const game = @import("game_main.zig");
 const engine = @import("engine");
 const ProjectContext = editor.ProjectContext;
-
+const time = utils.time;
 const Physics = utils.physics;
 const Camera = utils.camera;
 const Mouse = utils.mouse;
+const Math = utils.math;
 const atlas_mod = utils.atlas;
 const Transform2D = g_api.Transform2D;
 const Position2D = g_api.Position2D;
@@ -23,6 +25,8 @@ pub var g_active_ctx: *ProjectContext = undefined;
 pub var physics_ctx: *Physics = undefined;
 pub var cam_ctx: *Camera = undefined;
 pub var mouse_ctx: *Mouse = undefined;
+pub var g_t: *time = undefined;
+pub var game_active = false;
 
 const MAX_SPRITES_PER_ENTITY = 50;
 
@@ -67,17 +71,15 @@ pub export fn AddForceY(id: u32, y:f32) callconv(.c) void {
 
 pub export fn RemoveEntity(entity: u32) callconv(.c) void {
     const ctx = g_active_ctx;
-
     if (!ctx.alive.testBit(entity)) return;
     ctx.alive.Clear(entity);
-    std.log.info("removing chips", .{});
     ctx.has_sprite.Clear(entity);
+    ctx.sprite_components[entity] = .{};  // ← reset start and count
     if (!ctx.physics.testBit(entity)){
         ResetStatic();
     }else{
         ctx.physics.Clear(entity);
     }
-   
 }
 
 pub export fn AddEntity() callconv(.c) u32 {
@@ -193,10 +195,33 @@ pub export fn RemovePhysics(id: u32) callconv(.c) void {
 pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32, atlas_id: u32) callconv(.c) void {
 
     const ctx = g_active_ctx;
-    const slot_uv = atlas_mod.GetImageFromAtlas(@intCast(atlas_id), std.mem.span(desc.name), ctx.proj, ctx.allocator) catch |err| {
-        std.log.err("GetImageFromAtlas failed: {}", .{err});
-        return;
-    };
+    
+    var slot_uv: ?atlas_mod.AtlasImage = null;
+
+    if (!game_active){
+        slot_uv = atlas_mod.GetImageFromAtlas(
+            ctx.io,
+            @intCast(atlas_id), 
+            std.mem.span(desc.name), 
+            ctx.proj, 
+            ctx.allocator,
+        ) catch |err| {
+            std.log.err("GetImageFromAtlas failed: {}", .{err});
+            return;
+        };
+    }else{
+        slot_uv = atlas_mod.GetImageFromAtlasGame(
+            ctx.io,
+            @intCast(atlas_id), 
+            std.mem.span(desc.name), 
+            ctx.proj_name, 
+            ctx.allocator,
+        ) catch |err| {
+            std.log.err("GetImageFromAtlas failed: {}", .{err});
+            return;
+        };
+    }
+
     if (slot_uv != null) {
         ctx.allocator.free(slot_uv.?.name);
     }
@@ -258,10 +283,6 @@ pub export fn SpawnSprite(desc: *const g_api.SpriteDesc, id: u32, atlas_id: u32)
         ctx.sprite_storage.items.len,
         ctx.sprite_storage.capacity,
     });
-}
-
-pub export fn GetAllocator() callconv(.c) *anyopaque {
-    return &g_active_ctx.allocator;
 }
 
 pub export fn SetSpriteWorldPos(entity: u32, index:u32, pos: Position2D) callconv(.c) void {
@@ -423,3 +444,92 @@ pub export fn GetScreenDimensions() ScreenD {
     return .{ .w = ctx.screen_w, .h = ctx.screen_h}; 
 
 }
+pub export fn HostLog(msg: [*:0]const u8) callconv(.c) void {
+    std.log.info("{s}", .{msg});
+}
+
+pub export fn HostAlloc(len: usize, log2_align: u8) callconv(.c) ?[*]u8 {
+    const alignment: std.mem.Alignment = @enumFromInt(log2_align);
+    const allocator = if (game_active) game.g_allocator else editor.g_allocator;
+    return allocator.rawAlloc(len, alignment, @returnAddress());
+}
+
+pub export fn HostFree(ptr: [*]u8, len: usize, log2_align: u8) callconv(.c) void {
+    const alignment: std.mem.Alignment = @enumFromInt(log2_align);
+    const allocator = if (game_active) game.g_allocator else editor.g_allocator;
+    allocator.rawFree(ptr[0..len], alignment, @returnAddress());
+}
+
+pub export fn MoveScreen2D(pos: Position2D, speed: f32) callconv(.c) void {
+    cam_ctx.delta = Math.Vec2.Make(
+        -pos.x,
+        -pos.y,
+    ).Mul(speed);
+}
+
+pub export fn Zoom(delta: f32, speed: f32) callconv(.c) void { 
+    cam_ctx.zoom *= std.math.pow(f32, speed, delta);
+    cam_ctx.zoom = std.math.clamp(cam_ctx.zoom, 0.13, 5.0);
+}
+
+pub export fn GetRawMouseLocation() callconv(.c) Position2D{
+    return .{ .x = mouse_ctx.sdl_pos.x, .y = mouse_ctx.sdl_pos.y};
+}
+
+pub export fn SetDragStart(pos: Position2D) callconv(.c) void {
+    cam_ctx.drag_start = Math.Vec2.Make( pos.x, pos.y); 
+}
+
+pub export fn GetDragStart() callconv(.c) Position2D{
+    return .{.x = cam_ctx.drag_start.x, .y = cam_ctx.drag_start.y};
+}
+
+pub export fn SaveGame(
+    bytes: [*]const u8,
+    len: usize,
+    path: [*:0]const u8,
+) callconv(.c) void {
+
+    const p = std.mem.span(path);
+    const data = bytes[0..len];
+
+    const file = std.Io.Dir.cwd().createFile(g_active_ctx.io, p, .{ .truncate = true }) catch |err| {
+        std.log.err("SaveGame failed: {}", .{err});
+        return;
+    };
+
+    defer file.close(g_active_ctx.io);
+    file.writeStreamingAll(g_active_ctx.io, data) catch |err| {
+        std.log.err("SaveGame write failed: {}", .{err});
+    };
+}
+
+pub export fn LoadGame(
+    path: [*:0]const u8,
+    out_len: *usize,
+    max_size: usize,
+) callconv(.c) ?[*]u8 {
+
+    const p = std.mem.span(path);
+    const file = std.Io.Dir.cwd().openFile(g_active_ctx.io, p, .{}) catch |err| {
+        std.log.err("LoadGame open failed: {}", .{err});
+        return null;
+    };
+
+    defer file.close(g_active_ctx.io);
+    var file_reader = file.reader(g_active_ctx.io, &.{});
+    const contents = file_reader.interface.allocRemaining( if (game_active) game.g_allocator else editor.g_allocator, .limited(max_size)) catch |err| {
+        std.log.err("LoadGame read failed: {}", .{err});
+        return null;
+    };
+
+    out_len.* = contents.len;
+    return contents.ptr;
+}
+
+pub export fn PlayPause() callconv(.c) bool {
+   g_t.*.PauseCal(g_active_ctx.io);
+   return g_t.*.pause;
+}
+
+

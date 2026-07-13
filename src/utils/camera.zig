@@ -5,6 +5,8 @@ const Mat4 = math.Mat4;
 const Self = @This();
 
     pos: Vec2 = Vec2.ZERO,
+    delta: Vec2 = Vec2.ZERO,
+    drag_start: Vec2 = Vec2.ZERO,
     zoom: f32 = 1.0,
     view_proj: Mat4 = Mat4.IDENTITY,
     screen_w : f32 = 0.0,
@@ -42,13 +44,13 @@ const Self = @This();
     pub fn UpdateCameraAttributes(
         self: *Self,
         zoom: f32,
-        drag: Vec2,
+        delta: Vec2,
     ) void{
 
         self.zoom = zoom;
         self.pos = Vec2.Add(
             self.pos, 
-            Vec2.Div(drag, zoom)
+            Vec2.Div(delta, zoom)
         );
 
        // std.log.info("camera position {d:.3}, {d:.3}",.{self.pos.x, self.pos.y});
