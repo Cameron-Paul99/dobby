@@ -185,9 +185,14 @@ pub export fn AddPhysics(id: u32) callconv(.c) void {
     ctx.static_sprite_draws.clearRetainingCapacity();
 
 }
-
+pub export fn ResetVelocity( id:u32 ) callconv(.c) void {
+    const ctx = physics_ctx;
+    ctx.Reset(id);
+}
 pub export fn RemovePhysics(id: u32) callconv(.c) void {
     const ctx = g_active_ctx;
+    const phys_ctx = physics_ctx;
+    phys_ctx.Reset(id);
     ctx.static_dirty = true;
     ctx.physics.Clear(id);
     ctx.static_sprite_draws.clearRetainingCapacity();

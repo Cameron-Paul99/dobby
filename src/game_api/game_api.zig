@@ -490,6 +490,8 @@ pub const PhysicsAPI = extern struct {
     remove_physics: *const fn (u32) callconv(.c) void,
 
     remove_gravity: *const fn (u32) callconv(.c) void,
+
+    reset_velocity: *const fn(u32) callconv(.c) void,
 };
 
 /// Camera controls exposed by the engine.

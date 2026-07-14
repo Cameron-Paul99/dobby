@@ -188,6 +188,7 @@ pub const ProjectContext = struct {
                 .add_physics = Bridge.AddPhysics,
                 .remove_physics = Bridge.RemovePhysics,
                 .remove_gravity = Bridge.RemoveGravity,
+                .reset_velocity = Bridge.ResetVelocity,
             },
             .camera_api = g_api.Camera2DAPI {
                 .set_camera_world_pos = Bridge.SetCameraWorldPosition,
