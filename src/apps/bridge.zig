@@ -45,6 +45,12 @@ pub export fn AddForce(id: u32, x: f32, y: f32) callconv(.c) void {
     ctx.AddForce(id, x, y);
 }
 
+pub export fn GetVelocityY(id: u32) callconv(.c) f32 {
+
+    const ctx = physics_ctx; 
+    return ctx.GetVelocityY(id);
+}
+
 pub export fn UnAlive(id: u32) callconv(.c) void {
     const ctx = g_active_ctx;
     ctx.alive.Clear(id);

@@ -40,6 +40,11 @@ pub fn AddForceY(self: *Self, entity: u32, y: f32)  void {
     vel.y += y;
 }
 
+pub fn GetVelocityY(self: *Self, entity: u32) f32 {
+    const vel = &self.velocities[entity];
+    return vel.y;
+}
+
 pub fn Reset(self: *Self, entity: u32) void {
     self.velocities[entity] = Vec2.ZERO;
     self.gravity_bits.Clear(entity);
