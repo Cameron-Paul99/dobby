@@ -16,11 +16,11 @@ weights: []f32,
 const GRAVITY = 0.005;
 const TERMINAL: f32 = 20.0;
 
-pub fn Step(self: *Self, entity: u32, transform: *Transform2D) void {
+pub fn Step(self: *Self, entity: u32, dt: f64, transform: *Transform2D) void {
     self.Gravity(entity);
     const vel = self.velocities[entity];
-    transform.position.x += vel.x;
-    transform.position.y += vel.y;
+    transform.position.x += vel.x * @as(f32, @floatCast(dt));
+    transform.position.y += vel.y * @as(f32, @floatCast(dt));
 }
 
 pub fn AddForce(self: *Self, entity: u32, x: f32, y: f32) void {

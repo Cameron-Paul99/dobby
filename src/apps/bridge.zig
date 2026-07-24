@@ -42,7 +42,13 @@ pub export fn RemoveGravity(id: u32) callconv(.c) void {
 
 pub export fn AddForce(id: u32, x: f32, y: f32) callconv(.c) void {
     const ctx = physics_ctx;
-    ctx.AddForce(id, x, y);
+
+    std.log.info("force y {d} ", .{g_t.time_sec});
+    ctx.AddForce(
+        id, 
+        x * @as(f32, @floatCast(g_t.time_sec)), 
+        y * @as(f32, @floatCast(g_t.time_sec))
+    );
 }
 
 pub export fn GetVelocityY(id: u32) callconv(.c) f32 {
@@ -67,7 +73,9 @@ pub export fn Alive(id: u32) callconv(.c) void {
 }
 pub export fn AddForceX(id: u32, x:f32) callconv(.c) void {
     const ctx = physics_ctx;
-    ctx.AddForceX(id, x);
+
+    std.log.info("force x {d}", .{g_t.time_sec});
+    ctx.AddForceX(id, x * @as(f32, @floatCast(g_t.time_sec)));
 }
 
 pub export fn AddForceY(id: u32, y:f32) callconv(.c) void {
