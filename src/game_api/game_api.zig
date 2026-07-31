@@ -437,6 +437,10 @@ pub const GameAPI = extern struct {
     load_game: *const fn ([*:0]const u8, *usize, usize) callconv(.c) ?[*]u8,
 };
 
+pub const AudioAPI = extern struct {
+    play_sound: *const fn([*:0] const u8) callconv(.c) void,
+};
+
 /// Sprite-related API exposed by the engine.
 ///
 /// Note: this uses `Position`, but only `Position2D` exists above. You likely

@@ -1,4 +1,5 @@
 pub const c = @import("clibs.zig").c;
+pub const ma = @import("clibs.zig").ma;
 pub const core = @import("core.zig");
 pub const swapchain = @import("swapchain.zig");
 pub const renderer = @import("render.zig");

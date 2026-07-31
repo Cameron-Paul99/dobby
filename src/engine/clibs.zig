@@ -4,10 +4,12 @@ pub const c = @cImport({
     @cInclude("vulkan/vulkan.h");
     @cInclude("ktx.h");
     @cInclude("vk_mem_alloc.h");
- //   @cInclude("miniaudio.h");
+    //@cInclude("miniaudio.h");
 });
 
-
+pub const ma = @cImport({
+    @cInclude("miniaudio.h");
+});
 
 pub const SDL = struct {
     pub const Window = c.SDL_Window;

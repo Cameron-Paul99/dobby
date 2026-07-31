@@ -4,6 +4,7 @@ const utils = @import("utils");
 const editor = @import("editor_sdl_main.zig");
 const game = @import("game_main.zig");
 const engine = @import("engine");
+const ma = engine.ma;
 const ProjectContext = editor.ProjectContext;
 const time = utils.time;
 const Physics = utils.physics;
@@ -26,7 +27,10 @@ pub var physics_ctx: *Physics = undefined;
 pub var cam_ctx: *Camera = undefined;
 pub var mouse_ctx: *Mouse = undefined;
 pub var g_t: *time = undefined;
+pub var audio_engine: *ma.ma_engine = undefined;
 pub var game_active = false;
+
+const src_audio_path = "projects/{s}/src/audio/{s}";
 
 const MAX_SPRITES_PER_ENTITY = 50;
 
@@ -76,6 +80,18 @@ pub export fn AddForceX(id: u32, x:f32) callconv(.c) void {
 
     std.log.info("force x {d}", .{g_t.time_sec});
     ctx.AddForceX(id, x * @as(f32, @floatCast(g_t.time_sec)));
+}
+
+pub export fn PlaySound(sound: [*:0]const u8) void{
+    const ctx = g_active_ctx;
+    const audio_path = std.fmt.allocPrintSentinel(
+        ctx.allocator,
+        src_audio_path,
+        .{ctx.proj_name, sound},
+        0,
+    ) catch unreachable;
+    defer ctx.allocator.free(audio_path);
+    _ = ma.ma_engine_play_sound(audio_engine, audio_path, null);
 }
 
 pub export fn AddForceY(id: u32, y:f32) callconv(.c) void {
