@@ -5,6 +5,9 @@ const notify = utils.notify;
 const atlas_mod = utils.atlas;
 const Io = std.Io;
 
+// Starting font here!
+
+
 const tmp_atlas_dir = "zig-out/tmp/atlas_{d}.png";
 const tmp_atlas_dir_sur = "zig-out/tmp";
 const cooked_atlas_dir_tmp = "projects/{s}/cooked/atlases/.atlas_{d}.ktx2.tmp";
