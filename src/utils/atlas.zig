@@ -39,6 +39,22 @@ pub const Manifest = struct {
     atlases: []AtlasEntry,
 };
 
+pub const GlyphInfo = struct {
+    uv_x: f32,
+    uv_y: f32,
+    uv_w: f32,
+    uv_h: f32,
+    offset_x: f32,
+    offset_y: f32,
+    advance: f32,
+};
+
+pub const Font = struct {
+    atlas_id: u32,
+    glyphs: [128]GlyphInfo, // ASCII range
+    line_height: f32,
+};
+
 pub const ParsedManifest = struct {
     parsed: std.json.Parsed(Manifest),
     buffer: []u8,

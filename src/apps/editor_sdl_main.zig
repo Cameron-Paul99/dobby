@@ -13,6 +13,7 @@ const helper = engine.helper;
 const text = engine.textures;
 const input = engine.input;
 const c = engine.c;
+const ma = engine.ma;
 const Transform2D = g_api.Transform2D;
 const PhysicsAPI = g_api.PhysicsAPI;
 const print = std.debug.print;
@@ -41,7 +42,8 @@ const GameInitFn   = *const fn (
     *g_api.PhysicsAPI,
     *g_api.Camera2DAPI,
     *g_api.MouseAPI,
-    *g_api.SpriteAPI) callconv(.c) void;
+    *g_api.SpriteAPI,
+    *g_api.AudioAPI) callconv(.c) void;
 const GameUpdateFn = *const fn (f64) callconv(.c) void;
 const GameInputPressedFn = *const fn (u8) callconv(.c) void;
 const GameInputDownFn = *const fn (u8) callconv(.c) void;
@@ -97,6 +99,7 @@ pub const ProjectContext = struct {
     atlas_manager: AtlasManager,
     game_api: g_api.GameAPI = undefined,
     physics_api: g_api.PhysicsAPI = undefined,
+    audio_api: g_api.AudioAPI = undefined,
     camera_api: g_api.Camera2DAPI = undefined,
     mouse_api: g_api.MouseAPI = undefined,
     sprite_api: g_api.SpriteAPI = undefined,
@@ -107,7 +110,8 @@ pub const ProjectContext = struct {
         *g_api.PhysicsAPI, 
         *g_api.Camera2DAPI,
         *g_api.MouseAPI,
-        *g_api.SpriteAPI) 
+        *g_api.SpriteAPI,
+        *g_api.AudioAPI) 
         callconv(.c) void,
     game_start: ?*const fn () callconv(.c) void,
     game_update: ?*const fn (f64) callconv(.c) void,
@@ -188,6 +192,11 @@ pub const ProjectContext = struct {
                 .add_physics = Bridge.AddPhysics,
                 .remove_physics = Bridge.RemovePhysics,
                 .remove_gravity = Bridge.RemoveGravity,
+                .reset_velocity = Bridge.ResetVelocity,
+                .get_velocity_y = Bridge.GetVelocityY,
+            },
+            .audio_api = g_api.AudioAPI {
+                .play_sound = Bridge.PlaySound,
             },
             .camera_api = g_api.Camera2DAPI {
                 .set_camera_world_pos = Bridge.SetCameraWorldPosition,
@@ -324,6 +333,7 @@ pub const ProjectContext = struct {
             &self.camera_api,
             &self.mouse_api,
             &self.sprite_api,
+            &self.audio_api,
         );
 
     }
@@ -484,6 +494,14 @@ pub fn main(init: std.process.Init) !void {
     // Window Creation
     var game_window = try sdl.Window.init(1920, 1080);
     defer game_window.deinit();
+
+    // Audio
+    var audio_engine: ma.ma_engine = undefined;
+    if (ma.ma_engine_init(null, &audio_engine) != ma.MA_SUCCESS) {
+        return error.EngineInitFailed;
+    }
+    Bridge.audio_engine = &audio_engine;
+    defer ma.ma_engine_uninit(&audio_engine);
 
     var drawable_w: c_int = 0;
     var drawable_h: c_int = 0;
@@ -815,6 +833,7 @@ pub fn main(init: std.process.Init) !void {
             project_context.physics.forEachBitSet(
                 struct {
                     alive: *const two_bit,
+                    dt: f64,
                     entity_transforms: []Transform2D,
                     comps: []helper.SpriteSet,
                     storage: []helper.SpriteDraw,
@@ -824,7 +843,7 @@ pub fn main(init: std.process.Init) !void {
                     pub fn call(f: @This(), entity: u32) void {
                         if (!f.alive.testBit(entity)) return;
 
-                        f.physics.Step(entity, &f.entity_transforms[entity]);
+                        f.physics.Step(entity, f.dt ,&f.entity_transforms[entity]);
 
                         if (!f.has_sprite.testBit(entity)) return;
 
@@ -841,6 +860,7 @@ pub fn main(init: std.process.Init) !void {
                 }{
                 .entity_transforms = project_context.entity_transforms,
                 .alive = &project_context.alive,
+                .dt = t.delta_sec,
                 .comps = project_context.sprite_components,
                 .storage = project_context.sprite_storage.items,
                 .has_sprite = &project_context.has_sprite,
@@ -853,6 +873,7 @@ pub fn main(init: std.process.Init) !void {
             project_context.physics.forEachBitSet(
                 struct {
                     alive: *const two_bit,
+                    dt: f64,
                     entity_transforms: []Transform2D,
                     comps: []helper.SpriteSet,
                     storage: []helper.SpriteDraw,
@@ -862,7 +883,7 @@ pub fn main(init: std.process.Init) !void {
                     pub fn call(f: @This(), entity: u32) void {
                         if (!f.alive.testBit(entity)) return;
 
-                        f.physics.Step(entity, &f.entity_transforms[entity]);
+                        f.physics.Step(entity, f.dt ,&f.entity_transforms[entity]);
 
                         if (!f.has_sprite.testBit(entity)) return;
 
@@ -879,6 +900,7 @@ pub fn main(init: std.process.Init) !void {
                 }{
                     .entity_transforms = project_context.entity_transforms,
                     .alive = &project_context.alive,
+                    .dt = g_t.delta_sec,
                     .comps = project_context.sprite_components,
                     .storage = project_context.sprite_storage.items,
                     .has_sprite = &project_context.has_sprite,

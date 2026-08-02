@@ -248,6 +248,7 @@ pub fn main(init: std.process.Init) !void {
             project_context.physics.forEachBitSet(
                 struct {
                     alive: *const two_bit,
+                    dt: f64,
                     entity_transforms: []Transform2D,
                     comps: []helper.SpriteSet,
                     storage: []helper.SpriteDraw,
@@ -257,7 +258,7 @@ pub fn main(init: std.process.Init) !void {
                     pub fn call(f: @This(), entity: u32) void {
                         if (!f.alive.testBit(entity)) return;
 
-                        f.physics.Step(entity, &f.entity_transforms[entity]);
+                        f.physics.Step(entity, f.dt, &f.entity_transforms[entity]);
 
                         if (!f.has_sprite.testBit(entity)) return;
 
@@ -274,6 +275,7 @@ pub fn main(init: std.process.Init) !void {
                 }{
                     .entity_transforms = project_context.entity_transforms,
                     .alive = &project_context.alive,
+                    .dt = g_t.delta_sec,
                     .comps = project_context.sprite_components,
                     .storage = project_context.sprite_storage.items,
                     .has_sprite = &project_context.has_sprite,

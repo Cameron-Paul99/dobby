@@ -10,7 +10,9 @@ pause: bool = true,
 time_sec: f64 = 0,
 frame_count: u32 = 0,
 last_time_ns: u64 = 0,
+last_frame_ns: i128 = 0,
 fps: f64 = 0.0,
+delta_sec: f64 = 0.0,
 
 fn nanoNow(io: std.Io) i128 {
     return @as(i128, std.Io.Timestamp.now(io, .real).toNanoseconds());
@@ -23,7 +25,9 @@ pub fn Start(io: Io) Self {
         .paused_start_ns = 0,
         .pause = false,
         .frame_count = 0,
+        .last_frame_ns = 0,
         .last_time_ns = @intCast(nanoNow(io)),
+        .delta_sec = 0,
     };
 }
 
@@ -42,6 +46,11 @@ pub fn Runnin(self: *Self, io: Io) void {
         const now = nanoNow(io);
         const effective_ns = now - self.start_time - self.paused_ns_total;
         self.time_sec = @as(f64, @floatFromInt(effective_ns)) / 1_000_000_000.0;
+        if (self.last_frame_ns != 0 ) {
+            const delta_ns = now - self.last_frame_ns;
+            self.delta_sec = @as(f64, @floatFromInt(delta_ns)) / 1_000_000_000.0;
+        }
+        self.last_frame_ns = now;
     }
 }
 
