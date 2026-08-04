@@ -5,6 +5,10 @@ pub const AtlasAliasId_u32 = u32;
 pub const atlas_path = "projects/{s}/cooked/atlases/manifest.json";
 pub const atlas_tmp = "projects/{s}/cooked/atlases/manifest.tmp"; 
 
+pub const font_tmp = "projects/{s}/cooked/fonts/manifest.tmp";
+
+pub const font_path = "projects/{s}/cooked/fonts/manifest.json";
+
 pub const Atlas = struct {
     width: u32 = 0,
     height: u32 = 0,
@@ -39,7 +43,13 @@ pub const Manifest = struct {
     atlases: []AtlasEntry,
 };
 
+pub const FontManifest = struct {
+    version: u32,
+    fonts: []Font,
+}
+
 pub const GlyphInfo = struct {
+    letter: []const u8,
     uv_x: f32,
     uv_y: f32,
     uv_w: f32,
@@ -50,10 +60,62 @@ pub const GlyphInfo = struct {
 };
 
 pub const Font = struct {
-    atlas_id: u32,
+    id: u32,
+    name: []const u8,
     glyphs: [128]GlyphInfo, // ASCII range
     line_height: f32,
 };
+
+pub fn ReadFontManifest(
+    io: std.Io,
+    proj: utils.Project,
+    allocator: std.mem.Allocator,
+) !ParsedManifest {
+
+    const manifest_path = try std.fmt.allocPrint(
+        allocator,
+        font_path,
+        .{ proj.name },
+    );
+    defer allocator.free(manifest_path); 
+
+    const file = try std.Io.Dir.cwd().openFile(
+        io, 
+        manifest_path, 
+        .{}
+    );
+    defer file.close(io);
+
+    const file_size = try file.length(io); 
+    const bytes = try allocator.alloc(u8, file_size);
+    errdefer allocator.free(bytes);  
+
+    _ = try file.readPositionalAll(io, bytes, 0);
+
+    const parsed = try std.json.parseFromSlice(
+        FontManifest,
+        allocator,
+        bytes,
+        .{ .ignore_unknown_fields = true },
+    );
+
+    return .{
+        .parsed = parsed,
+        .buffer = bytes,
+    };
+
+}
+
+pub const ParsedFontManifest = struct {
+    parsed: std.json.Parsed(FontManifest),
+    buffer: []u8,
+
+    pub fn deinit(self: *ParsedFontManifest, allocator: std.mem.Allocator) void {
+        self.parsed.deinit();
+        allocator.free(self.buffer);
+    }
+};
+
 
 pub const ParsedManifest = struct {
     parsed: std.json.Parsed(Manifest),
@@ -64,6 +126,7 @@ pub const ParsedManifest = struct {
         allocator.free(self.buffer);
     }
 };
+
 
 pub fn ReadManifest(
     io: std.Io,

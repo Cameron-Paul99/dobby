@@ -7,6 +7,10 @@ const Io = std.Io;
 
 // Starting font here!
 
+const src_fonts_dir = "projects/{s}/src/fonts";
+const fonts_manifest_dir = "projects/{s}/cooked/fonts/manifest.json";
+const cooked_font_dir_tmp = "projects/{s}/cooked/fonts/font_{d}.ktx2.tmp";
+const cooked_font_dir_ktx2 = "projects/{s}/cooked/fonts/font_{d}.ktx2"
 
 const tmp_atlas_dir = "zig-out/tmp/atlas_{d}.png";
 const tmp_atlas_dir_sur = "zig-out/tmp";
@@ -51,6 +55,45 @@ pub const Cooker = struct {
     pub fn CookShaders(self: *Cooker) void {
         _ = self;
     }
+
+    
+    pub fn CookFonts(
+        self: *Cooker,
+        io: Io,
+        file_path: []u8,
+        proj: utils.Project,
+        allocator: std.mem.Allocator,
+    ) void {
+
+        _ = self;
+        var font_p = try.atlas_mod.ReadFontManifest(
+            io, 
+            proj, 
+            allocator
+        );
+        font_p.deinit(allocator);
+
+        // Check if file already exsists. 
+        //
+        // If it exsists then break and exit function
+        //
+        // Now change the font to KTX2
+        //
+        // Then update manifest with correct gliphs
+        const exists = blk: {
+            std.fs.dir.access(file_path, .{}) catch |err| switch (err) {
+                error.FileNotFound => break :blk false,
+                else => break :blk true,
+            };
+            break : blk true;
+        };
+
+        if (exists) return;
+        
+
+    }
+
+
 
     // TODO: Make an Atlas from PNG files 
     pub fn CookTextures(
