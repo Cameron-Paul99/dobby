@@ -10,7 +10,7 @@ const Io = std.Io;
 const src_fonts_dir = "projects/{s}/src/fonts";
 const fonts_manifest_dir = "projects/{s}/cooked/fonts/manifest.json";
 const cooked_font_dir_tmp = "projects/{s}/cooked/fonts/font_{d}.ktx2.tmp";
-const cooked_font_dir_ktx2 = "projects/{s}/cooked/fonts/font_{d}.ktx2"
+const cooked_font_dir_ktx2 = "projects/{s}/cooked/fonts/font_{d}.ktx2";
 
 const tmp_atlas_dir = "zig-out/tmp/atlas_{d}.png";
 const tmp_atlas_dir_sur = "zig-out/tmp";
@@ -63,10 +63,10 @@ pub const Cooker = struct {
         file_path: []u8,
         proj: utils.Project,
         allocator: std.mem.Allocator,
-    ) void {
+    ) !void {
 
         _ = self;
-        var font_p = try.atlas_mod.ReadFontManifest(
+        var font_p = try atlas_mod.ReadFontManifest(
             io, 
             proj, 
             allocator
@@ -81,7 +81,7 @@ pub const Cooker = struct {
         //
         // Then update manifest with correct gliphs
         const exists = blk: {
-            std.fs.dir.access(file_path, .{}) catch |err| switch (err) {
+            std.Io.Dir.accessAbsolute(io, file_path, .{}) catch |err| switch (err) {
                 error.FileNotFound => break :blk false,
                 else => break :blk true,
             };
@@ -89,6 +89,8 @@ pub const Cooker = struct {
         };
 
         if (exists) return;
+
+        std.log.info("File does not exist", .{});
         
 
     }
@@ -430,13 +432,27 @@ pub fn main(init: std.process.Init) !void {
     );
     defer allocator.free(texture_path);
 
+    const font_path = try std.fmt.allocPrint(
+        allocator,
+        src_fonts_dir,
+        .{proj.parsed.value.name}
+    );
+
     const text_path = try allocator.dupeZ(u8 , texture_path);
     defer allocator.free(text_path);
+
+    const font_pathZ = try allocator.dupeZ(u8, font_path);
+    defer allocator.free(font_pathZ);
 
     var texture_notifier = try notify.Inotify.init(text_path, allocator);
     ////var shader_notifier = try notify.Inotify.init("assets/src/shaders", allocator);
     defer texture_notifier.deinit(allocator);
     //defer shader_notifier.deinit(allocator);
+    
+    var font_notifier = try notify.Inotify.init(font_pathZ, allocator);
+    defer font_notifier.deinit(allocator);
+
+
 
     var cooker = Cooker{};
     var file: std.Io.File = undefined;
@@ -518,6 +534,14 @@ pub fn main(init: std.process.Init) !void {
     }
    
     while(true) {
+
+        try FontAlerter(
+            io, 
+            allocator, 
+            &font_notifier, 
+            &cooker, 
+            proj.parsed.value,
+        );
 
         try texture_notifier.wait(300);
 
@@ -617,6 +641,65 @@ pub fn main(init: std.process.Init) !void {
 
 }
 
+
+fn FontAlerter(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    font_notifier: *notify.Inotify,
+    cooker: *Cooker,
+    proj: utils.Project,
+) !void {
+
+    try font_notifier.wait(300);
+    const font_bytes = try font_notifier.poll();
+
+    if (font_bytes > 0) {
+        
+        var offset: usize = 0;
+        if (offset < font_bytes){
+            const ev: *std.os.linux.inotify_event = @ptrCast(@alignCast(&font_notifier.buf[offset]));
+
+            const is_dir = (ev.mask & std.os.linux.IN.ISDIR) != 0;
+
+            switch (ClassifyEvent(ev, is_dir)) {
+
+                .FileWritten, .FileCreated => {
+                    
+                    const cooking_packet = try FileUpdated( 
+                        allocator, 
+                        font_notifier, 
+                        ev 
+                    );
+
+                    defer allocator.free(cooking_packet.file_path);
+
+                    try cooker.CookFonts(
+                        io, 
+                        cooking_packet.file_path, 
+                        proj, 
+                        allocator
+                    );
+
+                },
+
+                .Ignore => {},
+                .FileMovedOut => {},
+                .FileDeleted => {},
+                .DirRemoved => {},
+                .DirCreated => {},
+            
+
+            }
+
+            offset += @sizeOf(std.os.linux.inotify_event) + ev.len;
+
+        }
+
+    }
+
+
+
+}
 
 fn FileUpdated(
     allocator: std.mem.Allocator,

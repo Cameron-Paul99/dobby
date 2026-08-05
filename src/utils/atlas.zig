@@ -46,7 +46,7 @@ pub const Manifest = struct {
 pub const FontManifest = struct {
     version: u32,
     fonts: []Font,
-}
+};
 
 pub const GlyphInfo = struct {
     letter: []const u8,
@@ -70,7 +70,7 @@ pub fn ReadFontManifest(
     io: std.Io,
     proj: utils.Project,
     allocator: std.mem.Allocator,
-) !ParsedManifest {
+) !ParsedFontManifest {
 
     const manifest_path = try std.fmt.allocPrint(
         allocator,
