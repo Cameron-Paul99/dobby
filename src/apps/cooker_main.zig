@@ -11,6 +11,8 @@ const src_fonts_dir = "projects/{s}/src/fonts";
 const fonts_manifest_dir = "projects/{s}/cooked/fonts/manifest.json";
 const cooked_font_dir_tmp = "projects/{s}/cooked/fonts/font_{d}.ktx2.tmp";
 const cooked_font_dir_ktx2 = "projects/{s}/cooked/fonts/font_{d}.ktx2";
+const tmp_font_dir = "zig-out/tmp/font_{d}.png";
+
 
 const tmp_atlas_dir = "zig-out/tmp/atlas_{d}.png";
 const tmp_atlas_dir_sur = "zig-out/tmp";
@@ -80,18 +82,138 @@ pub const Cooker = struct {
         // Now change the font to KTX2
         //
         // Then update manifest with correct gliphs
-        const exists = blk: {
-            std.Io.Dir.accessAbsolute(io, file_path, .{}) catch |err| switch (err) {
-                error.FileNotFound => break :blk false,
-                else => break :blk true,
-            };
-            break : blk true;
+
+//        const exists = blk: {
+//            std.Io.Dir.accessAbsolute(io, file_path, .{}) catch |err| switch (err) {
+//                error.FileNotFound => break :blk false,
+//                else => break :blk true,
+//            };
+//            break : blk true;
+//        };
+//
+//        if (exists) return;
+//
+        var id = font_p.parsed.value.atlases.len;
+
+
+        const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+        defer file.close(io);
+
+        const file_size = try file.length(io);
+
+        const read_buf = try allocator.alloc(u8, file_size);
+        defer allocator.free(read_buf);
+
+        _ = file.reader(io, read_buf);
+
+        //std.log.info("File does not exist", .{});
+        var img = try zigimg.Image.fromFilePath(
+            allocator,
+            io,
+            file_path,
+            read_buf,
+        );
+        defer img.deinit(allocator);
+
+        try img.convert(allocator, .rgba32);
+
+        const img_w: u32 = @intCast(img.width);
+        const img_h: u32 = @intCast(img.height);
+
+        var atlas = atlas_mod.Atlas{
+            .width = img_w,
+            .height img_h,
+            .pixels = try allocator.alloc(u8, img_w * img_h * 4),
+        };
+        defer allocator.free(atlas.pixels.?);
+
+        @memset(atlas.pixels.?, 0);
+
+        const pixels = atlas.pixels orelse
+            return error.NoPixels;
+
+         var tmp_img = try zigimg.Image.create(
+            allocator,
+            atlas.width,
+            atlas.height,
+            .rgba32,
+        );
+        defer tmp_img.deinit(allocator);
+
+
+        const dst = std.mem.sliceAsBytes(tmp_img.pixels.rgba32);
+        @memcpy(dst, pixels);
+
+
+       const write_buffer = try allocator.alloc(u8, 1024 * 1024); // 1 MB scratch (safe)
+       defer allocator.free(write_buffer);
+
+
+       std.log.info("Starting the creation of ktx2 atlas file", .{});
+
+        const png_path = try std.fmt.allocPrint(
+            allocator,
+            tmp_font_dir,
+            .{ id },
+        );
+        defer allocator.free(png_path);
+
+        try img.writeToFilePath(allocator ,io ,png_path, write_buffer, .{ .png = .{} });
+
+       const ktx_tmp_path = try std.fmt.allocPrint(
+            allocator,
+            cooked_font_dir_tmp,
+            .{ proj.name, id },
+        );
+        defer allocator.free(ktx_tmp_path);
+
+        const ktx_final_path = try std.fmt.allocPrint(
+            allocator,
+            cooked_font_dir_ktx2,
+            .{proj.name , id },
+        );
+        defer allocator.free(ktx_final_path);
+
+        var argv = [_][]const u8{
+            "toktx",
+            "--assign_oetf", "srgb",
+            "--bcmp",
+            "--genmipmap",
+            ktx_tmp_path,
+            png_path,
         };
 
-        if (exists) return;
 
-        std.log.info("File does not exist", .{});
-        
+        var child = try std.process.spawn(io, .{
+            .argv = &argv,
+            .stdin = .inherit,
+            .stdout = .inherit,
+            .stderr = .inherit,
+        });
+
+        const term = try child.wait(io);
+       
+        try std.Io.Dir.renameAbsolute( ktx_tmp_path ,ktx_final_path, io);
+        if (term != .exited or term.exited != 0) {
+             return error.BuildFailed;
+         }
+   
+        std.log.info("Finished adding atlas to atlas file", .{});
+
+        std.log.info("Updating texture manifest", .{});
+
+        try atlas_mod.AddAtlasToManifest(
+            allocator,
+            &parsed.parsed.value,
+            atlas_imgs.items,
+            ktx_final_path,
+            cooking_packet.parent_dir,
+            id,
+        );
+
+        try atlas_mod.WriteManifest(io, proj, parsed.parsed.value, allocator);
+
+        std.log.info("Manifest is updated", .{});
 
     }
 
