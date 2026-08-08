@@ -1,13 +1,10 @@
 const std = @import("std");
 const utils = @import("utils.zig");
+const font_mod = @import("font.zig");
 
 pub const AtlasAliasId_u32 = u32;
 pub const atlas_path = "projects/{s}/cooked/atlases/manifest.json";
 pub const atlas_tmp = "projects/{s}/cooked/atlases/manifest.tmp"; 
-
-pub const font_tmp = "projects/{s}/cooked/fonts/manifest.tmp";
-
-pub const font_path = "projects/{s}/cooked/fonts/manifest.json";
 
 pub const Atlas = struct {
     width: u32 = 0,
@@ -32,8 +29,10 @@ pub const AtlasImage = struct {
 
 pub const AtlasEntry = struct {
     id: u32,
+    font_name: ?[]const u8 = null,
     path: []const u8,
     atlas_imgs: []AtlasImage,
+    font: ?font_mod.Font = null,
     from_path: []const u8,
     rev: u32,
 };
@@ -41,79 +40,6 @@ pub const AtlasEntry = struct {
 pub const Manifest = struct {
     version: u32,
     atlases: []AtlasEntry,
-};
-
-pub const FontManifest = struct {
-    version: u32,
-    fonts: []Font,
-};
-
-pub const GlyphInfo = struct {
-    letter: []const u8,
-    uv_x: f32,
-    uv_y: f32,
-    uv_w: f32,
-    uv_h: f32,
-    offset_x: f32,
-    offset_y: f32,
-    advance: f32,
-};
-
-pub const Font = struct {
-    id: u32,
-    name: []const u8,
-    glyphs: [128]GlyphInfo, // ASCII range
-    line_height: f32,
-};
-
-pub fn ReadFontManifest(
-    io: std.Io,
-    proj: utils.Project,
-    allocator: std.mem.Allocator,
-) !ParsedFontManifest {
-
-    const manifest_path = try std.fmt.allocPrint(
-        allocator,
-        font_path,
-        .{ proj.name },
-    );
-    defer allocator.free(manifest_path); 
-
-    const file = try std.Io.Dir.cwd().openFile(
-        io, 
-        manifest_path, 
-        .{}
-    );
-    defer file.close(io);
-
-    const file_size = try file.length(io); 
-    const bytes = try allocator.alloc(u8, file_size);
-    errdefer allocator.free(bytes);  
-
-    _ = try file.readPositionalAll(io, bytes, 0);
-
-    const parsed = try std.json.parseFromSlice(
-        FontManifest,
-        allocator,
-        bytes,
-        .{ .ignore_unknown_fields = true },
-    );
-
-    return .{
-        .parsed = parsed,
-        .buffer = bytes,
-    };
-
-}
-
-pub const ParsedFontManifest = struct {
-    parsed: std.json.Parsed(FontManifest),
-    buffer: []u8,
-
-    pub fn deinit(self: *ParsedFontManifest, allocator: std.mem.Allocator) void {
-        self.parsed.deinit();
-        allocator.free(self.buffer);
-    }
 };
 
 
@@ -249,6 +175,8 @@ pub fn AddAtlasToManifest(
     atlas_imgs: []AtlasImage,
     path: []const u8,
     from_path: []const u8,
+    font_name: ?[]const u8,
+    font: ?font_mod.Font,
     id: usize,
 ) !void{
 
@@ -269,8 +197,10 @@ pub fn AddAtlasToManifest(
 
     new_atlases[manifest.atlases.len] = .{
         .id = @intCast(manifest.atlases.len),
+        .font_name = if (font_name) |n| try allocator.dupe(u8, n) else null, 
         .path = try allocator.dupe(u8, path),
         .atlas_imgs = atlas_imgs,
+        .font = font,
         .from_path = try allocator.dupe(u8, from_path),
         .rev = 1,
     };

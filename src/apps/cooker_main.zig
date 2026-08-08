@@ -3,6 +3,7 @@ const zigimg = @import("zigimg");
 const utils = @import("utils");
 const notify = utils.notify;
 const atlas_mod = utils.atlas;
+const font_mod = utils.font;
 const Io = std.Io;
 
 // Starting font here!
@@ -10,7 +11,7 @@ const Io = std.Io;
 const src_fonts_dir = "projects/{s}/src/fonts";
 const fonts_manifest_dir = "projects/{s}/cooked/fonts/manifest.json";
 const cooked_font_dir_tmp = "projects/{s}/cooked/fonts/font_{d}.ktx2.tmp";
-const cooked_font_dir_ktx2 = "projects/{s}/cooked/fonts/font_{d}.ktx2";
+const cooked_font_dir_ktx2 = "projects/{s}/cooked/fonts/{s}.ktx2";
 const tmp_font_dir = "zig-out/tmp/font_{d}.png";
 
 
@@ -52,6 +53,7 @@ const FsEvent = enum {
 };
 
 
+
 pub const Cooker = struct {
 
     pub fn CookShaders(self: *Cooker) void {
@@ -63,40 +65,51 @@ pub const Cooker = struct {
         self: *Cooker,
         io: Io,
         file_path: []u8,
+        parent_dir: []u8,
         proj: utils.Project,
         allocator: std.mem.Allocator,
     ) !void {
 
         _ = self;
-        var font_p = try atlas_mod.ReadFontManifest(
-            io, 
-            proj, 
-            allocator
+        var font_p = try font_mod.ReadFontManifest(io, proj, allocator);
+        defer font_p.deinit(allocator);
+
+        var atlas_p = try atlas_mod.ReadManifest(io, proj, allocator);
+        defer atlas_p.deinit(allocator);
+
+
+        // Validate file is fnt
+        if (!std.mem.endsWith(u8, file_path, ".fnt")) {
+            std.log.err("Font must be in format .fnt", .{});
+            return;
+        }
+        
+        // File name
+        const name = std.fs.path.stem(file_path);
+
+        // Make KTX2 file path
+        const ktx_final_path = try std.fmt.allocPrint(
+            allocator,
+            cooked_font_dir_ktx2,
+            .{proj.name , name},
         );
-        font_p.deinit(allocator);
+        defer allocator.free(ktx_final_path);
 
-        // Check if file already exsists. 
-        //
-        // If it exsists then break and exit function
-        //
-        // Now change the font to KTX2
-        //
-        // Then update manifest with correct gliphs
+        const exists = blk: {
+            std.Io.Dir.accessAbsolute(io, ktx_final_path, .{}) catch |err| switch (err) {
+                error.FileNotFound => break :blk false,
+                else => break :blk true,
+            };
+            break : blk true;
+        };
 
-//        const exists = blk: {
-//            std.Io.Dir.accessAbsolute(io, file_path, .{}) catch |err| switch (err) {
-//                error.FileNotFound => break :blk false,
-//                else => break :blk true,
-//            };
-//            break : blk true;
-//        };
-//
-//        if (exists) return;
-//
-        var id = font_p.parsed.value.atlases.len;
+        if (exists){
+            std.log.err("Font already exists", .{});
+            return;
+        }
 
-
-        const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+        // Read from file
+        const file = try std.Io.Dir.cwd().openFile(io, file_path, .{});
         defer file.close(io);
 
         const file_size = try file.length(io);
@@ -106,7 +119,7 @@ pub const Cooker = struct {
 
         _ = file.reader(io, read_buf);
 
-        //std.log.info("File does not exist", .{});
+        // Getting image from path and pixels
         var img = try zigimg.Image.fromFilePath(
             allocator,
             io,
@@ -117,70 +130,24 @@ pub const Cooker = struct {
 
         try img.convert(allocator, .rgba32);
 
-        const img_w: u32 = @intCast(img.width);
-        const img_h: u32 = @intCast(img.height);
+        // Parse Font to into code
+        const parsed_file = font_mod.ParseFnt(read_buf, @floatFromInt(img.width), @floatFromInt(img.height));
 
-        var atlas = atlas_mod.Atlas{
-            .width = img_w,
-            .height img_h,
-            .pixels = try allocator.alloc(u8, img_w * img_h * 4),
+        const font = font_mod.Font{
+            .name = name,
+            .path = ktx_final_path,
+            .glyphs = parsed_file.glyphs,
+            .line_height = parsed_file.line_height,
         };
-        defer allocator.free(atlas.pixels.?);
 
-        @memset(atlas.pixels.?, 0);
-
-        const pixels = atlas.pixels orelse
-            return error.NoPixels;
-
-         var tmp_img = try zigimg.Image.create(
-            allocator,
-            atlas.width,
-            atlas.height,
-            .rgba32,
-        );
-        defer tmp_img.deinit(allocator);
-
-
-        const dst = std.mem.sliceAsBytes(tmp_img.pixels.rgba32);
-        @memcpy(dst, pixels);
-
-
-       const write_buffer = try allocator.alloc(u8, 1024 * 1024); // 1 MB scratch (safe)
-       defer allocator.free(write_buffer);
-
-
-       std.log.info("Starting the creation of ktx2 atlas file", .{});
-
-        const png_path = try std.fmt.allocPrint(
-            allocator,
-            tmp_font_dir,
-            .{ id },
-        );
-        defer allocator.free(png_path);
-
-        try img.writeToFilePath(allocator ,io ,png_path, write_buffer, .{ .png = .{} });
-
-       const ktx_tmp_path = try std.fmt.allocPrint(
-            allocator,
-            cooked_font_dir_tmp,
-            .{ proj.name, id },
-        );
-        defer allocator.free(ktx_tmp_path);
-
-        const ktx_final_path = try std.fmt.allocPrint(
-            allocator,
-            cooked_font_dir_ktx2,
-            .{proj.name , id },
-        );
-        defer allocator.free(ktx_final_path);
-
+        std.log.info("Starting the creation of ktx2 atlas file", .{});
         var argv = [_][]const u8{
             "toktx",
             "--assign_oetf", "srgb",
             "--bcmp",
             "--genmipmap",
-            ktx_tmp_path,
-            png_path,
+            ktx_final_path,
+            file_path,
         };
 
 
@@ -192,28 +159,27 @@ pub const Cooker = struct {
         });
 
         const term = try child.wait(io);
-       
-        try std.Io.Dir.renameAbsolute( ktx_tmp_path ,ktx_final_path, io);
         if (term != .exited or term.exited != 0) {
              return error.BuildFailed;
-         }
-   
-        std.log.info("Finished adding atlas to atlas file", .{});
-
-        std.log.info("Updating texture manifest", .{});
+        } 
+        std.log.info("Updating font manifest", .{});
+        
+       // try font_mod.AddFontToManifest(allocator, &font_p.parsed.value, font);
+      //  try font_mod.WriteFontManifest(io, proj, font_p.parsed.value, allocator);
 
         try atlas_mod.AddAtlasToManifest(
             allocator,
-            &parsed.parsed.value,
-            atlas_imgs.items,
+            &atlas_p.parsed.value,
+            &.{},
             ktx_final_path,
-            cooking_packet.parent_dir,
-            id,
+            parent_dir,
+            name,
+            font,
+            atlas_p.parsed.value.atlases.len,
         );
 
-        try atlas_mod.WriteManifest(io, proj, parsed.parsed.value, allocator);
-
-        std.log.info("Manifest is updated", .{});
+        try atlas_mod.WriteManifest(io, proj, atlas_p.parsed.value, allocator);
+        std.log.info("Font manifest is updated", .{});
 
     }
 
@@ -365,6 +331,8 @@ pub const Cooker = struct {
             atlas_imgs.items,
             ktx_final_path,
             cooking_packet.parent_dir,
+            null,
+            null,
             id,
         );
 
@@ -797,7 +765,8 @@ fn FontAlerter(
 
                     try cooker.CookFonts(
                         io, 
-                        cooking_packet.file_path, 
+                        cooking_packet.file_path,
+                        cooking_packet.parent_dir,
                         proj, 
                         allocator
                     );

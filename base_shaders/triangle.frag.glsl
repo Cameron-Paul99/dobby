@@ -17,5 +17,6 @@ void main(){
         frag_tex_coord
     );
 
+
     outColor = frag_color * tex;
 }
