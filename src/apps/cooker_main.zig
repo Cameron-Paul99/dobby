@@ -47,7 +47,7 @@ const FsEvent = enum {
     FileCreated,
     FileDeleted,
     FileWritten,
-   // FileMovedIn,
+    FileMovedIn,
     FileMovedOut,
     Ignore,
 };
@@ -71,8 +71,8 @@ pub const Cooker = struct {
     ) !void {
 
         _ = self;
-        var font_p = try font_mod.ReadFontManifest(io, proj, allocator);
-        defer font_p.deinit(allocator);
+       // var font_p = try font_mod.ReadFontManifest(io, proj, allocator);
+       // defer font_p.deinit(allocator);
 
         var atlas_p = try atlas_mod.ReadManifest(io, proj, allocator);
         defer atlas_p.deinit(allocator);
@@ -84,24 +84,51 @@ pub const Cooker = struct {
             return;
         }
         
+        std.log.info("Name and id setting ", .{});
         // File name
         const name = std.fs.path.stem(file_path);
+        const id = atlas_p.parsed.value.atlases.len; 
 
-        // Make KTX2 file path
-        const ktx_final_path = try std.fmt.allocPrint(
+        // Need png file to transfer to ktx2
+        const img_path = try std.fmt.allocPrint(
             allocator,
-            cooked_font_dir_ktx2,
-            .{proj.name , name},
+            "{s}/{s}_0.png",
+            .{parent_dir, name},
         );
-        defer allocator.free(ktx_final_path);
+        defer allocator.free(img_path);
 
-        const exists = blk: {
-            std.Io.Dir.accessAbsolute(io, ktx_final_path, .{}) catch |err| switch (err) {
+        std.log.info("Image exists running ", .{});
+        const img_exists = blk: {
+            std.Io.Dir.cwd().access(io, img_path, .{}) catch |err| switch (err)           {
                 error.FileNotFound => break :blk false,
                 else => break :blk true,
             };
             break : blk true;
         };
+
+        if (!img_exists) {
+            std.log.err("Font image does not exist: {s} ", .{img_path});
+            return;
+        }
+
+        std.log.info("Constructing final path ", .{});
+        // Make KTX2 file path
+        const ktx_final_path = try std.fmt.allocPrint(
+            allocator,
+            cooked_atlas_dir_ktx2,
+            .{proj.name , id },
+        ); 
+        defer allocator.free(ktx_final_path);
+
+        const exists = blk: {
+            std.Io.Dir.cwd().access(io, ktx_final_path, .{}) catch |err| switch (err) {
+                error.FileNotFound => break :blk false,
+                else => break :blk true,
+            };
+            break : blk true;
+        };
+
+        std.log.info("Moving to see if Font: {s} exists", .{name});
 
         if (exists){
             std.log.err("Font already exists", .{});
@@ -109,29 +136,46 @@ pub const Cooker = struct {
         }
 
         // Read from file
-        const file = try std.Io.Dir.cwd().openFile(io, file_path, .{});
+        const file = try std.Io.Dir.cwd().openFile(io, img_path, .{});
         defer file.close(io);
 
         const file_size = try file.length(io);
 
-        const read_buf = try allocator.alloc(u8, file_size);
-        defer allocator.free(read_buf);
+        const img_buf = try allocator.alloc(u8, file_size);
+        defer allocator.free(img_buf);
 
-        _ = file.reader(io, read_buf);
+        _ = file.reader(io, img_buf);
+
+        std.log.info("Done reading png file", .{});
 
         // Getting image from path and pixels
         var img = try zigimg.Image.fromFilePath(
             allocator,
             io,
-            file_path,
-            read_buf,
+            img_path,
+            img_buf,
         );
         defer img.deinit(allocator);
 
         try img.convert(allocator, .rgba32);
 
+        std.log.info("About to parse", .{});
+
+
         // Parse Font to into code
-        const parsed_file = font_mod.ParseFnt(read_buf, @floatFromInt(img.width), @floatFromInt(img.height));
+        const fnt_file = try std.Io.Dir.cwd().openFile(io, file_path, .{});
+        defer fnt_file.close(io);
+
+        const fnt_file_size = try fnt_file.length(io);
+
+        const read_buf = try allocator.alloc(u8, fnt_file_size);
+        defer allocator.free(read_buf);
+
+        var fnt_file_reader = fnt_file.reader(io, read_buf);
+        const contents = try fnt_file_reader.interface.allocRemaining(allocator, .unlimited);
+        defer allocator.free(contents);
+
+        const parsed_file = font_mod.ParseFnt(contents, @floatFromInt(img.width), @floatFromInt(img.height));
 
         const font = font_mod.Font{
             .name = name,
@@ -147,7 +191,7 @@ pub const Cooker = struct {
             "--bcmp",
             "--genmipmap",
             ktx_final_path,
-            file_path,
+            img_path,
         };
 
 
@@ -527,6 +571,7 @@ pub fn main(init: std.process.Init) !void {
         src_fonts_dir,
         .{proj.parsed.value.name}
     );
+    defer allocator.free(font_path);
 
     const text_path = try allocator.dupeZ(u8 , texture_path);
     defer allocator.free(text_path);
@@ -719,6 +764,11 @@ pub fn main(init: std.process.Init) !void {
                         std.log.info("File moved out: {s}", .{cooking_packet.file_path});
                     },
 
+                    .FileMovedIn => {
+                            
+
+                    },
+
                     .Ignore => {},
 
                 }
@@ -745,16 +795,19 @@ fn FontAlerter(
 
     if (font_bytes > 0) {
         
+        std.log.info("Font Alerter", .{});
         var offset: usize = 0;
         if (offset < font_bytes){
             const ev: *std.os.linux.inotify_event = @ptrCast(@alignCast(&font_notifier.buf[offset]));
 
             const is_dir = (ev.mask & std.os.linux.IN.ISDIR) != 0;
 
+            std.log.info("About to classify alert", .{});
             switch (ClassifyEvent(ev, is_dir)) {
 
-                .FileWritten, .FileCreated => {
+                .FileWritten, .FileCreated, .FileMovedIn  => {
                     
+                    std.log.info("File written", .{});
                     const cooking_packet = try FileUpdated( 
                         allocator, 
                         font_notifier, 
@@ -771,14 +824,35 @@ fn FontAlerter(
                         allocator
                     );
 
+                    std.log.info("File written: {s}", .{cooking_packet.file_path});
                 },
 
-                .Ignore => {},
-                .FileMovedOut => {},
-                .FileDeleted => {},
-                .DirRemoved => {},
-                .DirCreated => {},
-            
+                .FileMovedOut => {
+                    
+                    std.log.info("File Moved out", .{});
+                },
+
+                .FileDeleted => {
+
+                    std.log.info("File Deleted", .{});
+
+                },
+
+                .DirRemoved => {
+                
+                    std.log.info("Directory Removed", .{});
+                },
+
+                .DirCreated => {
+                    
+                    std.log.info("Directory Created", .{});
+                },
+
+                .Ignore => {
+
+                    std.log.info("Alert Ignored", .{});    
+                
+                }, 
 
             }
 
@@ -832,8 +906,8 @@ fn ClassifyEvent(ev: *const std.os.linux.inotify_event, is_dir: bool) FsEvent {
     if (!is_dir and (ev.mask & std.os.linux.IN.CLOSE_WRITE) != 0)
         return .FileWritten;
 
-    //if (!is_dir and (ev.mask & std.os.linux.IN.MOVED_TO) != 0)
-       // return .FileMovedIn;
+    if (!is_dir and (ev.mask & std.os.linux.IN.MOVED_TO) != 0)
+        return .FileMovedIn;
 
     if (!is_dir and (ev.mask & std.os.linux.IN.MOVED_FROM) != 0)
         return .FileMovedOut;
