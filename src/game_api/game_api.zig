@@ -404,6 +404,15 @@ pub const InputKeyExtern = extern struct {
     }
 };
 
+/// Core UI functions exposed by the engine
+pub const UI_API = extern struct {
+    
+    draw_txt: *const fn ([*:0]const u8, Position2D) callconv(.c) void,
+
+
+
+};
+
 /// Core entity and transform functions exposed by the engine.
 pub const GameAPI = extern struct {
     /// User-defined opaque pointer owned by the host.
