@@ -274,21 +274,30 @@ pub fn GetImageFromAtlas(
 pub fn GetFontFromAtlas(
     io: std.Io,
     name: []const u8,
-)  !?font_mod.Font {
+    proj: utils.Project,
+    allocator: std.mem.Allocator,
+)  !?font_mod.FontInfo {
 
-    var manifest = try ReadManifestGame(io, proj, allocator);
+    var manifest = try ReadManifest(io, proj, allocator);
     defer manifest.deinit(allocator);
 
-    for (&manifest.parsed.value.atlases) |atlas| {
+    for (manifest.parsed.value.atlases) |atlas| {
         
-        if (atlas.name) |a_n| {
-            if (a_n == name){
-                
-
+        if (atlas.font_name) |afn| {
+            if (std.mem.eql(u8, afn, name)){
+                if (atlas.font) |font| {
+                    return font_mod.FontInfo {
+                        .atlas_id = atlas.id,
+                        .glyphs = font.glyphs,
+                        .line_height = font.line_height,
+                    };
+                }
             }
         }
     
     }
+
+    return null;
 
 }
 

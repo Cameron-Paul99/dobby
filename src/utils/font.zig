@@ -28,6 +28,12 @@ pub const Font = struct {
     line_height: f32,
 };
 
+pub const FontInfo = struct {
+    atlas_id: u32,
+    glyphs: [128]GlyphInfo, // ASCII range
+    line_height: f32,
+};
+
 pub const ParsedFontManifest = struct {
     parsed: std.json.Parsed(FontManifest),
     buffer: []u8,

@@ -43,7 +43,8 @@ const GameInitFn   = *const fn (
     *g_api.Camera2DAPI,
     *g_api.MouseAPI,
     *g_api.SpriteAPI,
-    *g_api.AudioAPI) callconv(.c) void;
+    *g_api.AudioAPI,
+    *g_api.UI_API) callconv(.c) void;
 const GameUpdateFn = *const fn (f64) callconv(.c) void;
 const GameInputPressedFn = *const fn (u8) callconv(.c) void;
 const GameInputDownFn = *const fn (u8) callconv(.c) void;

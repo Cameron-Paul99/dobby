@@ -12,6 +12,7 @@ const Camera = utils.camera;
 const Mouse = utils.mouse;
 const Math = utils.math;
 const atlas_mod = utils.atlas;
+const font_mod = utils.font;
 const Transform2D = g_api.Transform2D;
 const Position2D = g_api.Position2D;
 const ScreenD = g_api.ScreenD;
@@ -569,9 +570,46 @@ pub export fn PlayPause() callconv(.c) bool {
 
 pub export fn DrawTxt(
     txt: [*:0]const u8, 
-    pos : Position2D 
+    pos : Position2D
 ) callconv(.c) void {
 
+    const ctx = g_active_ctx;
+
+    var glyphs = std.ArrayList(font_mod.GlyphInfo).initCapacity(ctx.allocator, 0) catch unreachable;
+    defer glyphs.deinit(ctx.allocator);
+
+    const fontInfo = atlas_mod.GetFontFromAtlas(
+        ctx.io,
+        "Inter",
+        ctx.proj,
+        ctx.allocator,
+    ) catch |err| {
+        std.log.err("GetFontFromAtlas failed: {}", .{err});
+        return;
+    };
+
+    const font = &(fontInfo orelse return);
+
+    for (std.mem.span(txt)) |l| {
+
+
+        for (font.glyphs) |glyph| {
+            
+            if (l == glyph.letter) {
+                glyphs.append(ctx.allocator, glyph) catch unreachable;
+            }
+        }
+    }
+
+    // TODO: Make UI components similar to Sprite Desc but modified for UI
+
+        
+        
+       // _ = l;
+
+   // _ = txt;
+    _ = pos;
+  //  _ = font;
 
     
 
