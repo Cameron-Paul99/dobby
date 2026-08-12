@@ -100,6 +100,7 @@ pub const ProjectContext = struct {
     game_api: g_api.GameAPI = undefined,
     physics_api: g_api.PhysicsAPI = undefined,
     audio_api: g_api.AudioAPI = undefined,
+    ui_api: g_api.UI_API = undefined,
     camera_api: g_api.Camera2DAPI = undefined,
     mouse_api: g_api.MouseAPI = undefined,
     sprite_api: g_api.SpriteAPI = undefined,
@@ -111,7 +112,8 @@ pub const ProjectContext = struct {
         *g_api.Camera2DAPI,
         *g_api.MouseAPI,
         *g_api.SpriteAPI,
-        *g_api.AudioAPI) 
+        *g_api.AudioAPI,
+        *g_api.UI_API) 
         callconv(.c) void,
     game_start: ?*const fn () callconv(.c) void,
     game_update: ?*const fn (f64) callconv(.c) void,
@@ -197,6 +199,9 @@ pub const ProjectContext = struct {
             },
             .audio_api = g_api.AudioAPI {
                 .play_sound = Bridge.PlaySound,
+            },
+            .ui_api = g_api.UI_API {
+                .draw_txt = Bridge.DrawTxt,
             },
             .camera_api = g_api.Camera2DAPI {
                 .set_camera_world_pos = Bridge.SetCameraWorldPosition,
@@ -334,6 +339,7 @@ pub const ProjectContext = struct {
             &self.mouse_api,
             &self.sprite_api,
             &self.audio_api,
+            &self.ui_api,
         );
 
     }

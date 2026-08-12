@@ -97,9 +97,12 @@ pub const Rotation2D = extern struct {
     y: f32 = 0,
 };
 
+/// Screen Dimensions
 pub const ScreenD = extern struct {
-
+    /// Height
     h: f32 = 0,
+
+    /// Width
     w: f32 = 0,
 
 };
@@ -407,6 +410,7 @@ pub const InputKeyExtern = extern struct {
 /// Core UI functions exposed by the engine
 pub const UI_API = extern struct {
     
+    /// draw text
     draw_txt: *const fn ([*:0]const u8, Position2D) callconv(.c) void,
 
 
@@ -421,10 +425,13 @@ pub const GameAPI = extern struct {
     /// Creates a new entity and returns its ID.
     add_entity: *const fn () callconv(.c) u32,
 
+    /// Set Entity to alive
     alive: *const fn (u32) callconv(.c) void,
 
+    /// Delete Entity
     unalive: *const fn (u32) callconv(.c) void,
 
+    /// Pause Game
     pause_play: *const fn () callconv(.c) bool,
 
     /// Removes an entity and its associated components.
@@ -433,20 +440,28 @@ pub const GameAPI = extern struct {
     /// Adds or replaces a 2D transform for an entity.
     add_transform_2D: *const fn (u32, Transform2D) callconv(.c) void,
 
+    /// Set Transform for an entity
     set_transform: *const fn (u32, Transform2D) callconv(.c) void,
     
+    /// Log info
     log: *const fn ([*:0]const u8) callconv(.c) void,
     
+    /// Allocate Memory
     alloc: *const fn (usize, u8) callconv(.c) ?[*]u8,
 
+    /// Free Memory
     free: *const fn ([*]u8, usize, u8) callconv(.c) void,
 
+    /// Save Game
     save_game: *const fn ([*]const u8, usize, [*:0]const u8) callconv(.c) void,
 
+    /// Load Game
     load_game: *const fn ([*:0]const u8, *usize, usize) callconv(.c) ?[*]u8,
 };
 
+/// Core Audio 
 pub const AudioAPI = extern struct {
+    /// Play sound
     play_sound: *const fn([*:0] const u8) callconv(.c) void,
 };
 

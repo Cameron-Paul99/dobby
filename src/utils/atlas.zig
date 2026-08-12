@@ -270,6 +270,28 @@ pub fn GetImageFromAtlas(
     return null;
 }
 
+// TODO: Take into account default and not default fonts
+pub fn GetFontFromAtlas(
+    io: std.Io,
+    name: []const u8,
+)  !?font_mod.Font {
+
+    var manifest = try ReadManifestGame(io, proj, allocator);
+    defer manifest.deinit(allocator);
+
+    for (&manifest.parsed.value.atlases) |atlas| {
+        
+        if (atlas.name) |a_n| {
+            if (a_n == name){
+                
+
+            }
+        }
+    
+    }
+
+}
+
 pub fn GetImageFromAtlasGame(
     io: std.Io,
     atlas_id: usize,

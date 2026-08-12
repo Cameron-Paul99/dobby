@@ -567,4 +567,13 @@ pub export fn PlayPause() callconv(.c) bool {
    return g_t.*.pause;
 }
 
+pub export fn DrawTxt(
+    txt: [*:0]const u8, 
+    pos : Position2D 
+) callconv(.c) void {
+
+
+    
+
+}
 
