@@ -601,6 +601,22 @@ pub export fn DrawTxt(
         }
     }
 
+    for (glyphs.items) |glyph| {
+
+        const uv_min_x = glyph.uv_x;
+        const uv_min_y = glyph.uv_y;
+        const uv_max_x = glyph.uv_x + glyph.uv_w;
+        const uv_max_y = glyph.uv_y + glyph.uv_h;
+
+        _ = uv_min_x;
+        _ = uv_min_y;
+        _ = uv_max_y;
+        _ = uv_max_x;
+
+
+
+    }
+
     // TODO: Make UI components similar to Sprite Desc but modified for UI
 
         

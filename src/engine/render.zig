@@ -78,6 +78,9 @@ pub const Renderer = struct {
     dummy_ssbo: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     sprite_instance_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     static_instance_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+    ui_buffer: helper.AllocatedBuffer = .{.buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
+
+
     // Lights
     light_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     light_indices_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
@@ -110,6 +113,7 @@ pub const Renderer = struct {
     static_instance_count: u32 = 0,
     sprite_draws: std.ArrayListUnmanaged(helper.SpriteDraw),
     static_sprite_draws: std.ArrayListUnmanaged(helper.SpriteDraw),
+    
     pending_atlas: bool = true,
     atlas_textures: std.ArrayListUnmanaged(helper.AllocatedImage), // All Atlases
     cam: GPUCameraData,

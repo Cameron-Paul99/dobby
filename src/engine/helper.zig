@@ -991,6 +991,12 @@ pub fn CreateVMAAllocator(core: *gpu_context.Core) !c.VmaAllocator {
 
 }
 
+pub const UIDraw = extern struct {
+    atlas_id: u32,
+    uv_min: [2]f32,
+    uv_max: [2]f32,
+};
+
 pub const SpriteSet = struct {
     start: u32 = 0,
     count: u16 = 0,
