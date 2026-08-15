@@ -197,6 +197,7 @@ pub fn main(init: std.process.Init) !void {
         }
 
         project_context.sprite_draws.clearRetainingCapacity();
+        project_context.ui_draws.clearRetainingCapacity();
 
         project_context.has_sprite.forEachBitSet(
             struct {
@@ -291,6 +292,7 @@ pub fn main(init: std.process.Init) !void {
             allocator,
             project_context.sprite_draws.items,
             project_context.static_sprite_draws.items,
+            project_context.ui_draws.items,
             cam.view_proj,
             &project_context.static_dirty,
         );

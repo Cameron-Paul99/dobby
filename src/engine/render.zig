@@ -15,6 +15,8 @@ const MaterialSystem = mat_sys.MaterialSystem;
 const FRAME_OVERLAP = 4;
 
 pub const MAX_SPRITES = 100_000;
+pub const MAX_UI_VERTICES = 10_000;
+pub const MAX_UI_INDICES = 15_000;
 
 const MAX_ATLASES = 64;
 
@@ -78,13 +80,15 @@ pub const Renderer = struct {
     vma: c.VmaAllocator,
     frame_number: i32 = 0,
     images_in_flight: []c.VkFence = &.{},
+
+    // Buffers
     vertex_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     index_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     dummy_ssbo: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     sprite_instance_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     static_instance_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
     ui_buffer: helper.AllocatedBuffer = .{.buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
-
+    ui_index_buffer: helper.AllocatedBuffer = .{.buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
 
     // Lights
     light_buffer: helper.AllocatedBuffer = .{ .buffer = helper.VK_NULL_HANDLE, .allocation = helper.VK_NULL_HANDLE, .size = 0 },
@@ -118,11 +122,16 @@ pub const Renderer = struct {
     static_instance_count: u32 = 0,
     sprite_draws: std.ArrayListUnmanaged(helper.SpriteDraw),
     static_sprite_draws: std.ArrayListUnmanaged(helper.SpriteDraw),
+    ui_draws: std.ArrayListUnmanaged(helper.UIDraw),
     
     pending_atlas: bool = true,
     atlas_textures: std.ArrayListUnmanaged(helper.AllocatedImage), // All Atlases
     cam: GPUCameraData,
     //batches: [MAX_ATLASES]std.ArrayList(SpriteDraw);
+
+    ui_vertex_count: u32 = 0,
+    ui_index_count: u32 = 0,
+
 
 
 
@@ -151,6 +160,7 @@ pub const Renderer = struct {
             .vma = vma,
             .sprite_draws = .empty,
             .static_sprite_draws = try std.ArrayListUnmanaged(helper.SpriteDraw).initCapacity(allocator, 0),
+            .ui_draws = .empty,
             .atlas_textures = .empty,
             .cam = GPUCameraData{
                 .view_proj = math.Ortho(
@@ -231,6 +241,25 @@ pub const Renderer = struct {
             c.VMA_MEMORY_USAGE_CPU_TO_GPU,  
             c.VMA_ALLOCATION_CREATE_MAPPED_BIT,
         ); 
+
+        renderer.ui_buffer = try helper.CreateBuffer(
+            renderer.vma,
+            MAX_UI_VERTICES * @sizeOf(helper.UIDraw),
+            c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            c.VMA_MEMORY_USAGE_CPU_TO_GPU,
+            c.VMA_ALLOCATION_CREATE_MAPPED_BIT,
+        );
+
+        const ui_indices = try helper.BuildUiIndexPattern(allocator);
+        defer allocator.free(ui_indices);
+
+        renderer.ui_index_buffer = try helper.CreateIndexBuffer(
+            renderer.vma,
+            ui_indices,
+            &renderer.upload_context,
+            core,
+        );
+
         renderer.index_count = @intCast(inds.len);
         //renderer.instance_count = @intCast()
         
@@ -250,6 +279,7 @@ pub const Renderer = struct {
         allocator: std.mem.Allocator,
         sprites: []helper.SpriteDraw,
         static_sprites: []helper.SpriteDraw,
+        ui_draws: []helper.UIDraw,
         view_proj: math.Mat4, 
         dirty: *bool) !void {
 
@@ -389,7 +419,7 @@ pub const Renderer = struct {
         const tpl = try self.material_system.BindPipeline(cmd, "Triangle");
         
         //TODO: Bind Descriptor sets and also update shaders.
-       const frame_set = frame.set_frame;
+        const frame_set = frame.set_frame;
         
         if (self.pending_atlas) {
             for (&self.frames) |*f| {
@@ -411,6 +441,7 @@ pub const Renderer = struct {
             0,
             null,
        );
+
 
         const offsets = [_]c.VkDeviceSize{0, 0};
         
@@ -502,6 +533,40 @@ pub const Renderer = struct {
             );
         }
 
+      
+        // --- UI pass ---
+        const ui_pl = try self.material_system.BindPipeline(cmd, "UI"); // binds UI pipeline
+
+        const ui_sets = [_]c.VkDescriptorSet{ frame_set, frame.material_set };
+        c.vkCmdBindDescriptorSets(
+            cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pl.pipeline_layout,
+            0, @as(u32, @intCast(ui_sets.len)), &ui_sets[0], 0, null,
+        );
+
+        const ui_pc = UiPushConstants{
+            .scale = .{
+                2.0 / @as(f32, @floatFromInt(swapchain.extent.width)),
+                2.0 / @as(f32, @floatFromInt(swapchain.extent.height)),
+            },
+            .translate = .{ -1.0, -1.0 },
+        };
+        c.vkCmdPushConstants(
+            cmd, ui_pl.pipeline_layout, c.VK_SHADER_STAGE_VERTEX_BIT,
+            0, @sizeOf(UiPushConstants), &ui_pc,
+        );
+
+        self.ui_vertex_count = @as(u32, @intCast(ui_draws.len / 4));
+        if (self.ui_vertex_count > 0) {
+            try helper.UploadToBuffer(self.vma, self.ui_buffer, ui_draws);
+            const ui_vertex_buffers = [_]c.VkBuffer{ self.ui_buffer.buffer };
+            const ui_offsets = [_]c.VkDeviceSize{0};
+            c.vkCmdBindVertexBuffers(cmd, 0, 1, &ui_vertex_buffers, &ui_offsets);
+            c.vkCmdBindIndexBuffer(cmd, self.ui_index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT16);
+            const quad_count = self.ui_vertex_count / 4;
+            c.vkCmdDrawIndexed(cmd, quad_count * 6, 1, 0, 0, 0);
+        }
+
+        // End Render Pass and Command Buffer
         c.vkCmdEndRenderPass(cmd);
         try helper.check_vk(c.vkEndCommandBuffer(cmd));
 
@@ -639,6 +704,9 @@ pub const Renderer = struct {
         helper.DestroyBuffer(self.vma, &self.index_buffer);
         helper.DestroyBuffer(self.vma, &self.sprite_instance_buffer);
         helper.DestroyBuffer(self.vma, &self.static_instance_buffer);
+        helper.DestroyBuffer(self.vma, &self.ui_buffer);
+        helper.DestroyBuffer(self.vma, &self.ui_index_buffer);
+
 
         for (self.atlas_textures.items) |*img| {
             helper.DestroyImage(core, self.vma, img);
@@ -904,14 +972,14 @@ pub fn CreatePipelines(
     });
 
     // UI
-    const vert_stage_ci = std.mem.zeroInit(c.VkPipelineShaderStageCreateInfo, .{
+    const ui_vert_stage_ci = std.mem.zeroInit(c.VkPipelineShaderStageCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
         .stage = c.VK_SHADER_STAGE_VERTEX_BIT,
         .module = ui_mods.vert_mod,
         .pName = "main",
     });
 
-    const frag_stage_ci = std.mem.zeroInit(c.VkPipelineShaderStageCreateInfo, .{
+    const ui_frag_stage_ci = std.mem.zeroInit(c.VkPipelineShaderStageCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
         .stage = c.VK_SHADER_STAGE_FRAGMENT_BIT,
         .module = ui_mods.frag_mod,
@@ -1012,14 +1080,15 @@ pub fn CreatePipelines(
     };
 
     const ui_attrs = [_]c.VkVertexInputAttributeDescription{
-        .{ .location = 0, .binding = 0, .format = c.VK_FORMAT_R32G32_SFLOAT, .offset = @offsetOf(helper.UiVertex, "pos") },
-        .{ .location = 1, .binding = 0, .format = c.VK_FORMAT_R32G32_SFLOAT, .offset = @offsetOf(helper.UiVertex, "uv_max") },
-        .{ .location = 2, .binding = 0, .format = c.VK_FORMAT_R32G32_SFLOAT, .offset = @offsetOf(helper.UiVertex, "uv_min") },
-        .{ .location = 3, .binding = 0, .format = c.VK_FORMAT_R32G32B32A32_SFLOAT, .offset = @offsetOf(helper.UiVertex, "color") },
-        .{ .location = 4, .binding = 0, .format = c.VK_FORMAT_R32_UINT, .offset = @offsetOf(helper.UiVertex, "atlas_id") },
+        .{ .location = 0, .binding = 0, .format = c.VK_FORMAT_R32G32_SFLOAT, .offset = @offsetOf(helper.UIDraw, "pos") },
+        .{ .location = 1, .binding = 0, .format = c.VK_FORMAT_R32G32_SFLOAT, .offset = @offsetOf(helper.UIDraw, "uv") },
+        .{ .location = 2, .binding = 0, .format = c.VK_FORMAT_R32G32B32A32_SFLOAT, .offset = @offsetOf(helper.UIDraw, "color") },
+        .{ .location = 3, .binding = 0, .format = c.VK_FORMAT_R32_UINT, .offset = @offsetOf(helper.UIDraw, "atlas_id") },
     };
 
-    // More input state changes
+    // More input state changes 
+    //
+    // Triangle
     const vertex_input_state_ci = std.mem.zeroInit(c.VkPipelineVertexInputStateCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .vertexBindingDescriptionCount = @as(u32, @intCast(binding.len)),
@@ -1027,6 +1096,16 @@ pub fn CreatePipelines(
         .vertexAttributeDescriptionCount = @as(u32, @intCast(attrs.len)),
         .pVertexAttributeDescriptions = &attrs[0],
     });
+
+    // UI
+    const ui_vertex_input_state_ci = std.mem.zeroInit(c.VkPipelineVertexInputStateCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = @as(u32, @intCast(ui_binding.len)),
+        .pVertexBindingDescriptions = &ui_binding[0],
+        .vertexAttributeDescriptionCount = @as(u32, @intCast(ui_attrs.len)),
+        .pVertexAttributeDescriptions = &ui_attrs[0],
+    });
+
 
     const input_assembly_state_ci = std.mem.zeroInit(c.VkPipelineInputAssemblyStateCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
@@ -1078,10 +1157,15 @@ pub fn CreatePipelines(
                 c.VK_COLOR_COMPONENT_A_BIT,
     });
 
-
+    // Shader Stages for both UI and Triangle
     var shader_stages = [_]c.VkPipelineShaderStageCreateInfo{
         vert_stage_ci,
         frag_stage_ci,
+    };
+
+    var ui_shader_stages = [_]c.VkPipelineShaderStageCreateInfo{
+        ui_vert_stage_ci,
+        ui_frag_stage_ci,
     };
 
     const dynamic_states = [_]c.VkDynamicState{
@@ -1094,7 +1178,8 @@ pub fn CreatePipelines(
         .dynamicStateCount = dynamic_states.len,
         .pDynamicStates = &dynamic_states[0],
     });
-    // Pipeline building
+
+    // Pipeline building Triangle
     var pipeline_builder = helper.PipelineBuilder {
         .shader_stages = shader_stages[0..],
         .vertex_input_state = vertex_input_state_ci,
@@ -1108,7 +1193,24 @@ pub fn CreatePipelines(
 
     };
 
+    // Pipeline building for UI
+    var ui_pipeline_builder = helper.PipelineBuilder {
+        .shader_stages = ui_shader_stages[0..],
+        .vertex_input_state = ui_vertex_input_state_ci,
+        .input_assembly_state = input_assembly_state_ci,
+        .rasterization_state = rasterization_state_ci,
+        .dynamic_state = dynamic_state_ci,
+        .color_blend_attachment_state = color_blend_attachment_state,
+        .multisample_state = multisample_state_ci,
+        .pipeline_layout = ui_pipeline_layout,
+        .depth_stencil_state = depth_stencil_state_ci,
+
+    };
+
     const triangle_pipeline = try pipeline_builder.create(core.device.handle, renderer.render_pass, core.alloc_cb);
+
+    // TODO: Render pass
+    const ui_pipeline = try ui_pipeline_builder.create(core.device.handle, renderer.render_pass, core.alloc_cb);
 
     _ = try renderer.material_system.AddTemplateAndInstance(
          "Triangle", 
@@ -1118,6 +1220,17 @@ pub fn CreatePipelines(
          c.VK_PIPELINE_BIND_POINT_GRAPHICS,
          helper.VK_NULL_HANDLE,
          allocator,
+    );
+
+    _ = try renderer.material_system.AddTemplateAndInstance(
+         "UI", 
+         "UI_Instance", 
+         ui_pipeline, 
+         ui_pipeline_layout, 
+         c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+         helper.VK_NULL_HANDLE,
+         allocator,
+
     );
 }
 

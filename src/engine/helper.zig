@@ -997,8 +997,7 @@ pub fn CreateVMAAllocator(core: *gpu_context.Core) !c.VmaAllocator {
 
 pub const UIDraw = extern struct {
     atlas_id: u32,
-    uv_min: [2]f32,
-    uv_max: [2]f32,
+    uv: [2]f32,
     pos: [2]f32,
     color: [4]f32,
 };
@@ -1075,3 +1074,19 @@ pub const RadiusRender = struct {
     }
 };
 
+pub const MAX_UI_QUADS = 2_500;
+
+pub fn BuildUiIndexPattern(allocator: std.mem.Allocator) ![]u16 {
+    var indices = try allocator.alloc(u16, MAX_UI_QUADS * 6);
+    for (0..MAX_UI_QUADS) |quad| {
+        const base: u16 = @intCast(quad * 4);
+        const i = quad * 6;
+        indices[i + 0] = base + 0;
+        indices[i + 1] = base + 1;
+        indices[i + 2] = base + 2;
+        indices[i + 3] = base + 2;
+        indices[i + 4] = base + 3;
+        indices[i + 5] = base + 0;
+    }
+    return indices;
+}

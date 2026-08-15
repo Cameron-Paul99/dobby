@@ -123,6 +123,7 @@ pub const ProjectContext = struct {
     sprite_draws: std.ArrayList(helper.SpriteDraw),
     static_sprite_draws: std.ArrayList(helper.SpriteDraw), 
     sprite_storage: std.ArrayList(helper.SpriteDraw),
+    ui_draws: std.ArrayList(helper.UIDraw),
     paused: bool = true,
     alive: two_bit,
     render_area: RadiusRender, 
@@ -266,6 +267,8 @@ pub const ProjectContext = struct {
                 .initCapacity(allocator, 0),
             .sprite_storage = try std.ArrayList(helper.SpriteDraw)
                 .initCapacity(allocator, 0),
+            .ui_draws = try std.ArrayList(helper.UIDraw)
+                .initCapacity(allocator, 0),
             .sprite_components = sprite_components,
             .entity_transforms = try allocator.alloc(Transform2D, MAX_ENTITIES), 
             .alive = try two_bit.init(MAX_ENTITIES, allocator), 
@@ -286,6 +289,7 @@ pub const ProjectContext = struct {
         self.sprite_storage.clearRetainingCapacity();
         self.sprite_draws.clearRetainingCapacity();
         self.static_sprite_draws.clearRetainingCapacity();
+        self.ui_draws.clearRetainingCapacity();
         for (self.sprite_components) |*set| {
             set.* = .{};
         }
@@ -350,6 +354,7 @@ pub const ProjectContext = struct {
         self.atlas_manager.deinit(self.allocator);
         self.sprite_draws.deinit(self.allocator);
         self.static_sprite_draws.deinit(self.allocator);
+        self.ui_draws.deinit(self.allocator);
         self.sprite_storage.deinit(self.allocator);
         self.allocator.free(self.sprite_components);
         self.allocator.free(self.entity_transforms);
@@ -916,6 +921,8 @@ pub fn main(init: std.process.Init) !void {
             );
         }
 
+        project_context.ui_draws.clearRetainingCapacity();
+
 // ****************************************** RENDERING *******************************************
 
         try renderer.DrawFrame(
@@ -925,6 +932,7 @@ pub fn main(init: std.process.Init) !void {
             allocator,
             project_context.sprite_draws.items,
             project_context.static_sprite_draws.items,
+            project_context.ui_draws.items,
             cam.view_proj,
             &project_context.static_dirty,
         );
