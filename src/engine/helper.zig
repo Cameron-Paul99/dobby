@@ -489,7 +489,11 @@ pub const ShaderModules = struct {
 
 };
 
-pub fn MakeShaderModules(device: c.VkDevice, alloc_cb: ?*c.VkAllocationCallbacks ,comptime vert_name: []const u8, comptime frag_name: []const u8) !ShaderModules{
+pub fn MakeShaderModules(
+    device: c.VkDevice, 
+    alloc_cb: ?*c.VkAllocationCallbacks ,
+    comptime vert_name: []const u8, 
+    comptime frag_name: []const u8) !ShaderModules{
         
         const vert_code align(4) = @embedFile(vert_name).*;
         const frag_code align(4) = @embedFile(frag_name).*;
@@ -995,6 +999,8 @@ pub const UIDraw = extern struct {
     atlas_id: u32,
     uv_min: [2]f32,
     uv_max: [2]f32,
+    pos: [2]f32,
+    color: [4]f32,
 };
 
 pub const SpriteSet = struct {

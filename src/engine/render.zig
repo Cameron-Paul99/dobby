@@ -40,6 +40,11 @@ pub const GPUPushConstants = struct {
     pad: [3]u32 = .{0, 0, 0}, // keep 16 byte aligned
 };
 
+pub const UiPushConstants = extern struct {
+    scale: [2]f32,
+    translate: [2] f32,
+};
+
 pub const GPULight = struct {
     position: math.Vec4,
     color: math.Vec4,       // rgb = color, a = intensity
@@ -820,13 +825,21 @@ pub fn CreatePipelines(
     allocator: std.mem.Allocator
     ) !void {
     
-    // AI says this function is wrong. Keep this in mind going forward.
+    // Triangle Shader Modules
     const triangle_mods = try helper.MakeShaderModules(core.device.handle, core.alloc_cb, 
         "shaders/triangle.vert.spv", 
         "shaders/triangle.frag.spv");
     defer c.vkDestroyShaderModule(core.device.handle, triangle_mods.vert_mod, core.alloc_cb);
     defer c.vkDestroyShaderModule(core.device.handle, triangle_mods.frag_mod, core.alloc_cb);
 
+    // UI Shader modules
+    const ui_mods = try helper.MakeShaderModules(core.device.handle, core.alloc_cb, 
+        "shaders/ui.vert.spv", 
+        "shaders/ui.frag.spv");
+    defer c.vkDestroyShaderModule(core.device.handle, ui_mods.vert_mod, core.alloc_cb);
+    defer c.vkDestroyShaderModule(core.device.handle, ui_mods.frag_mod, core.alloc_cb);
+
+    // Set Layouts for Trangle
     const set_layouts = [_]c.VkDescriptorSetLayout{
         renderer.set_layout_frame,     // set 0
         renderer.set_layout_material,  // set 1
@@ -838,7 +851,15 @@ pub fn CreatePipelines(
         .offset = 0,
         .size = @sizeOf(GPUPushConstants),
     };
+    
+    // UI Push Constants
+    const ui_push_constant_range = std.mem.zeroInit(c.VkPushConstantRange, .{
+        .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT,
+        .offset = 0,
+        .size = @sizeOf(UiPushConstants),
+    });
 
+    // Pipeline layout ci
     const pipeline_layout_ci = std.mem.zeroInit(c.VkPipelineLayoutCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = @as(u32, @intCast(set_layouts.len)),
@@ -847,12 +868,27 @@ pub fn CreatePipelines(
         .pPushConstantRanges = &push_constant_range,
     });
 
+    const ui_pipeline_layout_ci = std.mem.zeroInit(c.VkPipelineLayoutCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = @as(u32, @intCast(set_layouts.len)),
+        .pSetLayouts = &set_layouts[0],
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &ui_push_constant_range,
+    });
+
+    
+
     // Pipeline Layout creation
     var triangle_pipeline_layout: c.VkPipelineLayout = undefined;
     try helper.check_vk(c.vkCreatePipelineLayout(core.device.handle, &pipeline_layout_ci, core.alloc_cb, &triangle_pipeline_layout));
+
+    var ui_pipeline_layout: c.VkPipelineLayout = undefined;
+    try helper.check_vk(c.vkCreatePipelineLayout(core.device.handle, &ui_pipeline_layout_ci, core.alloc_cb, &ui_pipeline_layout));
     
 
     // Stage Creation of pipeline
+    //
+    // Triangle
     const vert_stage_ci = std.mem.zeroInit(c.VkPipelineShaderStageCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
         .stage = c.VK_SHADER_STAGE_VERTEX_BIT,
@@ -866,6 +902,25 @@ pub fn CreatePipelines(
         .module = triangle_mods.frag_mod,
         .pName = "main",
     });
+
+    // UI
+    const vert_stage_ci = std.mem.zeroInit(c.VkPipelineShaderStageCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = c.VK_SHADER_STAGE_VERTEX_BIT,
+        .module = ui_mods.vert_mod,
+        .pName = "main",
+    });
+
+    const frag_stage_ci = std.mem.zeroInit(c.VkPipelineShaderStageCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+        .module = ui_mods.frag_mod,
+        .pName = "main",
+    }); 
+
+    // Bindings for Vertex
+    //
+    // Triangle
 
     const binding = [_]c.VkVertexInputBindingDescription{
         .{
@@ -947,6 +1002,24 @@ pub fn CreatePipelines(
 
     };
 
+    // UI
+    const ui_binding = [_]c.VkVertexInputBindingDescription{
+        .{
+            .binding = 0,
+            .stride = @sizeOf(helper.UIDraw),
+            .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX,
+        },
+    };
+
+    const ui_attrs = [_]c.VkVertexInputAttributeDescription{
+        .{ .location = 0, .binding = 0, .format = c.VK_FORMAT_R32G32_SFLOAT, .offset = @offsetOf(helper.UiVertex, "pos") },
+        .{ .location = 1, .binding = 0, .format = c.VK_FORMAT_R32G32_SFLOAT, .offset = @offsetOf(helper.UiVertex, "uv_max") },
+        .{ .location = 2, .binding = 0, .format = c.VK_FORMAT_R32G32_SFLOAT, .offset = @offsetOf(helper.UiVertex, "uv_min") },
+        .{ .location = 3, .binding = 0, .format = c.VK_FORMAT_R32G32B32A32_SFLOAT, .offset = @offsetOf(helper.UiVertex, "color") },
+        .{ .location = 4, .binding = 0, .format = c.VK_FORMAT_R32_UINT, .offset = @offsetOf(helper.UiVertex, "atlas_id") },
+    };
+
+    // More input state changes
     const vertex_input_state_ci = std.mem.zeroInit(c.VkPipelineVertexInputStateCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .vertexBindingDescriptionCount = @as(u32, @intCast(binding.len)),
@@ -1143,6 +1216,7 @@ pub fn CreateDescriptorLayouts(renderer: *Renderer, core: *core_mod.Core) !void 
 
     try helper.check_vk(c.vkCreateDescriptorSetLayout(core.device.handle, &material_layout_ci, core.alloc_cb, &renderer.set_layout_material));
 
+ 
     // -------------------------------------------------------------------------
     // 4) Set 2 (Compute) layout:
     //    binding 0..M: storage images (RW)
