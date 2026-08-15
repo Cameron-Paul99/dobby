@@ -16,7 +16,7 @@ void main(){
         sampler2D(atlases[frag_atlas_id], atlasSampler),
         frag_tex_coord
     );
+// outColor = vec4(1.0, 0.0, 0.0, 1.0);
 
-
-    outColor = frag_color * tex;
+ outColor = frag_color * tex;
 }

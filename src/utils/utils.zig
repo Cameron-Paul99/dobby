@@ -9,6 +9,7 @@ pub const camera = @import("camera.zig");
 pub const mouse = @import("mouse.zig");
 pub const scene_manager = @import("scene.zig");
 pub const physics = @import("physics.zig");
+pub const ui = @import("ui.zig");
 const std = @import("std");
 const Io = std.Io;
 

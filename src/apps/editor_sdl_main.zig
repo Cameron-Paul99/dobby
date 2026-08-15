@@ -29,10 +29,13 @@ const Mouse = utils.mouse;
 const RadiusRender = helper.RadiusRender;
 const SceneManager = utils.scene_manager;
 const Physics = utils.physics;
+const UiTextEntry = utils.ui.UiTextEntry;
 const GameInput = input.KeyBoardGameInput;
 const Io = std.Io;
 
 const MAX_ENTITIES: u32 = 40_000;
+pub const MAX_UI_QUADS = 2_500;
+
 const MAX_GAME_MEMORY = 1 * 1024 * 1024; // 1 MB
 pub var is_active = false; 
                                          
@@ -124,6 +127,7 @@ pub const ProjectContext = struct {
     static_sprite_draws: std.ArrayList(helper.SpriteDraw), 
     sprite_storage: std.ArrayList(helper.SpriteDraw),
     ui_draws: std.ArrayList(helper.UIDraw),
+    ui_text_entries: std.ArrayListUnmanaged(UiTextEntry) = .empty,
     paused: bool = true,
     alive: two_bit,
     render_area: RadiusRender, 
@@ -132,7 +136,10 @@ pub const ProjectContext = struct {
     static_dirty: bool = true,
     sprite_components: []helper.SpriteSet,
     entity_transforms: []Transform2D,
-
+    ui_components: []helper.UIDraw,
+    ui_write_count: u32 = 0,
+    next_ui_text_id: u32 = 0,
+    
     pub fn init(
         allocator: std.mem.Allocator,
         name: []const u8,
@@ -269,8 +276,11 @@ pub const ProjectContext = struct {
                 .initCapacity(allocator, 0),
             .ui_draws = try std.ArrayList(helper.UIDraw)
                 .initCapacity(allocator, 0),
+            .ui_text_entries = try std.ArrayListUnmanaged(UiTextEntry)
+                .initCapacity(allocator, 0),
             .sprite_components = sprite_components,
-            .entity_transforms = try allocator.alloc(Transform2D, MAX_ENTITIES), 
+            .entity_transforms = try allocator.alloc(Transform2D, MAX_ENTITIES),
+            .ui_components =  try allocator.alloc(helper.UIDraw, MAX_UI_QUADS * 4),
             .alive = try two_bit.init(MAX_ENTITIES, allocator), 
             .render_area = try RadiusRender.init(MAX_ENTITIES, allocator),
             .has_sprite = try two_bit.init(MAX_ENTITIES, allocator),
@@ -290,6 +300,10 @@ pub const ProjectContext = struct {
         self.sprite_draws.clearRetainingCapacity();
         self.static_sprite_draws.clearRetainingCapacity();
         self.ui_draws.clearRetainingCapacity();
+        self.ui_text_entries.clearRetainingCapacity();
+        self.ui_write_count = 0;
+        self.next_ui_text_id = 0;
+
         for (self.sprite_components) |*set| {
             set.* = .{};
         }
@@ -355,10 +369,12 @@ pub const ProjectContext = struct {
         self.sprite_draws.deinit(self.allocator);
         self.static_sprite_draws.deinit(self.allocator);
         self.ui_draws.deinit(self.allocator);
+        self.ui_text_entries.deinit(self.allocator);
         self.sprite_storage.deinit(self.allocator);
         self.allocator.free(self.sprite_components);
         self.allocator.free(self.entity_transforms);
         self.allocator.free(self.game_memory_buffer);
+        self.allocator.free(self.ui_components);
         self.alive.deinit();
         self.render_area.deinit();
         self.has_sprite.deinit();
@@ -791,7 +807,9 @@ pub fn main(init: std.process.Init) !void {
                 project_context.static_dirty = true;
             }
         }
-        
+       
+        project_context.ui_draws.clearRetainingCapacity();
+
         project_context.sprite_draws.clearRetainingCapacity();
 
         project_context.has_sprite.forEachBitSet(
@@ -921,7 +939,7 @@ pub fn main(init: std.process.Init) !void {
             );
         }
 
-        project_context.ui_draws.clearRetainingCapacity();
+        
 
 // ****************************************** RENDERING *******************************************
 
@@ -932,7 +950,7 @@ pub fn main(init: std.process.Init) !void {
             allocator,
             project_context.sprite_draws.items,
             project_context.static_sprite_draws.items,
-            project_context.ui_draws.items,
+            project_context.ui_components[0..project_context.ui_write_count],
             cam.view_proj,
             &project_context.static_dirty,
         );

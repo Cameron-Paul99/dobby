@@ -571,12 +571,14 @@ pub export fn PlayPause() callconv(.c) bool {
 pub export fn DrawTxt(
     txt: [*:0]const u8, 
     pos : Position2D
-) callconv(.c) void {
+) callconv(.c) u32 {
 
     const ctx = g_active_ctx;
-
-    var glyphs = std.ArrayList(font_mod.GlyphInfo).initCapacity(ctx.allocator, 0) catch unreachable;
-    defer glyphs.deinit(ctx.allocator);
+    std.log.info("DrawTxt pos: {d} {d}", .{pos.x, pos.y});
+    var cursor_x = pos.x;
+    const start = ctx.ui_write_count;
+    // TODO: Pass in size of letters
+    const size: [2]f32 = .{ 500.0, 50.0 };
 
     const fontInfo = atlas_mod.GetFontFromAtlas(
         ctx.io,
@@ -585,49 +587,79 @@ pub export fn DrawTxt(
         ctx.allocator,
     ) catch |err| {
         std.log.err("GetFontFromAtlas failed: {}", .{err});
-        return;
+        return 0;
     };
 
-    const font = &(fontInfo orelse return);
-
+    const font = &(fontInfo orelse return 100_000);
+    std.log.info("font atlas_id: {d}", .{font.atlas_id});
     for (std.mem.span(txt)) |l| {
-
-
-        for (font.glyphs) |glyph| {
-            
-            if (l == glyph.letter) {
-                glyphs.append(ctx.allocator, glyph) catch unreachable;
-            }
-        }
-    }
-
-    for (glyphs.items) |glyph| {
-
+        std.log.info("Processing letter: {c} ({d})", .{l, l});
+        const glyph = for (font.glyphs) |g| {
+            if (l == g.letter) break g;
+        } else {
+            std.log.warn("No glyph for letter: {c}", .{l});
+            continue;
+        };
+        std.log.info("glyph uv: {d} {d} {d} {d}", .{glyph.uv_x, glyph.uv_y, glyph.uv_w, glyph.uv_h});
         const uv_min_x = glyph.uv_x;
         const uv_min_y = glyph.uv_y;
         const uv_max_x = glyph.uv_x + glyph.uv_w;
         const uv_max_y = glyph.uv_y + glyph.uv_h;
 
-        _ = uv_min_x;
-        _ = uv_min_y;
-        _ = uv_max_y;
-        _ = uv_max_x;
-
-
-
+        PushUIDraw(
+            .{
+                .pos =  .{cursor_x, pos.y}, 
+                .uv =  .{uv_min_x, uv_min_y}, 
+                .color =  .{1.0, 1.0, 1.0, 1.0}, 
+                .atlas_id = font.atlas_id,  
+            }
+        );
+        PushUIDraw( 
+            .{
+                .pos =  .{cursor_x + size[0] , pos.y}, 
+                .uv =  .{uv_max_x, uv_min_y}, 
+                .color =  .{1.0, 1.0, 1.0, 1.0}, 
+                .atlas_id = font.atlas_id,  
+            }
+        );
+        PushUIDraw( 
+            .{
+                .pos =  .{cursor_x + size[0] , pos.y + size[1]}, 
+                .uv =  .{uv_max_x, uv_max_y}, 
+                .color =  .{1.0, 1.0, 1.0, 1.0}, 
+                .atlas_id = font.atlas_id,  
+            }
+        );
+        PushUIDraw(
+            .{
+                .pos =  .{cursor_x , pos.y + size[1]}, 
+                .uv =  .{uv_min_x, uv_max_y}, 
+                .color =  .{1.0, 1.0, 1.0, 1.0}, 
+                .atlas_id = font.atlas_id,  
+            }
+        );
+        std.log.info("First vertex: {d} {d}", .{cursor_x, pos.y});
+        cursor_x += glyph.advance;
     }
 
-    // TODO: Make UI components similar to Sprite Desc but modified for UI
 
-        
-        
-       // _ = l;
-
-   // _ = txt;
-    _ = pos;
-  //  _ = font;
-
-    
+    const count = ctx.ui_write_count - start;
+    const id = ctx.next_ui_text_id;
+    ctx.next_ui_text_id += 1;
+    ctx.ui_text_entries.append(ctx.allocator, .{ .id = id, .start = start, .count = count }) catch unreachable;
+    std.log.info("Finished word and here is the id: {d}", .{id});
+    return id;
 
 }
 
+pub fn PushUIDraw(v: helper.UIDraw) void {
+    if (g_active_ctx.ui_write_count >= g_active_ctx.ui_components.len) {
+        std.log.warn("UI vertex buffer full, dropping vertex", .{});
+        return;
+    }
+    g_active_ctx.ui_components[g_active_ctx.ui_write_count] = v;
+    g_active_ctx.ui_write_count += 1;
+}
+  //  try self.ui_draws.append(allocator, .{ .pos = .{ pos[0] + size[0], pos[1] }, .uv = .{ uv_max[0], uv_min[1] },   .color = color, .atlas_id = atlas_id });
+ //   try self.ui_draws.append(allocator, .{ .pos = .{ pos[0] + size[0], pos[1] + size[1] }, .uv = uv_max,             .color = color, .atlas_id = atlas_id });
+ //   try self.ui_draws.append(allocator, .{ .pos = .{ pos[0], pos[1] + size[1] }, .uv = .{ uv_min[0], uv_max[1] },   .color = color, .atlas_id = atlas_id });
