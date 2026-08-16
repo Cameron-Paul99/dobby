@@ -578,7 +578,7 @@ pub export fn DrawTxt(
     var cursor_x = pos.x;
     const start = ctx.ui_write_count;
     // TODO: Pass in size of letters
-    const size: [2]f32 = .{ 500.0, 50.0 };
+    const size: [2]f32 = .{ 150.0, 100.0 };
 
     const fontInfo = atlas_mod.GetFontFromAtlas(
         ctx.io,
@@ -639,7 +639,7 @@ pub export fn DrawTxt(
             }
         );
         std.log.info("First vertex: {d} {d}", .{cursor_x, pos.y});
-        cursor_x += glyph.advance;
+        cursor_x += size[0];
     }
 
 
@@ -660,6 +660,3 @@ pub fn PushUIDraw(v: helper.UIDraw) void {
     g_active_ctx.ui_components[g_active_ctx.ui_write_count] = v;
     g_active_ctx.ui_write_count += 1;
 }
-  //  try self.ui_draws.append(allocator, .{ .pos = .{ pos[0] + size[0], pos[1] }, .uv = .{ uv_max[0], uv_min[1] },   .color = color, .atlas_id = atlas_id });
- //   try self.ui_draws.append(allocator, .{ .pos = .{ pos[0] + size[0], pos[1] + size[1] }, .uv = uv_max,             .color = color, .atlas_id = atlas_id });
- //   try self.ui_draws.append(allocator, .{ .pos = .{ pos[0], pos[1] + size[1] }, .uv = .{ uv_min[0], uv_max[1] },   .color = color, .atlas_id = atlas_id });

@@ -559,14 +559,15 @@ pub const Renderer = struct {
         if (self.ui_vertex_count > 0) {
 
          //   std.log.info("Running UI", .{});
-          try helper.UploadToBuffer(self.vma, self.ui_buffer, std.mem.sliceAsBytes(ui_draws)); 
+        //  try helper.UploadToBuffer(self.vma, self.ui_buffer, ui_draws);
+          try helper.UploadInstanceUIData(self.vma, &self.ui_buffer, ui_draws);
          //   std.log.info("ui_draws len: {d}", .{ui_draws.len});
             const ui_vertex_buffers = [_]c.VkBuffer{ self.ui_buffer.buffer };
             const ui_offsets = [_]c.VkDeviceSize{0};
             c.vkCmdBindVertexBuffers(cmd, 0, 1, &ui_vertex_buffers, &ui_offsets);
             c.vkCmdBindIndexBuffer(cmd, self.ui_index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT16);
             const quad_count = self.ui_vertex_count;
-          //  std.log.info("quad_count: {d} index_count: {d}", .{quad_count, quad_count * 6});
+            std.log.info("quad_count: {d} index_count: {d}", .{quad_count, quad_count * 6});
             c.vkCmdDrawIndexed(cmd, quad_count * 6, 1, 0, 0, 0);
         }
 

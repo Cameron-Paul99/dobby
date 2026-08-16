@@ -15,7 +15,9 @@ layout(location = 1) out vec2 frag_tex_coord;
 layout(location = 2) flat out uint frag_atlas_id;
 
 void main() {
-    gl_Position = vec4(in_pos * pc.scale + pc.translate, 0.0, 1.0);
+    
+    vec2 world = in_pos * pc.scale + pc.translate;
+    gl_Position = vec4(world, 0.0, 1.0);
     frag_color = in_color;
     frag_tex_coord = in_uv;
     frag_atlas_id = in_atlas_id;

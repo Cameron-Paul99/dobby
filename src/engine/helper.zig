@@ -1032,6 +1032,18 @@ pub fn UploadInstanceData(
     @memcpy(dst_bytes[0..src_bytes.len], src_bytes);
 }
 
+pub fn UploadInstanceUIData(
+    vma: c.VmaAllocator,
+    dst: *AllocatedBuffer,
+    instances: []const UIDraw,
+) !void {
+    var info: c.VmaAllocationInfo = undefined;
+    c.vmaGetAllocationInfo(vma, dst.allocation, &info);
+    const dst_bytes: [*]u8 = @ptrCast(info.pMappedData.?);
+    const src_bytes = std.mem.sliceAsBytes(instances);
+    @memcpy(dst_bytes[0..src_bytes.len], src_bytes);
+}
+
 pub fn UploadToBuffer(
     vma: c.VmaAllocator,
     buffer: AllocatedBuffer,
