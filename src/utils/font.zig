@@ -26,12 +26,14 @@ pub const Font = struct {
     path: []const u8,
     glyphs: [128]GlyphInfo, // ASCII range
     line_height: f32,
+    size: f32,
 };
 
 pub const FontInfo = struct {
     atlas_id: u32,
     glyphs: [128]GlyphInfo, // ASCII range
     line_height: f32,
+    size: f32,
 };
 
 pub const ParsedFontManifest = struct {
@@ -98,10 +100,14 @@ pub fn parseField(line: []const u8, field: []const u8) f32 {
 pub fn ParseFnt(contents: []const u8, image_w: f32, image_h: f32) struct { glyphs: [128]GlyphInfo, line_height: f32 } {
     var glyphs = [_]GlyphInfo{.{}} ** 128;
     var line_height: f32 = 0;
+    var size: f32 = 0;
     var lines = std.mem.splitScalar(u8, contents, '\n');
     while (lines.next()) |line| {
         if (std.mem.startsWith(u8, line, "common ")) {
             line_height = parseField(line, "lineHeight=");
+        }
+        if (std.mem.startsWith(u8, line, "info ")) {
+            size = parseField(line, "size=");
         }
         if (!std.mem.startsWith(u8, line, "char id=")) continue;
         const id: u8 = @intFromFloat(parseField(line, "id="));
@@ -117,5 +123,5 @@ pub fn ParseFnt(contents: []const u8, image_w: f32, image_h: f32) struct { glyph
             .advance = parseField(line, "xadvance="),
         };
     }
-    return .{ .glyphs = glyphs, .line_height = line_height };
+    return .{ .glyphs = glyphs, .line_height = line_height, .size = size};
 }
