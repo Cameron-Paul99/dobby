@@ -290,6 +290,7 @@ pub fn GetFontFromAtlas(
                         .atlas_id = atlas.id,
                         .glyphs = font.glyphs,
                         .line_height = font.line_height,
+                        .size = font.size,
                     };
                 }
             }

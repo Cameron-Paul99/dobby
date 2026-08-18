@@ -97,7 +97,7 @@ pub fn parseField(line: []const u8, field: []const u8) f32 {
 
 
 
-pub fn ParseFnt(contents: []const u8, image_w: f32, image_h: f32) struct { glyphs: [128]GlyphInfo, line_height: f32 } {
+pub fn ParseFnt(contents: []const u8, image_w: f32, image_h: f32) struct { glyphs: [128]GlyphInfo, line_height: f32, size: f32 } {
     var glyphs = [_]GlyphInfo{.{}} ** 128;
     var line_height: f32 = 0;
     var size: f32 = 0;

@@ -578,7 +578,6 @@ pub export fn DrawTxt(
     var cursor_x = pos.x;
     const start = ctx.ui_write_count;
     // TODO: Pass in size of letters
-    const size: [2]f32 = .{ 150.0, 100.0 };
 
     const fontInfo = atlas_mod.GetFontFromAtlas(
         ctx.io,
@@ -591,6 +590,7 @@ pub export fn DrawTxt(
     };
 
     const font = &(fontInfo orelse return 100_000);
+    
     std.log.info("font atlas_id: {d}", .{font.atlas_id});
     for (std.mem.span(txt)) |l| {
         std.log.info("Processing letter: {c} ({d})", .{l, l});
@@ -606,40 +606,37 @@ pub export fn DrawTxt(
         const uv_max_x = glyph.uv_x + glyph.uv_w;
         const uv_max_y = glyph.uv_y + glyph.uv_h;
 
-        PushUIDraw(
-            .{
-                .pos =  .{cursor_x, pos.y}, 
-                .uv =  .{uv_min_x, uv_min_y}, 
-                .color =  .{1.0, 1.0, 1.0, 1.0}, 
-                .atlas_id = font.atlas_id,  
-            }
-        );
-        PushUIDraw( 
-            .{
-                .pos =  .{cursor_x + size[0] , pos.y}, 
-                .uv =  .{uv_max_x, uv_min_y}, 
-                .color =  .{1.0, 1.0, 1.0, 1.0}, 
-                .atlas_id = font.atlas_id,  
-            }
-        );
-        PushUIDraw( 
-            .{
-                .pos =  .{cursor_x + size[0] , pos.y + size[1]}, 
-                .uv =  .{uv_max_x, uv_max_y}, 
-                .color =  .{1.0, 1.0, 1.0, 1.0}, 
-                .atlas_id = font.atlas_id,  
-            }
-        );
-        PushUIDraw(
-            .{
-                .pos =  .{cursor_x , pos.y + size[1]}, 
-                .uv =  .{uv_min_x, uv_max_y}, 
-                .color =  .{1.0, 1.0, 1.0, 1.0}, 
-                .atlas_id = font.atlas_id,  
-            }
-        );
+        const atlas_w: f32 = 256.0; // your font atlas width
+        const atlas_h: f32 = 128.0; // your font atlas height
+        const glyph_w = glyph.uv_w * atlas_w;
+        const glyph_h = glyph.uv_h * atlas_h;
+
+        PushUIDraw(.{
+            .pos = .{cursor_x + glyph.offset_x, pos.y + glyph.offset_y},
+            .uv = .{uv_min_x, uv_min_y},
+            .color = .{1.0, 1.0, 1.0, 1.0},
+            .atlas_id = font.atlas_id,
+        });
+        PushUIDraw(.{
+            .pos = .{cursor_x + glyph.offset_x + glyph_w, pos.y + glyph.offset_y},
+            .uv = .{uv_max_x, uv_min_y},
+            .color = .{1.0, 1.0, 1.0, 1.0},
+            .atlas_id = font.atlas_id,
+        });
+        PushUIDraw(.{
+            .pos = .{cursor_x + glyph.offset_x + glyph_w, pos.y + glyph.offset_y + glyph_h              },
+            .uv = .{uv_max_x, uv_max_y},
+            .color = .{1.0, 1.0, 1.0, 1.0},
+            .atlas_id = font.atlas_id,
+        });
+        PushUIDraw(.{
+            .pos = .{cursor_x + glyph.offset_x, pos.y + glyph.offset_y + glyph_h},
+            .uv = .{uv_min_x, uv_max_y},
+            .color = .{1.0, 1.0, 1.0, 1.0},
+            .atlas_id = font.atlas_id,
+        });
         std.log.info("First vertex: {d} {d}", .{cursor_x, pos.y});
-        cursor_x += size[0];
+        cursor_x += glyph.advance;
     }
 
 

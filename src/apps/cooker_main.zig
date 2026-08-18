@@ -182,6 +182,7 @@ pub const Cooker = struct {
             .path = ktx_final_path,
             .glyphs = parsed_file.glyphs,
             .line_height = parsed_file.line_height,
+            .size = parsed_file.size,
         };
 
         std.log.info("Starting the creation of ktx2 atlas file", .{});
