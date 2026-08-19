@@ -1,8 +1,13 @@
 const std = @import("std");
 const utils = @import("utils.zig");
+const ui = @import("ui.zig");
+const math = @import("math.zig");
+const atlas_mod = @import("atlas.zig");
 
 pub const font_tmp = "projects/{s}/cooked/fonts/manifest.tmp";
 pub const font_path = "projects/{s}/cooked/fonts/manifest.json";
+
+pub const Position = struct { x: f32, y: f32 };
 
 pub const FontManifest = struct {
     version: u32,
@@ -125,3 +130,142 @@ pub fn ParseFnt(contents: []const u8, image_w: f32, image_h: f32) struct { glyph
     }
     return .{ .glyphs = glyphs, .line_height = line_height, .size = size};
 }
+
+
+
+// TODO: Find a solution so we can avoid passing in anytype. I'm thinking another struct
+
+
+
+
+pub fn WriteGlyphsAt(
+    ctx: anytype,
+    start_index: usize, 
+    txt: [*:0]const u8, 
+    pos: math.Vec2,
+    screen_h: f32,
+    screen_w: f32,
+    font: FontInfo,
+    anchor: ui.Anchor,
+) usize {
+
+    const text_w = MeasureTxt(std.mem.span(txt), font.glyphs);
+    const text_h = MeasureTxtHeight(std.mem.span(txt), font.line_height);
+
+    const anchor_cal = switch (anchor) {
+        .center => Center(screen_w, screen_h, text_w, text_h, pos),
+        .top_left => TopLeft(pos),
+        .top_right => TopRight(screen_w, text_w, pos), 
+        .bottom_left => BottomLeft(screen_h, text_h, pos),  
+        .bottom_right => BottomRight(screen_w, screen_h, text_w, text_h, pos), 
+    };
+
+    const x = anchor_cal.x;
+    const y = anchor_cal.y;
+
+    var cursor_x = x;
+    var write_index = start_index;
+
+    for (std.mem.span(txt)) |l| {
+        const glyph = for (font.glyphs) |g| {
+            if (l == g.letter) break g;
+        } else continue;
+
+        const uv_min_x = glyph.uv_x;
+        const uv_min_y = glyph.uv_y;
+        const uv_max_x = glyph.uv_x + glyph.uv_w;
+        const uv_max_y = glyph.uv_y + glyph.uv_h;
+        const atlas_w: f32 = 256.0;
+        const atlas_h: f32 = 128.0;
+        const glyph_w = glyph.uv_w * atlas_w;
+        const glyph_h = glyph.uv_h * atlas_h;
+
+        const VertT = @TypeOf(ctx.ui_components[0]);
+
+        const verts = [4]VertT{
+         .{ .pos = .{ cursor_x + glyph.offset_x, y + glyph.offset_y }, .uv = .{ uv_min_x, uv_min_y }, .color = .{1,1,1,1}, .atlas_id = font.atlas_id },
+         .{ .pos = .{ cursor_x + glyph.offset_x + glyph_w, y + glyph.offset_y }, .uv = .{ uv_max_x, uv_min_y }, .color = .{1,1,1,1}, .atlas_id = font.atlas_id },
+         .{ .pos = .{ cursor_x + glyph.offset_x + glyph_w, y + glyph.offset_y + glyph_h }, .uv = .{ uv_max_x, uv_max_y }, .color = .{1,1,1,1}, .atlas_id = font.atlas_id },
+         .{ .pos = .{ cursor_x + glyph.offset_x, y + glyph.offset_y + glyph_h }, .uv = .{ uv_min_x, uv_max_y }, .color = .{1,1,1,1}, .atlas_id = font.atlas_id },
+};
+
+        for (verts) |v| {
+            if (write_index >= ctx.ui_components.len) {
+                std.log.warn("UI vertex buffer full, dropping vertex", .{});
+                break;
+            }
+            ctx.ui_components[write_index] = v;
+            write_index += 1;
+        }
+
+        cursor_x += glyph.advance;
+    }
+
+    return write_index - start_index;
+}
+
+fn MeasureTxt(txt: []const u8, glyphs: [128]GlyphInfo) f32{
+
+    var total_w: f32 = 0;
+    for (txt) |c| {
+        if (c >= 128) continue;
+        total_w += glyphs[c].advance;
+    }
+    return total_w;
+
+}
+
+fn MeasureTxtHeight(txt: []const u8, line_height: f32) f32 {
+
+    var lines: f32 = 1;
+    for (txt) |c| {
+        if (c == '\n') lines += 1;
+    }
+    return lines * line_height;
+}
+
+
+
+fn Center (
+    screen_w: f32,
+    screen_h: f32,
+    text_w: f32,
+    text_h: f32,
+    pos: math.Vec2,
+) Position {
+    return .{.x = (screen_w - text_w) / 2 + pos.x, .y = (screen_h - text_h) / 2 + pos.y};
+}
+
+fn TopLeft (
+    pos: math.Vec2,
+) Position {
+    return .{.x = pos.x, .y = pos.y};
+}
+
+fn TopRight (
+    screen_w: f32,
+    text_w: f32,
+    pos: math.Vec2,
+) Position {
+    return .{.x = screen_w - text_w - pos.x, .y = pos.y};
+}
+
+fn BottomRight (
+    screen_w: f32,
+    screen_h: f32,
+    text_w: f32,
+    text_h: f32,
+    pos: math.Vec2,
+) Position {
+    return .{.x = screen_w - text_w - pos.x, .y = screen_h - text_h - pos.y};
+}
+
+fn BottomLeft (
+    screen_h: f32,
+    text_h: f32,
+    pos: math.Vec2,
+) Position {
+    return .{.x = pos.x, .y = screen_h - text_h - pos.y};
+}
+
+

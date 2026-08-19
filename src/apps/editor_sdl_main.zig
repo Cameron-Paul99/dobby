@@ -157,7 +157,6 @@ pub const ProjectContext = struct {
         const buffer = try allocator.alignedAlloc(u8,@enumFromInt(6),  MAX_GAME_MEMORY, ); 
         @memset(buffer, 0);
         const sprite_components = try allocator.alloc(helper.SpriteSet, MAX_ENTITIES);
-
         for (sprite_components) |*set| {
             set.* = .{};
         }
@@ -349,6 +348,7 @@ pub const ProjectContext = struct {
         if (self.game_input.game_input_pressed == null) return error.MissingGameInputPressed;
         if (self.game_input.game_input_up == null) return error.MissingGameInputUp;
         if (self.game_input.game_input_held == null) return error.MissingGameInputHeld;
+        
 
         self.game_init.?(
             &self.game_api, 
@@ -497,7 +497,7 @@ pub fn RebuildScripts(
     if (term != .exited or term.exited != 0) {
         return error.BuildFailed;
     }
-
+    utils.ui.Init(proj_ctx.*);
     std.log.info("Scripts rebuilt", .{});
 
     try proj_ctx.ReloadProjectScripts();
@@ -645,6 +645,8 @@ pub fn main(init: std.process.Init) !void {
     RebuildScripts(io, proj_scripts_path, &project_context) catch |err| {
         std.log.err("Script rebuild failed: {}", .{err});
     };
+    
+    utils.ui.Init(project_context);
 
     var reload: bool = false;
 
@@ -667,7 +669,7 @@ pub fn main(init: std.process.Init) !void {
                 }
             }
         }
-
+        
         input.BuildEditorIntent( 
             &editor_input,
             &gameMode,
@@ -939,7 +941,12 @@ pub fn main(init: std.process.Init) !void {
             );
         }
 
-        
+        utils.ui.UpdateText(
+            project_context, 
+            project_context.ui_text_entries.items,
+            @floatFromInt(game_window.screen_height),
+            @floatFromInt(game_window.screen_width),
+        );
 
 // ****************************************** RENDERING *******************************************
 

@@ -13,6 +13,7 @@ const Mouse = utils.mouse;
 const Math = utils.math;
 const atlas_mod = utils.atlas;
 const font_mod = utils.font;
+const ui = utils.ui;
 const Transform2D = g_api.Transform2D;
 const Position2D = g_api.Position2D;
 const ScreenD = g_api.ScreenD;
@@ -34,6 +35,14 @@ pub var game_active = false;
 const src_audio_path = "projects/{s}/src/audio/{s}";
 
 const MAX_SPRITES_PER_ENTITY = 50;
+
+pub const Anchor = enum(u8) {
+    center = 0,
+    top_left = 1,
+    top_right = 2,
+    bottom_left = 3,
+    bottom_right = 4,
+};
 
 pub export fn EnableGravity(id: u32) callconv(.c) void {
     const ctx = physics_ctx;
@@ -570,90 +579,42 @@ pub export fn PlayPause() callconv(.c) bool {
 
 pub export fn DrawTxt(
     txt: [*:0]const u8, 
-    pos : Position2D
+    pos : Position2D,
+    anchor: u8,
 ) callconv(.c) u32 {
 
     const ctx = g_active_ctx;
-    std.log.info("DrawTxt pos: {d} {d}", .{pos.x, pos.y});
-    var cursor_x = pos.x;
     const start = ctx.ui_write_count;
-    // TODO: Pass in size of letters
+    const anchor_enum: ui.Anchor = @enumFromInt(anchor); 
 
-    const fontInfo = atlas_mod.GetFontFromAtlas(
-        ctx.io,
-        "Inter",
-        ctx.proj,
-        ctx.allocator,
-    ) catch |err| {
-        std.log.err("GetFontFromAtlas failed: {}", .{err});
-        return 0;
-    };
+    const font = ui.fonts[0];
 
-    const font = &(fontInfo orelse return 100_000);
-    
-    std.log.info("font atlas_id: {d}", .{font.atlas_id});
-    for (std.mem.span(txt)) |l| {
-        std.log.info("Processing letter: {c} ({d})", .{l, l});
-        const glyph = for (font.glyphs) |g| {
-            if (l == g.letter) break g;
-        } else {
-            std.log.warn("No glyph for letter: {c}", .{l});
-            continue;
-        };
-        std.log.info("glyph uv: {d} {d} {d} {d}", .{glyph.uv_x, glyph.uv_y, glyph.uv_w, glyph.uv_h});
-        const uv_min_x = glyph.uv_x;
-        const uv_min_y = glyph.uv_y;
-        const uv_max_x = glyph.uv_x + glyph.uv_w;
-        const uv_max_y = glyph.uv_y + glyph.uv_h;
+    const count = font_mod.WriteGlyphsAt(
+        ctx, 
+        start, 
+        txt, 
+        .{.x = pos.x, .y = pos.y},
+        cam_ctx.screen_h,
+        cam_ctx.screen_w,
+        font,
+        anchor_enum,
+    );
 
-        const atlas_w: f32 = 256.0; // your font atlas width
-        const atlas_h: f32 = 128.0; // your font atlas height
-        const glyph_w = glyph.uv_w * atlas_w;
-        const glyph_h = glyph.uv_h * atlas_h;
+    ctx.ui_write_count = @intCast(start + count);
 
-        PushUIDraw(.{
-            .pos = .{cursor_x + glyph.offset_x, pos.y + glyph.offset_y},
-            .uv = .{uv_min_x, uv_min_y},
-            .color = .{1.0, 1.0, 1.0, 1.0},
-            .atlas_id = font.atlas_id,
-        });
-        PushUIDraw(.{
-            .pos = .{cursor_x + glyph.offset_x + glyph_w, pos.y + glyph.offset_y},
-            .uv = .{uv_max_x, uv_min_y},
-            .color = .{1.0, 1.0, 1.0, 1.0},
-            .atlas_id = font.atlas_id,
-        });
-        PushUIDraw(.{
-            .pos = .{cursor_x + glyph.offset_x + glyph_w, pos.y + glyph.offset_y + glyph_h              },
-            .uv = .{uv_max_x, uv_max_y},
-            .color = .{1.0, 1.0, 1.0, 1.0},
-            .atlas_id = font.atlas_id,
-        });
-        PushUIDraw(.{
-            .pos = .{cursor_x + glyph.offset_x, pos.y + glyph.offset_y + glyph_h},
-            .uv = .{uv_min_x, uv_max_y},
-            .color = .{1.0, 1.0, 1.0, 1.0},
-            .atlas_id = font.atlas_id,
-        });
-        std.log.info("First vertex: {d} {d}", .{cursor_x, pos.y});
-        cursor_x += glyph.advance;
-    }
-
-
-    const count = ctx.ui_write_count - start;
     const id = ctx.next_ui_text_id;
     ctx.next_ui_text_id += 1;
-    ctx.ui_text_entries.append(ctx.allocator, .{ .id = id, .start = start, .count = count }) catch unreachable;
-    std.log.info("Finished word and here is the id: {d}", .{id});
+    ctx.ui_text_entries.append(ctx.allocator, .{
+        .id = id, 
+        .start = start, 
+        .count = count, 
+        .txt = txt, 
+        .pos = .{.x = pos.x, .y = pos.y},
+        .anchor = anchor_enum,
+    }) catch unreachable;
     return id;
 
 }
 
-pub fn PushUIDraw(v: helper.UIDraw) void {
-    if (g_active_ctx.ui_write_count >= g_active_ctx.ui_components.len) {
-        std.log.warn("UI vertex buffer full, dropping vertex", .{});
-        return;
-    }
-    g_active_ctx.ui_components[g_active_ctx.ui_write_count] = v;
-    g_active_ctx.ui_write_count += 1;
-}
+
+
