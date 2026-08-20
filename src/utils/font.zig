@@ -143,6 +143,8 @@ pub fn WriteGlyphsAt(
     start_index: usize, 
     txt: [*:0]const u8, 
     pos: math.Vec2,
+    scale: math.Vec2,
+    color: struct {r: f32, g: f32, b: f32, a: f32},
     screen_h: f32,
     screen_w: f32,
     font: FontInfo,
@@ -177,17 +179,19 @@ pub fn WriteGlyphsAt(
         const uv_max_y = glyph.uv_y + glyph.uv_h;
         const atlas_w: f32 = 256.0;
         const atlas_h: f32 = 128.0;
-        const glyph_w = glyph.uv_w * atlas_w;
-        const glyph_h = glyph.uv_h * atlas_h;
+        const glyph_w = glyph.uv_w * atlas_w * scale.x;
+        const glyph_h = glyph.uv_h * atlas_h * scale.y;
+        const offset_x = glyph.offset_x * scale.x;
+        const offset_y = glyph.offset_y * scale.y;
 
         const VertT = @TypeOf(ctx.ui_components[0]);
 
         const verts = [4]VertT{
-         .{ .pos = .{ cursor_x + glyph.offset_x, y + glyph.offset_y }, .uv = .{ uv_min_x, uv_min_y }, .color = .{1,1,1,1}, .atlas_id = font.atlas_id },
-         .{ .pos = .{ cursor_x + glyph.offset_x + glyph_w, y + glyph.offset_y }, .uv = .{ uv_max_x, uv_min_y }, .color = .{1,1,1,1}, .atlas_id = font.atlas_id },
-         .{ .pos = .{ cursor_x + glyph.offset_x + glyph_w, y + glyph.offset_y + glyph_h }, .uv = .{ uv_max_x, uv_max_y }, .color = .{1,1,1,1}, .atlas_id = font.atlas_id },
-         .{ .pos = .{ cursor_x + glyph.offset_x, y + glyph.offset_y + glyph_h }, .uv = .{ uv_min_x, uv_max_y }, .color = .{1,1,1,1}, .atlas_id = font.atlas_id },
-};
+            .{ .pos = .{ cursor_x + offset_x, y + offset_y }, .uv = .{ uv_min_x, uv_min_y }, .color = .{ color.r, color.g, color.b, color.a }, .atlas_id = font.atlas_id },
+            .{ .pos = .{ cursor_x + offset_x + glyph_w, y + offset_y }, .uv = .{ uv_max_x, uv_min_y }, .color = .{ color.r, color.g, color.b, color.a }, .atlas_id = font.atlas_id },
+            .{ .pos = .{ cursor_x + offset_x + glyph_w, y + offset_y + glyph_h }, .uv = .{ uv_max_x, uv_max_y }, .color = .{ color.r, color.g, color.b, color.a }, .atlas_id = font.atlas_id },
+            .{ .pos = .{ cursor_x + offset_x, y + offset_y + glyph_h }, .uv = .{ uv_min_x, uv_max_y }, .    color = .{ color.r, color.g, color.b, color.a }, .atlas_id = font.atlas_id },
+        };
 
         for (verts) |v| {
             if (write_index >= ctx.ui_components.len) {
@@ -198,7 +202,7 @@ pub fn WriteGlyphsAt(
             write_index += 1;
         }
 
-        cursor_x += glyph.advance;
+        cursor_x += glyph.advance * scale.x;
     }
 
     return write_index - start_index;

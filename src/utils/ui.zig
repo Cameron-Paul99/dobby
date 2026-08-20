@@ -6,6 +6,7 @@ const font_mod = @import("font.zig");
 pub const Anchor = enum { center, top_left, top_right, bottom_left, bottom_right };
 
 pub var fonts: [10]font_mod.FontInfo = undefined; 
+pub const Color = struct { r: f32, g: f32, b: f32, a: f32 };
 
 pub const UiTextHandle = struct {
     start: u32,
@@ -18,6 +19,8 @@ pub const UiTextEntry = struct {
     count: usize,
     txt: [*:0]const u8,
     pos: math.Vec2,
+    scale: math.Vec2,
+    color: Color,
     anchor: Anchor,
 };
 
@@ -51,6 +54,13 @@ pub fn UpdateText(
             entry.start, 
             entry.txt, 
             entry.pos,
+            entry.scale,
+            .{
+                .r = entry.color.r, 
+                .g = entry.color.g, 
+                .b = entry.color.b, 
+                .a = entry.color.a
+            },
             screen_h,
             screen_w,
             fonts[0],

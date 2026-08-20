@@ -580,6 +580,8 @@ pub export fn PlayPause() callconv(.c) bool {
 pub export fn DrawTxt(
     txt: [*:0]const u8, 
     pos : Position2D,
+    scale: Scale2D,
+    color: Color,
     anchor: u8,
 ) callconv(.c) u32 {
 
@@ -594,6 +596,8 @@ pub export fn DrawTxt(
         start, 
         txt, 
         .{.x = pos.x, .y = pos.y},
+        .{.x = scale.x, .y = scale.y},
+        .{.r = color.r, .g = color.g, .b = color.b, .a = color.a},
         cam_ctx.screen_h,
         cam_ctx.screen_w,
         font,
@@ -610,6 +614,8 @@ pub export fn DrawTxt(
         .count = count, 
         .txt = txt, 
         .pos = .{.x = pos.x, .y = pos.y},
+        .scale = .{.x = scale.x, .y = scale.y},
+        .color = .{.r = color.r, .g = color.g, .b = color.b, .a = color.b},
         .anchor = anchor_enum,
     }) catch unreachable;
     return id;

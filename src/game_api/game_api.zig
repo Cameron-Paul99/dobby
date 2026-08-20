@@ -411,7 +411,7 @@ pub const InputKeyExtern = extern struct {
 pub const UI_API = extern struct {
     
     /// draw text
-    draw_txt: *const fn ([*:0]const u8, Position2D, u8) callconv(.c) u32,
+    draw_txt: *const fn ([*:0]const u8,Position2D,Scale2D,Color,u8) callconv(.c) u32,
 
 };
 
